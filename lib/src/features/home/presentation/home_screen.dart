@@ -140,7 +140,6 @@ class HomeScreen extends ConsumerWidget {
                 const _ReviewCard(),
                 const _WhatWasThisCard(),
                 if (sources.irregular) const _WeekCard(),
-                const SizedBox(height: 12),
                 _ComingUp(bills: bills, today: today),
               ] else ...[
                 if (safeToSpend == null && untilNext != null)
@@ -233,7 +232,6 @@ class HomeScreen extends ConsumerWidget {
                     onTap: () => context.go(AppRoutes.insights),
                   ),
                 ],
-                const SizedBox(height: 24),
                 _ComingUp(bills: bills, today: today),
               ],
             ],
@@ -307,7 +305,7 @@ class _Header extends ConsumerWidget {
                 // A business calls its first tab Today.
                 child: Text(
                   space.kind == SpaceKind.business ? 'Today' : 'Home',
-                  style: theme.textTheme.headlineMedium,
+                  style: theme.textTheme.headlineLarge,
                 ),
               ),
             ],
@@ -649,10 +647,8 @@ class _ComingUp extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // The space above comes from the cards before it.
         SectionTitle(
           'Coming up',
-          padding: const EdgeInsets.only(bottom: 8),
           action: PillButton(
             label: 'See all',
             onPressed: () => context.go(AppRoutes.plan),
