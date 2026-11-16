@@ -42,6 +42,7 @@ class SpacesSheet extends ConsumerWidget {
                 ListTile(
                   key: Key('space-${space.id}'),
                   leading: CircleAvatar(
+                    // The open space in the brand red.
                     backgroundColor: space.id == activeId
                         ? theme.colorScheme.primary
                         : colors.border,

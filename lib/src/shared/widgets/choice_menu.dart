@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/brand_tokens.dart';
+import '../../theme/layout.dart';
 import '../../theme/pesa_colors.dart';
 
 /// One choice of more than two, as a drop-down: a pill showing the current
@@ -45,20 +45,11 @@ class ChoiceMenu<T> extends StatelessWidget {
         .map((o) => o.$2)
         .firstOrNull;
     final text = current ?? '';
-    final fill = highlight ? scheme.primary : scheme.surface;
+    // A choice that narrows the list is filled with the brand red.
+    final fill = highlight ? scheme.primary : colors.field;
     final ink = highlight ? scheme.onPrimary : scheme.onSurface;
     return MenuAnchor(
       alignmentOffset: const Offset(0, 4),
-      style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(scheme.surface),
-        elevation: const WidgetStatePropertyAll(4),
-        shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: colors.border),
-          ),
-        ),
-      ),
       menuChildren: [
         for (final (option, label) in options)
           MenuItemButton(
@@ -66,7 +57,7 @@ class ChoiceMenu<T> extends StatelessWidget {
             leadingIcon: Icon(
               Icons.check,
               size: 18,
-              color: option == value ? scheme.primary : Colors.transparent,
+              color: option == value ? colors.link : Colors.transparent,
             ),
             onPressed: () => onChanged(option),
             child: Text(label),
@@ -85,9 +76,7 @@ class ChoiceMenu<T> extends StatelessWidget {
           child: InkWell(
             onTap: () => menu.isOpen ? menu.close() : menu.open(),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: BrandTokens.touchTarget,
-              ),
+              constraints: const BoxConstraints(minHeight: Layout.minTouch),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
                 child: Row(

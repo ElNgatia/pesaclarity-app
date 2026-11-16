@@ -23,6 +23,7 @@ import 'package:pesaclarity/src/features/sales/application/sales_providers.dart'
 import 'package:pesaclarity/src/features/spaces/application/business_setup_providers.dart';
 import 'package:pesaclarity/src/features/spaces/application/routing_providers.dart';
 import 'package:pesaclarity/src/features/spaces/application/spaces_providers.dart';
+import 'package:pesaclarity/src/shared/widgets/amounts_hidden.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
 
 class _Sources extends IncomeSourcesController {
@@ -142,7 +143,7 @@ void main() {
     expect(find.text('KES 4,850'), findsOneWidget);
     expect(
       find.text(
-        'Cash 800 · M-Pesa 2,900 · On credit 1,150\nUp 12% on a usual '
+        'Cash 800 · M-Pesa 2,900 · On credit 1,150 · Up 12% on a usual '
         'Friday',
       ),
       findsOneWidget,
@@ -173,6 +174,14 @@ void main() {
     expect(find.text('Sales show here as you sell.'), findsOneWidget);
     expect(find.textContaining('—'), findsNothing);
     expect(find.text('KES 0'), findsNothing);
+    // Nothing to hide, so no eye on the card.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('sales-today')),
+        matching: find.byType(AmountsEye),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('a payment still to come is one row with its choices', (

@@ -7,6 +7,7 @@ import '../../../domain/health/health_index.dart';
 import '../../../domain/insights/findings.dart';
 import '../../../domain/insights/insights_summary.dart';
 import '../../../domain/insights/leakage.dart';
+import '../../../domain/insights/spending_charts.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../routing/app_routes.dart';
 import '../../../shared/semantic_ids.dart';
@@ -17,6 +18,8 @@ import '../../../theme/app_typography.dart';
 import '../../../theme/brand_tokens.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../ask/presentation/ask_entry.dart';
+import '../../ask/presentation/ask_strings.dart';
 import '../../home/application/health_index_provider.dart';
 import '../application/insights_providers.dart';
 import '../application/insights_report.dart';
@@ -175,8 +178,21 @@ class _FindingsSection extends ConsumerWidget {
                   title: Text(
                     findingTitle(f, names, hidden: AmountsHidden.of(context)),
                   ),
-                  subtitle: Text(
-                    findingDetail(f, hidden: AmountsHidden.of(context)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(findingDetail(f, hidden: AmountsHidden.of(context))),
+                      if (f
+                          case CategoryFinding(
+                            slice: CategorySlice(:final categoryId),
+                          )
+                          when names[categoryId] != null)
+                        AskAboutLink(
+                          AskStrings.askAboutThisMonth(names[categoryId]!),
+                          categoryId: categoryId,
+                          month: today.yearMonth,
+                        ),
+                    ],
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () =>
@@ -269,9 +285,7 @@ class _LeakageCard extends StatelessWidget {
       // Picked out with a brand-coloured edge.
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(BrandTokens.cardRadius),
-        side: BorderSide(
-          color: theme.colorScheme.primary.withValues(alpha: .3),
-        ),
+        side: BorderSide(color: colors.link.withValues(alpha: .3)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(Layout.cardPadding),
@@ -301,7 +315,7 @@ class _LeakageCard extends StatelessWidget {
                     child: Text(
                       '${percentLabel(share)} of income',
                       style: theme.textTheme.labelLarge!.copyWith(
-                        color: theme.colorScheme.primary,
+                        color: colors.link,
                       ),
                     ),
                   ),
@@ -453,7 +467,7 @@ class _HealthCard extends ConsumerWidget {
                     value: '${pillarPoints(index, pillar)} of 25',
                     fraction: index.pillarCentipoints(pillar) / 2500,
                     color: pillar == index.weakestPillar
-                        ? theme.colorScheme.primary
+                        ? colors.link
                         : colors.textMuted,
                   ),
                 ),
@@ -463,7 +477,7 @@ class _HealthCard extends ConsumerWidget {
               const SizedBox(height: 16),
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: colors.brandSoft,
+                  color: colors.selected,
                   borderRadius: BorderRadius.circular(Layout.panelRadius),
                 ),
                 child: Padding(

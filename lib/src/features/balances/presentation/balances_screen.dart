@@ -94,8 +94,10 @@ class _Body extends ConsumerWidget {
           caption: BalanceText.summary(
             overview.matchingCount,
             overview.needALook.length,
+            overview.noMessagesCount,
           ),
           showEye: false,
+          belowZero: overview.totalMinor(base) < 0,
         ),
         if (dayToDay.isNotEmpty)
           GroupedSection(
@@ -154,26 +156,10 @@ class AccountLetter extends StatelessWidget {
   final String name;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = PesaColors.of(context);
-    final letter = name.trim().isEmpty ? '#' : name.trim()[0].toUpperCase();
-    return Container(
-      width: 40,
-      height: 40,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: colors.brandSoft,
-        borderRadius: BorderRadius.circular(Layout.tagRadius),
-      ),
-      child: Text(
-        letter,
-        style: theme.textTheme.titleMedium!.copyWith(
-          color: theme.colorScheme.primary,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => InitialsBadge(
+    name.trim().isEmpty ? '#' : name.trim()[0].toUpperCase(),
+    tinted: true,
+  );
 }
 
 /// The badge an account's check earns.
@@ -191,11 +177,15 @@ class BalanceBadge extends StatelessWidget {
         tone: Tone.success,
       ),
       BalanceStatus.off => Tag(
-        BalanceText.offBy(shownMoney(context, check.latestGap!.gapMinor.abs())),
+        BalanceText.gap(
+          shownMoney(context, check.latestGap!.gapMinor.abs()),
+          short: check.latestGap!.gapMinor >= 0,
+        ),
         tone: Tone.warning,
       ),
-      BalanceStatus.countAgain => const Tag(BalanceText.countAgain),
-      BalanceStatus.notReported => const Tag(BalanceText.notReported),
+      // As the summary counts them: "2 have no messages".
+      BalanceStatus.countAgain ||
+      BalanceStatus.notReported => const Tag(BalanceText.noMessages),
     };
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/layout.dart';
 import '../../theme/pesa_colors.dart';
 import '../widgets/choice_menu.dart';
 
@@ -34,10 +35,11 @@ class DialogAction extends StatelessWidget {
       return FilledButton(
         onPressed: onPressed,
         style: destructive
+            // A red fill takes white text, in light and dark.
             ? (style ?? const ButtonStyle()).merge(
                 FilledButton.styleFrom(
-                  backgroundColor: error,
-                  foregroundColor: scheme.onError,
+                  backgroundColor: PesaColors.of(context).danger,
+                  foregroundColor: scheme.onPrimary,
                 ),
               )
             : style,
@@ -162,18 +164,49 @@ class AdaptiveSegmented<T extends Object> extends StatelessWidget {
             itemKey: segmentKey,
           ),
         )
-      : SegmentedButton<T>(
-          showSelectedIcon: showSelectedIcon,
-          segments: [
-            for (final (value, label) in segments)
-              ButtonSegment(
-                value: value,
-                label: Text(label, key: segmentKey?.call(value)),
-              ),
-          ],
-          selected: {selected},
-          onSelectionChanged: (values) => onChanged(values.single),
+      : LayoutBuilder(
+          builder: (context, constraints) => SegmentedButton<T>(
+            // Side by side while every word of every label fits its half;
+            // otherwise one above the other, so no word breaks.
+            direction: _fitsSideBySide(context, constraints.maxWidth)
+                ? Axis.horizontal
+                : Axis.vertical,
+            showSelectedIcon: showSelectedIcon,
+            segments: [
+              for (final (value, label) in segments)
+                ButtonSegment(
+                  value: value,
+                  label: Text(label, key: segmentKey?.call(value)),
+                ),
+            ],
+            selected: {selected},
+            onSelectionChanged: (values) => onChanged(values.single),
+          ),
         );
+
+  /// Room a segment takes beyond its label: its padding, its border and,
+  /// when chosen, the tick.
+  static const _segmentChrome = 40.0;
+  static const _tick = 26.0;
+
+  bool _fitsSideBySide(BuildContext context, double width) {
+    if (!width.isFinite) return true;
+    final style = Theme.of(context).textTheme.labelLarge!;
+    final scaler = MediaQuery.textScalerOf(context);
+    final each = width / segments.length;
+    final extra = _segmentChrome + (showSelectedIcon ? _tick : 0);
+    for (final (_, label) in segments) {
+      final painter = TextPainter(
+        text: TextSpan(text: label, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+      )..layout();
+      final word = painter.minIntrinsicWidth;
+      painter.dispose();
+      if (word + extra > each) return false;
+    }
+    return true;
+  }
 }
 
 /// Rows in a card with dividers, with an optional [header] above it and
@@ -200,8 +233,13 @@ class GroupedSection extends StatelessWidget {
       children: [
         if (header != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(4, 16, 16, 6),
-            child: Text(header!, style: note),
+            padding: const EdgeInsetsDirectional.fromSTEB(
+              4,
+              Layout.sectionTop,
+              16,
+              Layout.sectionBottom,
+            ),
+            child: Semantics(header: true, child: Text(header!, style: note)),
           ),
         Card(
           child: Column(

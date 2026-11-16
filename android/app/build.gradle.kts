@@ -16,7 +16,10 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.pesaclarity.app"
-    compileSdk = flutter.compileSdkVersion
+    // 37 for flutter_local_notifications 23 and androidx.core 1.19, which
+    // require it. Compiling against 37 changes no runtime behaviour:
+    // targetSdk still follows Flutter.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -112,5 +115,5 @@ dependencies {
     // Google sign-in, play build only: the foss build must stay free of Google libraries.
     "playImplementation"("androidx.credentials:credentials:1.5.0")
     "playImplementation"("androidx.credentials:credentials-play-services-auth:1.5.0")
-    "playImplementation"("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    "playImplementation"("com.google.android.libraries.identity.googleid:googleid:1.2.1")
 }

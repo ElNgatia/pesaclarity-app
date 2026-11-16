@@ -29,6 +29,7 @@ import '../../../shared/widgets/sections.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../ask/presentation/ask_entry.dart';
 import '../../balances/presentation/balance_text.dart';
 import '../../balances/presentation/balance_warning.dart';
 import '../../balances/presentation/on_hand_sheet.dart';
@@ -38,7 +39,7 @@ import '../../hours/presentation/log_hours_sheet.dart';
 import '../../income/application/income_providers.dart';
 import '../../income/presentation/make_it_last_sheet.dart';
 import '../../income/presentation/what_was_this_sheet.dart';
-import '../../review/application/review_providers.dart';
+import '../../insights/presentation/health_colors.dart';
 import '../../sales/application/sales_providers.dart';
 import '../../sales/presentation/pay_sheet.dart';
 import '../../sales/presentation/records_sheets.dart';
@@ -54,6 +55,7 @@ import '../application/health_index_provider.dart';
 import '../application/safe_to_spend_provider.dart';
 import '../application/upcoming_bills_provider.dart';
 import 'add_menu.dart';
+import 'not_yet_sorted_card.dart';
 
 /// Bills shown under Coming up before "See all".
 const _billsShown = 3;
@@ -109,134 +111,140 @@ class HomeScreen extends ConsumerWidget {
       body: SafeArea(
         bottom: false,
         child: AmountsHiddenScope(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
-            children: [
-              _Header(today: today),
-              const SizedBox(height: 20),
-              if (space.kind != SpaceKind.personal) ...[
-                if (sellsProducts) ...[
-                  const _SalesTodayCard(),
-                  const SizedBox(height: 12),
-                  const _QuickButtons(services: false),
-                  const SizedBox(height: 12),
-                  const WaitingPaymentsCard(),
-                ],
-                _SpaceSummaryCard(
-                  _summaryFor(ref, isBusiness: isBusiness, today: today),
-                  kind: space.kind,
-                  compact: sellsProducts,
-                  onTap: () => openActivity(thisMonth),
-                ),
-                const SizedBox(height: 12),
-                if (isBusiness && !sellsProducts) ...[
-                  const _QuickButtons(services: true),
-                  const SizedBox(height: 12),
-                  const _HoursCards(),
-                  const WaitingPaymentsCard(),
-                ],
-                if (space.kind == SpaceKind.business) const BusinessSetupCard(),
-                const SharedLineCard(),
-                const _ReviewCard(),
-                const _WhatWasThisCard(),
-                if (sources.irregular) const _WeekCard(),
-                const SizedBox(height: 12),
-                _ComingUp(bills: bills, today: today),
-              ] else ...[
-                if (safeToSpend == null && untilNext != null)
-                  _UntilNextMoneyCard(
-                    untilNext,
-                    rainyDayMinor:
-                        ref.watch(rainyDayFundProvider).value?.balanceMinor ??
-                        0,
-                    onTap: () => openActivity(
-                      ActivityFilter(
-                        type: ActivityType.spending,
-                        from: today,
-                        to: today,
-                      ),
-                    ),
-                  )
-                else if (safeToSpend == null)
-                  const HeroFigureCard(
-                    label: 'Safe to spend today',
-                    caption:
-                        'Shows once your messages have been read and Plan has '
-                        'a day-to-day budget.',
-                    showEye: true,
-                  )
-                else
-                  _SafeToSpendCard(
-                    safeToSpend,
-                    nextIncome: forecast?.nextIncome,
-                    onTap: () => openActivity(
-                      thisMonth.copyWith(type: ActivityType.dayToDay),
-                    ),
+          child: AskBarScope(
+            builder: (context, bottomPadding) => ListView(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, bottomPadding),
+              children: [
+                _Header(today: today),
+                const SizedBox(height: 20),
+                if (space.kind != SpaceKind.personal) ...[
+                  if (sellsProducts) ...[
+                    const _SalesTodayCard(),
+                    const SizedBox(height: 12),
+                    const _QuickButtons(services: false),
+                    const SizedBox(height: 12),
+                    const WaitingPaymentsCard(),
+                  ],
+                  _SpaceSummaryCard(
+                    _summaryFor(ref, isBusiness: isBusiness, today: today),
+                    kind: space.kind,
+                    compact: sellsProducts,
+                    onTap: () => openActivity(thisMonth),
                   ),
-                const BalanceWarningLine(),
-                const SizedBox(height: 12),
-                SupportHomeCard(
-                  moneyTight: _moneyTight(safeToSpend, untilNext, forecast),
-                ),
-                const _ReviewCard(),
-                const _WhatWasThisCard(),
-                if (untilNext != null) _MoneyInCard(untilNext, today: today),
-                if (untilNext != null && sources.irregular) const _WeekCard(),
-                FigureRow(
-                  children: [
-                    if (untilNext != null)
-                      FigureTile(
-                        key: const Key('home-on-hand'),
-                        label: 'On hand',
-                        value: _plain(context, untilNext.onHandMinor),
-                        onTap: () => showOnHandSheet(context),
-                      )
-                    else if (safeToSpend == null)
-                      const FigureTile(
-                        label: 'Left this month',
-                        value: 'Soon',
-                        note: 'Shows once Plan has a budget',
-                      )
-                    else
-                      FigureTile(
-                        label: 'Left this month',
-                        value: _plain(context, safeToSpend.leftThisMonthMinor),
-                        onTap: () => openActivity(
-                          thisMonth.copyWith(type: ActivityType.dayToDay),
+                  const SizedBox(height: 12),
+                  if (isBusiness && !sellsProducts) ...[
+                    const _QuickButtons(services: true),
+                    const SizedBox(height: 12),
+                    const _HoursCards(),
+                    const WaitingPaymentsCard(),
+                  ],
+                  if (space.kind == SpaceKind.business)
+                    const BusinessSetupCard(),
+                  const SharedLineCard(),
+                  const NotYetSortedCard(),
+                  const _WhatWasThisCard(),
+                  if (sources.irregular) const _WeekCard(),
+                  _ComingUp(bills: bills, today: today),
+                ] else ...[
+                  if (safeToSpend == null && untilNext != null)
+                    _UntilNextMoneyCard(
+                      untilNext,
+                      rainyDayMinor:
+                          ref.watch(rainyDayFundProvider).value?.balanceMinor ??
+                          0,
+                      onTap: () => openActivity(
+                        ActivityFilter(
+                          type: ActivityType.spending,
+                          from: today,
+                          to: today,
                         ),
                       ),
-                    if (_runwayLabel(forecast) case final runway?)
-                      FigureTile(
-                        label: 'Runway at this pace',
-                        value: runway,
-                        onTap: () => openActivity(paceWindow),
-                      )
-                    else
-                      const FigureTile(
-                        label: 'Runway at this pace',
-                        value: 'Soon',
-                        note: 'Shows after two weeks of records',
+                    )
+                  else if (safeToSpend == null)
+                    const HeroFigureCard(
+                      label: 'Safe to spend today',
+                      caption:
+                          'Shows once your messages have been read and Plan has '
+                          'a day-to-day budget.',
+                      showEye: true,
+                    )
+                  else
+                    _SafeToSpendCard(
+                      safeToSpend,
+                      nextIncome: forecast?.nextIncome,
+                      onTap: () => openActivity(
+                        thisMonth.copyWith(type: ActivityType.dayToDay),
                       ),
+                    ),
+                  const BalanceWarningLine(),
+                  const SizedBox(height: 12),
+                  SupportHomeCard(
+                    moneyTight: _moneyTight(safeToSpend, untilNext, forecast),
+                  ),
+                  const NotYetSortedCard(),
+                  const _WhatWasThisCard(),
+                  if (untilNext != null) _MoneyInCard(untilNext, today: today),
+                  if (untilNext != null && sources.irregular) const _WeekCard(),
+                  FigureRow(
+                    children: [
+                      if (untilNext != null)
+                        FigureTile(
+                          key: const Key('home-on-hand'),
+                          label: 'On hand',
+                          value: _plain(context, untilNext.onHandMinor),
+                          belowZero: untilNext.onHandMinor < 0,
+                          onTap: () => showOnHandSheet(context),
+                        )
+                      else if (safeToSpend == null)
+                        const FigureTile(
+                          label: 'Left this month',
+                          value: 'Soon',
+                          note: 'Shows once Plan has a budget',
+                        )
+                      else
+                        FigureTile(
+                          label: 'Left this month',
+                          value: _plain(
+                            context,
+                            safeToSpend.leftThisMonthMinor,
+                          ),
+                          belowZero: safeToSpend.leftThisMonthMinor < 0,
+                          onTap: () => openActivity(
+                            thisMonth.copyWith(type: ActivityType.dayToDay),
+                          ),
+                        ),
+                      if (_runwayLabel(forecast) case final runway?)
+                        FigureTile(
+                          label: 'Runway at this pace',
+                          value: runway,
+                          onTap: () => openActivity(paceWindow),
+                        )
+                      else
+                        const FigureTile(
+                          label: 'Runway at this pace',
+                          value: 'Soon',
+                          note: 'Shows after two weeks of records',
+                        ),
+                    ],
+                  ),
+                  if (forecast != null) ...[
+                    const SizedBox(height: 12),
+                    _ForecastCard(
+                      forecast,
+                      onTap: () => openActivity(paceWindow),
+                    ),
                   ],
-                ),
-                if (forecast != null) ...[
-                  const SizedBox(height: 12),
-                  _ForecastCard(
-                    forecast,
-                    onTap: () => openActivity(paceWindow),
-                  ),
+                  if (health != null) ...[
+                    const SizedBox(height: 12),
+                    _HealthIndexCard(
+                      health,
+                      onTap: () => context.go(AppRoutes.insights),
+                    ),
+                  ],
+                  _ComingUp(bills: bills, today: today),
                 ],
-                if (health != null) ...[
-                  const SizedBox(height: 12),
-                  _HealthIndexCard(
-                    health,
-                    onTap: () => context.go(AppRoutes.insights),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                _ComingUp(bills: bills, today: today),
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -307,12 +315,13 @@ class _Header extends ConsumerWidget {
                 // A business calls its first tab Today.
                 child: Text(
                   space.kind == SpaceKind.business ? 'Today' : 'Home',
-                  style: theme.textTheme.headlineMedium,
+                  style: theme.textTheme.headlineLarge,
                 ),
               ),
             ],
           ),
         ),
+        const AskHomeButton(),
         // An outlined circle: red stays for the + and the lead card.
         Semantics(
           identifier: SemanticIds.homeProfile,
@@ -375,6 +384,8 @@ class _SafeToSpendCard extends StatelessWidget {
       ),
       // The figure is already masked while hidden: keep the eye to show it.
       showEye: true,
+      // Below zero is the one sign of trouble: a danger-coloured figure.
+      belowZero: (result.onHandMinor ?? 0) < 0,
       onTap: onTap,
     );
   }
@@ -435,6 +446,7 @@ class _UntilNextMoneyCard extends StatelessWidget {
       figure: _kes(context, result.leftTodayMinor),
       caption: '$when\n$onHand$setAside',
       showEye: true,
+      belowZero: result.belowZero,
       onTap: onTap,
     );
   }
@@ -560,6 +572,14 @@ class _HealthIndexCard extends StatelessWidget {
       headline = 'Same as the month before';
     }
     final action = index.bestAction;
+    final figure = AppTypography.tileFigure(theme.colorScheme.onSurface);
+    // The ring holds three digits at the type scale's tile size and grows
+    // with the text size, rather than shrinking the score to fit.
+    final ring = math.max(
+      _healthRingMin,
+      MediaQuery.textScalerOf(context).scale(figure.fontSize!) * 2 +
+          2 * (_healthRingStroke + 6),
+    );
 
     return Card(
       child: InkWell(
@@ -569,30 +589,21 @@ class _HealthIndexCard extends StatelessWidget {
           child: Row(
             children: [
               SizedBox.square(
-                dimension: 56,
+                dimension: ring,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     SizedBox.expand(
                       child: CircularProgressIndicator(
                         value: math.min(index.score, 100) / 100,
-                        strokeWidth: 6,
-                        color: theme.colorScheme.primary,
-                        backgroundColor: colors.brandSoft,
+                        strokeWidth: _healthRingStroke,
+                        // The band's colour on a neutral track: brand red
+                        // is kept for actions.
+                        color: healthBandColor(context, index.band),
+                        backgroundColor: colors.border,
                       ),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          '${index.score}',
-                          style: AppTypography.tileFigure(
-                            theme.colorScheme.onSurface,
-                          ),
-                        ),
-                      ),
-                    ),
+                    Text('${index.score}', style: figure),
                   ],
                 ),
               ),
@@ -632,6 +643,9 @@ class _HealthIndexCard extends StatelessWidget {
   }
 }
 
+const _healthRingMin = 64.0;
+const _healthRingStroke = 6.0;
+
 String _points(int n) => n == 1 ? '1 point' : '$n points';
 
 class _ComingUp extends StatelessWidget {
@@ -649,16 +663,15 @@ class _ComingUp extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // The space above comes from the cards before it.
         SectionTitle(
           'Coming up',
-          padding: const EdgeInsets.only(bottom: 8),
           action: PillButton(
             label: 'See all',
             onPressed: () => context.go(AppRoutes.plan),
           ),
         ),
         Card(
+          key: const Key('home-coming-up'),
           child: shown.isEmpty
               ? Padding(
                   padding: const EdgeInsets.all(Layout.cardPadding),
@@ -713,33 +726,6 @@ class _BillRow extends StatelessWidget {
       trailing: Text(
         _plain(context, bill.amountMinor),
         style: AppTypography.rowAmount(theme.colorScheme.onSurface),
-      ),
-    );
-  }
-}
-
-/// "3 messages to check", while the review inbox holds any.
-class _ReviewCard extends ConsumerWidget {
-  const _ReviewCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final count = ref.watch(pendingReviewProvider).value?.length ?? 0;
-    if (count == 0) return const SizedBox.shrink();
-    final colors = PesaColors.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Card(
-        child: ListTile(
-          key: const Key('home-review'),
-          leading: Icon(Icons.circle, size: 10, color: colors.warning),
-          minLeadingWidth: 10,
-          title: Text(
-            count == 1 ? '1 message to check' : '$count messages to check',
-          ),
-          trailing: Icon(Icons.chevron_right, color: colors.textMuted),
-          onTap: () => context.push(AppRoutes.review),
-        ),
       ),
     );
   }
@@ -1005,11 +991,12 @@ class _SalesTodayCard extends ConsumerWidget {
     final day = sales?.day;
     // Nothing sold yet today: say what will show instead of a nought.
     if (day == null || day.byWay.isEmpty) {
+      // No amount yet, so no eye to hide one.
       return const HeroFigureCard(
         key: Key('sales-today'),
         label: 'Sales today',
         caption: 'Sales show here as you sell.',
-        showEye: true,
+        showEye: false,
       );
     }
     final ways = [

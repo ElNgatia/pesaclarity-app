@@ -641,10 +641,7 @@ class _MakeInvoiceScreenState extends ConsumerState<MakeInvoiceScreen> {
               ),
             ),
             if (_attached.isNotEmpty) ...[
-              const SectionLabel(
-                'Attached',
-                padding: EdgeInsets.fromLTRB(0, 8, 0, 8),
-              ),
+              const SectionLabel('Attached'),
               Card(
                 child: Column(
                   children: [
@@ -803,7 +800,6 @@ class _WithholdingSheetState extends State<_WithholdingSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final colors = PesaColors.of(context);
     final rate = rateText(widget.rate);
     final fees = widget.feesMinor;
@@ -853,7 +849,7 @@ class _WithholdingSheetState extends State<_WithholdingSheet> {
                       borderRadius: BorderRadius.circular(Layout.panelRadius),
                       side: BorderSide(
                         color: _value == value
-                            ? theme.colorScheme.primary
+                            ? PesaColors.of(context).link
                             : colors.border,
                         width: _value == value ? 2 : 1,
                       ),

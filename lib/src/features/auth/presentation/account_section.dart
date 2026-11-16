@@ -94,7 +94,7 @@ class _Avatar extends StatelessWidget {
       child: CircleAvatar(
         radius: 28,
         backgroundColor: signedIn ? scheme.primary : colors.brandSoft,
-        foregroundColor: signedIn ? scheme.onPrimary : scheme.primary,
+        foregroundColor: signedIn ? scheme.onPrimary : colors.link,
         child: initials == null
             ? const Icon(Icons.person_outline)
             : Text(

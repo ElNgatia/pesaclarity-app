@@ -120,6 +120,36 @@ class IconBadge extends StatelessWidget {
   }
 }
 
+/// A name's initials in a square the size and shape of an [IconBadge]:
+/// neutral, as an Activity row's are, or [tinted] with the brand, as an
+/// account's letter on Balances is.
+class InitialsBadge extends StatelessWidget {
+  const InitialsBadge(this.text, {this.tinted = false, super.key});
+
+  final String text;
+  final bool tinted;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = PesaColors.of(context);
+    return Container(
+      width: 44,
+      height: 44,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: tinted ? colors.brandSoft : colors.border,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.labelLarge!.copyWith(
+          color: tinted ? colors.link : Theme.of(context).colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+}
+
 /// An action word at the end of a row, such as "Edit" or "Change", in the
 /// same style as a text button.
 class TrailingLink extends StatelessWidget {
@@ -137,7 +167,7 @@ class TrailingLink extends StatelessWidget {
 
 /// A small outlined pill for an action beside a title, in a row or under a
 /// card: "Count stock", "See all", "Remind". Neutral, so red stays for the
-/// one main button.
+/// lead card, the main button and the current tab.
 class PillButton extends StatelessWidget {
   const PillButton({
     required this.label,
