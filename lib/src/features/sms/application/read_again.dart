@@ -221,7 +221,15 @@ class ReadAgainController extends Notifier<ReadAgainState> {
 
   /// Reads every message again, as the person asked. Does nothing while a
   /// read is going.
-  Future<void> readAgain() => _run(automatic: false);
+  Future<void> readAgain() async {
+    await _run(automatic: false);
+  }
+
+  /// Reads messages again from [since] on, as a notice from the team asks
+  /// (say, after a bank changed its messages). Works like the automatic read:
+  /// a note on Home says what changed, if anything did. Returns whether the
+  /// read ran, so a notice that could not be handled asks again later.
+  Future<bool> readSince(DateTime since) => _run(automatic: true, since: since);
 
   /// Reads every message again on its own when the readers are newer than
   /// the ones that last read them all. A note on Home says what changed,
@@ -260,8 +268,8 @@ class ReadAgainController extends Notifier<ReadAgainState> {
     );
   }
 
-  Future<void> _run({required bool automatic}) async {
-    if (state.reading) return;
+  Future<bool> _run({required bool automatic, DateTime? since}) async {
+    if (state.reading) return false;
     state = const ReadAgainState(ReadAgainStage.reading);
     try {
       final ids = await ref.read(institutionsRepositoryProvider).selectedIds();
@@ -272,7 +280,7 @@ class ReadAgainController extends Notifier<ReadAgainState> {
       final source = ref.read(smsSourceProvider);
       if (selected.isEmpty || await source.access() != SmsAccess.granted) {
         state = ReadAgainState.idle;
-        return;
+        return false;
       }
       final at = ref.read(clockProvider)();
       final range = await ref.read(scanRangeProvider.future);
@@ -281,7 +289,10 @@ class ReadAgainController extends Notifier<ReadAgainState> {
           .read(smsScanServiceProvider)
           .scan(
             selected,
-            from: range.firstDay(CalendarDate.local(at))?.startInstant,
+            from: _later(
+              range.firstDay(CalendarDate.local(at))?.startInstant,
+              since,
+            ),
             again: true,
             onProgress: (done, all) {
               total = all;
@@ -298,18 +309,22 @@ class ReadAgainController extends Notifier<ReadAgainState> {
       final changes = summary.changes;
       final last = await _last();
       final times = [for (final c in changes) c.at]..sort();
-      await _save(
-        LastRead(
-          readers: ReaderVersions.of(selected).over(last?.readers),
-          at: at,
-          messages: total,
-          added: summary.added,
-          updated: summary.updated,
-          firstChange: times.firstOrNull,
-          lastChange: times.lastOrNull,
-          changedAccounts: {for (final c in changes) c.accountId},
-        ),
-      );
+      // A read from a day on is not a read of everything: the readers that
+      // last read every message stay as they were.
+      if (since == null) {
+        await _save(
+          LastRead(
+            readers: ReaderVersions.of(selected).over(last?.readers),
+            at: at,
+            messages: total,
+            added: summary.added,
+            updated: summary.updated,
+            firstChange: times.firstOrNull,
+            lastChange: times.lastOrNull,
+            changedAccounts: {for (final c in changes) c.accountId},
+          ),
+        );
+      }
       if (automatic && changes.isNotEmpty) {
         final ids = {for (final c in changes) c.institutionId};
         await ref
@@ -327,7 +342,7 @@ class ReadAgainController extends Notifier<ReadAgainState> {
             );
         ref.invalidate(readAgainNoticeProvider);
       }
-      if (!ref.mounted) return;
+      if (!ref.mounted) return true;
       state = automatic
           ? ReadAgainState.idle
           : ReadAgainState(
@@ -343,7 +358,15 @@ class ReadAgainController extends Notifier<ReadAgainState> {
             ? ReadAgainState.idle
             : const ReadAgainState(ReadAgainStage.failed);
       }
+      return false;
     }
+    return true;
+  }
+
+  static DateTime? _later(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isAfter(b) ? a : b;
   }
 
   void _categorise() {
