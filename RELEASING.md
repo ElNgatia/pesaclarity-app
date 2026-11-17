@@ -18,6 +18,10 @@ Release builds take these `--dart-define` values. Keep them in the release envir
 | `PESACLARITY_PINNED_HOSTS` | Our server hosts, comma-separated, such as `api.pesaclarity.org,vault.pesaclarity.org` |
 | `PESACLARITY_TRUSTED_ROOTS` | The root certificates those hosts' chains may end in, as comma-separated base64 DER. At least two: the root in use and one the provider may switch to. An invalid value makes the app refuse to connect, by design. |
 | `PESACLARITY_PLAY_CLOUD_PROJECT` | `play` only: the Google Cloud project number for Play Integrity |
+| `PESACLARITY_DISTRIBUTION` | `website` for the APKs on the website's download page, so their Update button opens that page instead of a store. The APK workflow (`test-apk.yml`) sets it. Leave it unset for Play, F-Droid and iPhone builds |
+| `PESACLARITY_DOWNLOAD_URL` | Optional: the website's download page (default `https://pesaclarity.github.io/install/#download`) |
+
+**Update notices.** On opening, and at most once a day, the app asks the server's `GET /v1/app-status` for the newest version and any notices, without an account. It shows only responses signed with a key pinned in `lib/src/features/app_status/domain/pinned_keys.dart`, as the ujumbe parser packs pin theirs: compiled in, never downloaded. Until `appStatusProductionPublicKey` holds the public key from pesaclarity-backend's `uv run ngome-app-status-key`, the app asks nothing and shows no notices. To change keys, ship a release that pins both the old and the new key before the server signs with the new one. The app blocks itself ("Please update Pesa Clarity") only for a verified notice whose reason is `amounts_wrong` and whose minimum version is newer than the build.
 
 The app pins certificate authorities, not keys: Cloud Run and Cloudflare renew our certificates with new keys every few months, which would lock out every installed app if keys were pinned.
 
@@ -91,7 +95,7 @@ Play allows `READ_SMS` and `RECEIVE_SMS` only for approved core uses. Pesa Clari
 
 ## 5. F-Droid
 
-1. Reproducible build and the offenders in `docs/reproducible-builds.md` resolved for `foss`. The recipe runs `tool/prepare_foss.sh` as its `prebuild`, and our own `foss` release APK is built the same way so the two match.
+1. Reproducible build and the offenders in `docs/reproducible-builds.md` resolved for `foss`. The recipe runs `tool/prepare_foss.sh` as its `prebuild` (it needs git, a C compiler and `make`, and SQLCipher and LibTomCrypt as srclibs or network; see docs/reproducible-builds.md, F-Droid recipe), and our own `foss` release APK is built the same way so the two match.
 2. Store text and changelogs come from `fastlane/metadata/android/en-US`.
 3. Open a merge request to fdroiddata with the build recipe: Flutter srclib at the pinned version, `foss` flavour, the same build command and defines, and our signing certificate for reproducible-build verification.
 
@@ -110,7 +114,8 @@ Not set up yet. Before the first upload:
 - [ ] Play Console project and Google Cloud project created; Play Integrity added to the `play` flavour behind `IntegrityAttestor`, with server-side token checks
 - [ ] Upload and release keys created in a hardware key or secrets manager, with an offline backup
 - [ ] SMS permissions declaration and Data safety form submitted and approved
-- [ ] SQLCipher built from source for `foss`; PDFium handled before it ships in `foss`
+- [x] SQLCipher built from source for `foss` (`tool/foss/build_sqlcipher_sources.sh`); PDFium removed from `foss`
+- [ ] A `play` database opened by a `foss` build on a device
 - [ ] External penetration test against OWASP MASVS L2 passed, findings fixed
 - [ ] Performance budget met on a 2 GB phone (`docs/performance-budget.md`)
 - [ ] ODPC registration done (spec: Privacy and compliance)
