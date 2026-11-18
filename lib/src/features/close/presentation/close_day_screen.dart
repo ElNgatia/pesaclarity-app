@@ -341,7 +341,7 @@ class _CloseDayScreenState extends ConsumerState<CloseDayScreen> {
                     'Match a payment to a sale, a customer who owes you, or '
                     'keep it as other income.',
                     style: theme.textTheme.bodySmall!.copyWith(
-                      color: colors.textMuted,
+                      color: colors.mutedSmall(theme.colorScheme.onSurface),
                     ),
                   ),
                 ],

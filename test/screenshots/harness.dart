@@ -11,7 +11,7 @@
 // failing on anything that overflows, an amount cut short, a field's label
 // cut short, a row name in Activity or Money cut before its second line, a
 // tap target that is too small or a button with no label. Text contrast is
-// only reported.
+// only reported, apart from the screens in tool/accessibility.sh's list.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;

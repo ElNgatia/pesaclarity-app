@@ -403,7 +403,7 @@ The same screens, plus the sheets and dialogs most screens open (`test/screensho
 - a tap target under 48 x 48 (Android) or 44 x 44 (iPhone), and
 - something that can be tapped with no label for screen readers.
 
-Text contrast is reported, not failed on: `contrast.jsonl` in the output folder, summarised at the end. Other text cut short, such as a long name ellipsized in a row, goes to `shortened.jsonl`.
+Text contrast is reported: `contrast.jsonl` in the output folder, summarised at the end. It fails only on Close the day and Support, whose small print once fell short and now takes the darker muted colour (`PesaColors.mutedSmall`). Other text cut short, such as a long name ellipsized in a row, goes to `shortened.jsonl`.
 
 ```sh
 tool/accessibility.sh                      # into build/accessibility/

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +16,7 @@ import 'package:pesaclarity/src/shared/widgets/hero_figure_card.dart';
 import 'package:pesaclarity/src/shared/widgets/marks.dart';
 import 'package:pesaclarity/src/shared/widgets/states.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
+import 'package:pesaclarity/src/theme/pesa_colors.dart';
 
 import '../helpers/app_fonts.dart';
 import '../helpers/test_app.dart';
@@ -465,5 +468,41 @@ void main() {
         greaterThanOrEqualTo(bar.height + AskBarScope.margin.vertical),
       );
     });
+  });
+
+  group('small muted print', () {
+    double contrast(Color a, Color b) {
+      final la = a.computeLuminance();
+      final lb = b.computeLuminance();
+      return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+    }
+
+    for (final (name, theme) in [
+      ('light', AppTheme.light),
+      ('dark', AppTheme.dark),
+    ]) {
+      test('reads at 4.5:1 or more on the page, cards and sheets in $name', () {
+        final colors = theme.extension<PesaColors>()!;
+        final small = colors.mutedSmall(theme.colorScheme.onSurface);
+        for (final ground in [
+          theme.scaffoldBackgroundColor,
+          theme.colorScheme.surface,
+          colors.floating,
+          // A tinted card, such as "The drawer matches the records."
+          Color.alphaBlend(colors.successSoft, theme.scaffoldBackgroundColor),
+        ]) {
+          expect(contrast(small, ground), greaterThanOrEqualTo(4.5));
+          // Darker than the usual muted text, lighter than body text.
+          expect(
+            contrast(small, ground),
+            greaterThan(contrast(colors.textMuted, ground)),
+          );
+          expect(
+            contrast(small, ground),
+            lessThan(contrast(theme.colorScheme.onSurface, ground)),
+          );
+        }
+      });
+    }
   });
 }
