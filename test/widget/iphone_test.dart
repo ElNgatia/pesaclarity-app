@@ -96,13 +96,90 @@ void main() {
     ) async {
       final theme = AppTheme.light;
       expect(theme.platform, TargetPlatform.android);
-      expect(theme.textTheme.bodyLarge!.fontSize, 16);
+      expect(theme.textTheme.bodyLarge!.fontSize, 17);
       expect(theme.textTheme.bodyLarge!.fontFamily, 'Inter');
       expect(theme.textTheme.displaySmall!.fontFamily, 'SpaceGrotesk');
       expect(
         theme.pageTransitionsTheme.builders[TargetPlatform.android],
         isA<CupertinoPageTransitionsBuilder>(),
       );
+    });
+
+    testOnIPhone('the theme follows iOS: large title, back chevron, rows', (
+      tester,
+    ) async {
+      final theme = AppTheme.light;
+      expect(theme.textTheme.headlineLarge!.fontSize, 34);
+      expect(theme.textTheme.headlineLarge!.fontWeight, FontWeight.w700);
+      expect(theme.appBarTheme.centerTitle, isTrue);
+      expect(theme.appBarTheme.titleTextStyle!.fontSize, 17);
+      expect(theme.appBarTheme.titleTextStyle!.fontWeight, FontWeight.w600);
+      expect(theme.inputDecorationTheme.filled, isTrue);
+      expect(
+        theme.inputDecorationTheme.enabledBorder!.borderSide,
+        BorderSide.none,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(theme: theme, home: const SizedBox()),
+      );
+      final context = tester.element(find.byType(SizedBox));
+      final back =
+          theme.actionIconTheme!.backButtonIconBuilder!(context) as Icon;
+      expect(back.icon, Icons.arrow_back_ios_new);
+    });
+
+    testOnIPhone('the tab bar is glass, inset as iOS insets it', (
+      tester,
+    ) async {
+      await toConnectStep(tester);
+      await tapText(tester, 'Do this later');
+
+      final bar = find.byType(PillNavigationBar);
+      expect(
+        find.descendant(of: bar, matching: find.byType(BackdropFilter)),
+        findsOneWidget,
+      );
+      final screen = tester.getRect(find.byType(Scaffold).first);
+      final rect = tester.getRect(bar);
+      expect(rect.left - screen.left, PillNavigationBar.iPhoneInset);
+      expect(screen.bottom - rect.bottom, PillNavigationBar.iPhoneInset);
+      expect(
+        tester.widget<Scaffold>(find.byType(Scaffold).first).extendBody,
+        isTrue,
+      );
+    });
+
+    testOnIPhone('a tab title moves into a small bar once scrolled', (
+      tester,
+    ) async {
+      await toConnectStep(tester);
+      await tapText(tester, 'Do this later');
+
+      double opacity() => tester
+          .widget<AnimatedOpacity>(
+            find.ancestor(
+              of: find.byKey(const Key('collapsed-tab-title')),
+              matching: find.byType(AnimatedOpacity),
+            ),
+          )
+          .opacity;
+      expect(opacity(), 0);
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(opacity(), 1);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('collapsed-tab-title')),
+          matching: find.text('Home'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, 600));
+      await tester.pumpAndSettle();
+      expect(opacity(), 0);
     });
 
     testOnIPhone('onboarding connects Shortcuts in place of the SMS scan', (
@@ -117,6 +194,7 @@ void main() {
       );
       expect(find.text('Allow access to messages'), findsNothing);
 
+      await scrollTo(tester, find.byKey(const Key('connect-open-shortcuts')));
       await tester.tap(find.byKey(const Key('connect-open-shortcuts')));
       await tester.pumpAndSettle();
       expect(shortcuts.opened, 1);
