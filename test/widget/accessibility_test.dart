@@ -9,6 +9,7 @@ import 'package:pesaclarity/src/shared/accessibility.dart';
 import 'package:pesaclarity/src/shared/widgets/amounts_hidden.dart';
 import 'package:pesaclarity/src/shared/widgets/app_sheet.dart';
 import 'package:pesaclarity/src/shared/widgets/figures.dart';
+import 'package:pesaclarity/src/shared/widgets/form_fields.dart';
 import 'package:pesaclarity/src/shared/widgets/hero_figure_card.dart';
 import 'package:pesaclarity/src/shared/widgets/states.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
@@ -19,6 +20,14 @@ import '../helpers/test_app.dart';
 /// Screen readers (TalkBack, VoiceOver) and the phone's accessibility
 /// settings. The screens at large text sizes, with their tap targets and
 /// labels, are checked by tool/accessibility.sh.
+/// How many lines [text] is drawn on.
+int lines(RenderParagraph text) => {
+  for (final box in text.getBoxesForSelection(
+    TextSelection(baseOffset: 0, extentOffset: text.text.toPlainText().length),
+  ))
+    box.top.round(),
+}.length;
+
 void main() {
   Widget app(Widget child, {bool hidden = false}) => ProviderScope(
     child: MaterialApp(
@@ -314,6 +323,75 @@ void main() {
       expect(figure.textScaler.scale(1), greaterThanOrEqualTo(1));
       expect(find.byType(SingleChildScrollView), findsNothing);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('field labels sit above their fields and wrap, read with '
+        'them', (tester) async {
+      phone(tester);
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final label in ['You count it in', 'In stock now'])
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 16),
+                        child: LabeledField(
+                          label: label,
+                          child: const TextField(),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      for (final label in ['You count it in', 'In stock now']) {
+        final text = tester.renderObject<RenderParagraph>(find.text(label));
+        expect(text.didExceedMaxLines, isFalse, reason: label);
+        // Too long for one line at twice the size: it wraps, whole.
+        expect(lines(text), greaterThan(1));
+        // Above its field, and the field reads it as its name.
+        final field = find.ancestor(
+          of: find.byType(TextField),
+          matching: find.byType(LabeledField),
+        );
+        expect(
+          tester.getBottomLeft(find.text(label)).dy,
+          lessThanOrEqualTo(
+            tester
+                .getTopLeft(
+                  find
+                      .descendant(
+                        of: field.at(label == 'You count it in' ? 0 : 1),
+                        matching: find.byType(TextField),
+                      )
+                      .first,
+                )
+                .dy,
+          ),
+        );
+        expect(
+          tester.getSemantics(
+            find
+                .descendant(
+                  of: field.at(label == 'You count it in' ? 0 : 1),
+                  matching: find.byType(EditableText),
+                )
+                .first,
+          ),
+          isSemantics(label: label, isTextField: true),
+        );
+      }
+      handle.dispose();
     });
 
     testAppWidgets('Home scrolls clear of the Ask bar', (tester) async {

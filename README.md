@@ -398,6 +398,7 @@ The same screens, plus the sheets and dialogs most screens open (`test/screensho
 
 - anything that overflows (Flutter reports a `RenderFlex` overflow as an error),
 - an amount cut short: ellipsized, clipped or narrower than its number, as amounts are always shown whole,
+- a field's label cut short (labels sit above their field, `LabeledField`, and wrap),
 - a tap target under 48 x 48 (Android) or 44 x 44 (iPhone), and
 - something that can be tapped with no label for screen readers.
 

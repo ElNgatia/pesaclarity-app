@@ -8,9 +8,9 @@
 //
 // The same screens make the accessibility check (tool/accessibility.sh):
 // each at the phone's larger text sizes, in light, dark and high contrast,
-// failing on anything that overflows, an amount cut short, a tap target
-// that is too small or a button with no label. Text contrast is only
-// reported.
+// failing on anything that overflows, an amount cut short, a field's label
+// cut short, a tap target that is too small or a button with no label. Text
+// contrast is only reported.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -294,11 +294,13 @@ final _amount = RegExp(
 );
 
 /// Fails when an amount on screen is cut short: ellipsized, clipped or
-/// narrower than its number, as amounts are always shown whole. Other text
-/// that runs out of its lines, such as a long name ellipsized in a row, is
-/// written to the report.
+/// narrower than its number, as amounts are always shown whole. Fails too
+/// when a field's label is cut short (labels sit above their field and
+/// wrap). Other text that runs out of its lines, such as a long name
+/// ellipsized in a row, is written to the report.
 void _expectNothingCut(WidgetTester tester, String screen) {
   final cut = <String>[];
+  final labels = <String>[];
   final shortened = <String>[];
   void visit(RenderObject object) {
     if (object is RenderParagraph &&
@@ -307,6 +309,21 @@ void _expectNothingCut(WidgetTester tester, String screen) {
         !object.debugNeedsLayout) {
       final text = object.text.toPlainText();
       final hasAmount = text.contains(_amount);
+      final element = switch (object.debugCreator) {
+        final DebugCreator c => c.element,
+        _ => null,
+      };
+      final decorator = element
+          ?.findAncestorWidgetOfExactType<InputDecorator>()
+          ?.decoration;
+      final isLabel = decorator != null && decorator.labelText == text;
+      final clipped =
+          !object.softWrap &&
+          object.size.width + 0.5 <
+              object.getMaxIntrinsicWidth(double.infinity);
+      if (isLabel && (object.didExceedMaxLines || clipped)) {
+        labels.add('"$text" is cut, in ${_creator(object)}');
+      }
       if (object.didExceedMaxLines) {
         (hasAmount ? cut : shortened).add(
           '"$text" runs out of its lines, in ${_creator(object)}',
@@ -345,6 +362,11 @@ void _expectNothingCut(WidgetTester tester, String screen) {
     _report('shortened', screen, {'text': shortened});
   }
   expect(cut, isEmpty, reason: 'An amount is cut short at ${_scale}x text');
+  expect(
+    labels,
+    isEmpty,
+    reason: "A field's label is cut short at ${_scale}x text",
+  );
 }
 
 /// Adds a line to `<kind>.jsonl` in [accessibilityDir].

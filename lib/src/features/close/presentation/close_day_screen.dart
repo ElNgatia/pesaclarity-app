@@ -286,12 +286,12 @@ class _CloseDayScreenState extends ConsumerState<CloseDayScreen> {
                             onChanged: (d) => setState(() => _difference = d),
                           ),
                           const SizedBox(height: 12),
-                          TextField(
-                            key: const Key('close-note-text'),
-                            controller: _note,
-                            textCapitalization: TextCapitalization.sentences,
-                            decoration: const InputDecoration(
-                              labelText: 'Note (optional)',
+                          LabeledField(
+                            label: 'Note (optional)',
+                            child: TextField(
+                              key: const Key('close-note-text'),
+                              controller: _note,
+                              textCapitalization: TextCapitalization.sentences,
                             ),
                           ),
                         ],
