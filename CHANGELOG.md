@@ -2,6 +2,13 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from pull request titles.
 
+## [0.5.1](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.0...v0.5.1) (2026-11-18)
+
+
+### Documentation
+
+* privacy policy 2.2: the website section now says the site keeps your light or dark theme choice in your browser; nothing about the app changed ([#281](https://github.com/pesaclarity/pesaclarity-app/issues/281))
+
 ## [0.5.0](https://github.com/pesaclarity/pesaclarity-app/compare/v0.4.0...v0.5.0) (2026-11-18)
 
 
