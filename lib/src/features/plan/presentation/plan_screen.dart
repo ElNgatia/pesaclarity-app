@@ -246,6 +246,7 @@ class _IncomeCard extends StatelessWidget {
               child: SizedBox(
                 height: 10,
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     for (final g in view.groups) ...[
                       Expanded(
