@@ -9,8 +9,9 @@
 // The same screens make the accessibility check (tool/accessibility.sh):
 // each at the phone's larger text sizes, in light, dark and high contrast,
 // failing on anything that overflows, an amount cut short, a field's label
-// cut short, a tap target that is too small or a button with no label. Text
-// contrast is only reported.
+// cut short, a row name in Activity or Money cut before its second line, a
+// tap target that is too small or a button with no label. Text contrast is
+// only reported.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -25,6 +26,7 @@ import 'package:pesaclarity/src/features/look/presentation/field_style_theme.dar
 import 'package:pesaclarity/src/routing/app_shell.dart';
 import 'package:pesaclarity/src/shared/accessibility.dart';
 import 'package:pesaclarity/src/shared/widgets/amounts_hidden.dart';
+import 'package:pesaclarity/src/shared/widgets/marks.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
 
 import '../helpers/app_fonts.dart';
@@ -296,11 +298,13 @@ final _amount = RegExp(
 /// Fails when an amount on screen is cut short: ellipsized, clipped or
 /// narrower than its number, as amounts are always shown whole. Fails too
 /// when a field's label is cut short (labels sit above their field and
-/// wrap). Other text that runs out of its lines, such as a long name
-/// ellipsized in a row, is written to the report.
+/// wrap), or when a row name in Activity or Money ends in "..." before it
+/// has used its second line. Other text that runs out of its lines, such as
+/// a long name ellipsized after two lines, is written to the report.
 void _expectNothingCut(WidgetTester tester, String screen) {
   final cut = <String>[];
   final labels = <String>[];
+  final names = <String>[];
   final shortened = <String>[];
   void visit(RenderObject object) {
     if (object is RenderParagraph &&
@@ -323,6 +327,11 @@ void _expectNothingCut(WidgetTester tester, String screen) {
               object.getMaxIntrinsicWidth(double.infinity);
       if (isLabel && (object.didExceedMaxLines || clipped)) {
         labels.add('"$text" is cut, in ${_creator(object)}');
+      }
+      if (element?.findAncestorWidgetOfExactType<RowName>() != null &&
+          object.didExceedMaxLines &&
+          _lineCount(object) < RowName.maxLines) {
+        names.add('"$text" is cut on one line, in ${_creator(object)}');
       }
       if (object.didExceedMaxLines) {
         (hasAmount ? cut : shortened).add(
@@ -367,7 +376,20 @@ void _expectNothingCut(WidgetTester tester, String screen) {
     isEmpty,
     reason: "A field's label is cut short at ${_scale}x text",
   );
+  expect(
+    names,
+    isEmpty,
+    reason: 'A row name is cut before its second line at ${_scale}x text',
+  );
 }
+
+/// How many lines [text] is drawn on.
+int _lineCount(RenderParagraph text) => {
+  for (final box in text.getBoxesForSelection(
+    TextSelection(baseOffset: 0, extentOffset: text.text.toPlainText().length),
+  ))
+    box.top.round(),
+}.length;
 
 /// Adds a line to `<kind>.jsonl` in [accessibilityDir].
 void _report(String kind, String screen, Map<String, Object?> fields) {

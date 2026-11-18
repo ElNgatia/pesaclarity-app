@@ -11,6 +11,7 @@ import 'package:pesaclarity/src/shared/widgets/app_sheet.dart';
 import 'package:pesaclarity/src/shared/widgets/figures.dart';
 import 'package:pesaclarity/src/shared/widgets/form_fields.dart';
 import 'package:pesaclarity/src/shared/widgets/hero_figure_card.dart';
+import 'package:pesaclarity/src/shared/widgets/marks.dart';
 import 'package:pesaclarity/src/shared/widgets/states.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
 
@@ -392,6 +393,56 @@ void main() {
         );
       }
       handle.dispose();
+    });
+
+    testWidgets('a row name wraps to two lines, then ends in "...", and its '
+        'amount stays whole', (tester) async {
+      phone(tester);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  for (final name in [
+                    'Green Basket',
+                    'Green Basket Grocers',
+                    'Green Basket Grocers and Butchery, Westlands Branch',
+                  ])
+                    Row(
+                      children: [
+                        Expanded(child: RowName(name)),
+                        const SizedBox(width: 12),
+                        const Text('-1,440'),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      RenderParagraph name(String text) =>
+          tester.renderObject<RenderParagraph>(find.text(text));
+      expect(lines(name('Green Basket')), 1);
+      final two = name('Green Basket Grocers');
+      expect(lines(two), 2);
+      expect(two.didExceedMaxLines, isFalse);
+      final long = name('Green Basket Grocers and Butchery, Westlands Branch');
+      expect(lines(long), 2);
+      expect(long.didExceedMaxLines, isTrue);
+      for (final amount in tester.renderObjectList<RenderParagraph>(
+        find.text('-1,440'),
+      )) {
+        expect(amount.didExceedMaxLines, isFalse);
+        expect(
+          amount.size.width + 0.5,
+          greaterThanOrEqualTo(amount.getMaxIntrinsicWidth(double.infinity)),
+        );
+        expect(amount.textScaler.scale(1), 2);
+      }
     });
 
     testAppWidgets('Home scrolls clear of the Ask bar', (tester) async {
