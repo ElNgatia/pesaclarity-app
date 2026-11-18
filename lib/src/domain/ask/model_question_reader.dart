@@ -8,13 +8,20 @@ import 'understanding.dart';
 
 /// Runs the Ask reader: the message reader's input encoding ([encodeTokens],
 /// `[2 * readerMaxTokens]` int32) in; per-token slot label probabilities and
-/// intent probabilities out. The app's is `DartAskReader`, on the model's
-/// plain weights.
+/// intent probabilities out. The app runs it on rayo, from the model's plain
+/// weights, and on `DartAskReader` where rayo's library cannot load.
 abstract interface class AskReaderRuntime {
   /// `([readerMaxTokens][slot labels], [intents])`.
   (List<List<double>>, List<double>) run(List<int> input);
 
   void close();
+}
+
+/// An [AskReaderRuntime] that runs off the calling isolate itself, on the
+/// model it already holds, instead of being copied into a new isolate.
+abstract interface class BackgroundAskReaderRuntime
+    implements AskReaderRuntime {
+  Future<(List<List<double>>, List<double>)> runInBackground(List<int> input);
 }
 
 /// `ask-reader-manifest.json` as pesaclarity-ml writes it (its docs/ASK.md
@@ -132,8 +139,9 @@ class ModelQuestionReader implements QuestionReader {
   }
 
   /// [read], with the model run in a background isolate, so its several
-  /// milliseconds (tens on a slow phone) never hold up the UI thread. The
-  /// isolate gets a copy of the runtime; nothing is loaded again.
+  /// milliseconds (tens on a slow phone) never hold up the UI thread. A
+  /// [BackgroundAskReaderRuntime] runs there on its own model; any other
+  /// runtime is copied into the isolate. Nothing is loaded again.
   Future<Understanding> readInBackground(String question) async {
     final rules = _rules(question);
     if (rules != null && RuleQuestionReader.decides(question, rules)) {
@@ -154,7 +162,9 @@ class ModelQuestionReader implements QuestionReader {
   static Future<(List<List<double>>, List<double>)> _runInIsolate(
     AskReaderRuntime runtime,
     List<int> input,
-  ) => Isolate.run(() => runtime.run(input));
+  ) => runtime is BackgroundAskReaderRuntime
+      ? runtime.runInBackground(input)
+      : Isolate.run(() => runtime.run(input));
 
   Understanding? _rules(String question) =>
       fallback is RuleQuestionReader ? fallback.read(question) : null;
@@ -223,24 +233,89 @@ class ModelQuestionReader implements QuestionReader {
     if (rules != null && rules.intent.isLookup && _missesName(read, rules)) {
       return rules;
     }
-    return read;
+    return rules == null ? read : _widened(question, tokens, read, rules);
+  }
+
+  static const _names = {
+    SlotKind.payee,
+    SlotKind.category,
+    SlotKind.account,
+    SlotKind.item,
+  };
+
+  /// [model] with each name it tags only part of widened to the [rules]'
+  /// name of the same kind: "Example" in "payment to Example Nowhere", when
+  /// the rules read "example nowhere". Only where the rules' name holds the
+  /// model's on word boundaries and is the question's own words around it,
+  /// touching no other span of the model's.
+  static Understanding _widened(
+    String question,
+    List<MessageToken> tokens,
+    Understanding model,
+    Understanding rules,
+  ) {
+    var changed = false;
+    final spans = <AskSpan>[];
+    for (final s in model.spans) {
+      final wide = _widen(question, tokens, s, model.spans, rules);
+      if (wide != null) changed = true;
+      spans.add(wide ?? s);
+    }
+    if (!changed) return model;
+    return Understanding(
+      model.intent,
+      confidence: model.confidence,
+      spans: spans,
+    );
+  }
+
+  static AskSpan? _widen(
+    String question,
+    List<MessageToken> tokens,
+    AskSpan span,
+    List<AskSpan> others,
+    Understanding rules,
+  ) {
+    if (!_names.contains(span.kind)) return null;
+    final part = normaliseName(span.text);
+    if (part.isEmpty) return null;
+    final first = tokens.indexWhere((t) => t.start == span.start);
+    final last = tokens.lastIndexWhere((t) => t.end == span.end);
+    if (first < 0 || last < first) return null;
+    for (final r in rules.spans) {
+      if (r.kind != span.kind) continue;
+      final whole = normaliseName(r.text);
+      if (whole == part || !' $whole '.contains(' $part ')) continue;
+      // The question's own words around the span that read as the rules'
+      // name, if any.
+      for (var a = first; a >= 0; a--) {
+        for (var b = last; b < tokens.length; b++) {
+          final start = tokens[a].start;
+          final end = tokens[b].end;
+          final text = question.substring(start, end);
+          final words = normaliseName(text);
+          if (words.length > whole.length) break;
+          if (words != whole) continue;
+          final clashes = others.any(
+            (o) => !identical(o, span) && o.start < end && start < o.end,
+          );
+          if (clashes) return null;
+          return AskSpan(span.kind, text, start, end);
+        }
+      }
+    }
+    return null;
   }
 
   /// Whether [rules] found a name (a payee, category, account or item)
   /// that none of [model]'s spans covers.
   static bool _missesName(Understanding model, Understanding rules) {
-    const names = {
-      SlotKind.payee,
-      SlotKind.category,
-      SlotKind.account,
-      SlotKind.item,
-    };
     final tagged = [
       for (final s in model.spans)
-        if (names.contains(s.kind)) normaliseName(s.text),
+        if (_names.contains(s.kind)) normaliseName(s.text),
     ];
     for (final s in rules.spans) {
-      if (!names.contains(s.kind)) continue;
+      if (!_names.contains(s.kind)) continue;
       final name = normaliseName(s.text);
       if (name.isEmpty) continue;
       if (!tagged.any((t) => t.contains(name) || name.contains(t))) {
