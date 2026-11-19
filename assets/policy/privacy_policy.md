@@ -3,7 +3,7 @@
 ## The short version
 
 Pesa Clarity works out your budget on your phone. Your transactions,
-messages, statements and the questions you ask about them stay on it. Our server does four narrow jobs
+messages, statements and the questions you ask about them stay on it. Our server does five narrow jobs
 and never sees a transaction.
 
 ## What stays on your phone
@@ -45,7 +45,7 @@ you signed up, in and out. Our server stores your email or Google
 account only as a keyed hash, never the address itself. One-time sign-in codes are deleted within a
 day of expiring, and sign-in records after 90 days. You can also use
 the app without an account; it then contacts our server only for the
-update check.
+update check and any crash report you choose to send.
 
 **Encrypted backups**
 
@@ -58,26 +58,58 @@ your own Google Drive, your phone, an SD card or Files on iPhone instead.
 
 **Model updates**
 
-If "improve the app" is on, your phone sends clipped, noised updates
-to the categoriser, combined with other users' before we can see them.
-Never your transactions. You can switch this off at any time.
+The app does not send any training updates today. With "Help improve
+the app" on, it only learns from the categories you confirm, on your
+phone, to make its own suggestions better; nothing about it leaves the
+phone. If we ever add sending updates to improve the shared model, it
+will be opt-in, and we will update this policy before it starts.
 
 **Update check**
 
 Once a day, with or without an account, the app asks our server whether
 a newer version or a notice is waiting, such as a fix for a bank that
-changed its messages. The request carries only the app's version, which
-build it is (Play, F-Droid, iPhone or website) and the platform. It
-carries no account, device or install id. Our server keeps no record of
-the request. The answer is signed, so the app shows only notices that
-really come from us. The app asks you to update before you carry on only
-when a version is known to get amounts wrong.
+changed its messages. The request carries the app's version, which build
+it is (Play, F-Droid, iPhone or website) and the platform, and, unless
+you switch it off, the counting number described below. It carries no
+account, device or phone id. The answer is signed, so the app shows only
+notices that really come from us. The app asks you to update before you
+carry on only when a version is known to get amounts wrong.
+
+**Monthly count**
+
+So we know how many phones use Pesa Clarity, the update check carries a
+random number that your phone makes each month and replaces on the 1st
+of the next. It is not made from anything about you or your phone, and
+it is never sent with anything else. Our server uses it only to count
+each phone once a day and once a month, adding one to totals by app
+version, build and, for the month, country. It keeps those totals, which
+name no one. It keeps a scrambled copy of the number only until the day
+or month is over, then deletes it. We work out the country from your
+internet address while answering, with a database kept on our server
+(IP Geolocation by DB-IP, db-ip.com), and never store or log the
+address. We never look at a total under 10. To stop, switch off "Count
+this phone in monthly totals" in Privacy; the update check carries on
+without the number. In the F-Droid build it is off until you switch it
+on, and the update check itself runs only after you say yes to it.
+
+**Crash reports**
+
+If the app closes because of a fault, it asks on the next start whether
+to send us a crash report, and shows you exactly what it would send. A
+report holds the app's version and build, the phone's system version
+(such as Android 13) and chip type (such as arm64), the kind of error,
+and where in the app's own code it happened, as numbers. It never holds
+amounts, messages, names, phone numbers, contacts or anything you typed,
+and it carries no account, device or install id. It is not linked to
+the monthly count. We keep reports for 90 days, then only how many there
+were and when. In Privacy you can choose Ask each time, Always send or
+Never send.
 
 ## Who runs our server
 
 These services run it for us and process data only on our instructions:
 
-- Google Cloud runs the server. Like any web host, it keeps standard request logs, such as IP address and time, for security.
+- Google Cloud runs the server. Like any web host, it keeps standard request logs, such as IP address and time, for security. It keeps no request logs for the update check or crash reports, and its other logs never include the counting number or crash reports' contents.
 - Neon stores sign-in data in its database.
 - Cloudflare R2 stores encrypted backups.
 - Brevo sends sign-in codes by email.
@@ -111,11 +143,12 @@ small gift by M-Pesa. Giving is your choice and never unlocks anything.
 
 The app asks on first run, and you can change these any time:
 
-- Improve the app (federated updates): on by default.
+- Help improve the app: on by default. Today it only lets the app learn from your confirmed categories on your phone; nothing is sent.
 - Contribute to licensed models: off unless you opt in.
-- Anonymous crash reports: off unless you opt in.
+- Count this phone in monthly totals: on by default; off by default in the F-Droid build.
+- Crash reports: the app asks each time, unless you choose Always send or Never send.
 
-Pesa Clarity has no ads, no analytics and no third-party trackers.
+Pesa Clarity has no ads and no third-party trackers, and no analytics beyond the monthly count above.
 
 ## Keeping it safe
 
