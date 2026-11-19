@@ -126,32 +126,18 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-/// Ask's own screens fail the accessibility check (tool/accessibility.sh)
-/// today; these screens are left out of it until Ask is fixed.
-const _smallButtons =
-    'The Conversations, New conversation and More buttons in a '
-    "conversation's app bar are 40 x 40 (VisualDensity.compact in "
-    'ask_screen.dart), under the 48 x 48 tap target.';
-const _cutPreview =
-    "At 1.3x text and up, a conversation's one-line preview cuts the "
-    'amounts in it short (ask_conversations_screen.dart).';
-
 void main() {
-  screenshot('ask', knownAccessibilityIssue: _smallButtons, (tester) async {
+  screenshot('ask', (tester) async {
     await _pump(tester, (today) => AppRoutes.askConversation(today[1]));
     await snap(tester);
   });
 
-  screenshot('ask-swahili', knownAccessibilityIssue: _smallButtons, (
-    tester,
-  ) async {
+  screenshot('ask-swahili', (tester) async {
     await _pump(tester, (today) => AppRoutes.askConversation(today[0]));
     await snap(tester);
   });
 
-  screenshot('ask-conversations', knownAccessibilityIssue: _cutPreview, (
-    tester,
-  ) async {
+  screenshot('ask-conversations', (tester) async {
     await _pump(tester, (_) => AppRoutes.askConversations);
     await snap(tester);
   });
