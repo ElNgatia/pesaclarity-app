@@ -197,7 +197,6 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         actions: [
           IconButton(
             key: const Key('ask-conversations'),
-            visualDensity: VisualDensity.compact,
             tooltip: AskStrings.conversations,
             icon: const Icon(Icons.menu),
             onPressed: () => context.push(AppRoutes.askConversations),
@@ -210,19 +209,16 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           else ...[
             IconButton(
               key: const Key('ask-new'),
-              visualDensity: VisualDensity.compact,
               tooltip: AskStrings.newConversation,
               icon: const Icon(Icons.add),
               onPressed: _controller.startNew,
             ),
             IconButton(
               key: const Key('ask-menu'),
-              visualDensity: VisualDensity.compact,
               tooltip: AskStrings.more,
               icon: const Icon(Icons.more_vert),
               onPressed: () => showAskMenu(context, ref),
             ),
-            const SizedBox(width: Layout.gutter - 16),
           ],
         ],
       ),

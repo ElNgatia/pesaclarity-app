@@ -149,11 +149,8 @@ class _AskConversationsScreenState
                             title: Text(c.title),
                             subtitle: c.lastReply == null
                                 ? null
-                                : Text(
-                                    _summary(context, c),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                // Wraps, so its amounts stay whole.
+                                : Text(_summary(context, c)),
                             trailing: Text(
                               when(c),
                               style: theme.textTheme.bodySmall!.copyWith(
