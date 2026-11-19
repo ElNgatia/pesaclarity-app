@@ -2,6 +2,62 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from commit titles (pull request titles until pull requests into `dev` were rebase-merged).
 
+## [0.5.2](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.1...v0.5.2) (2026-11-19)
+
+
+### Features
+
+* a pure, untinted palette in light and dark ([5ddd873](https://github.com/pesaclarity/pesaclarity-app/commit/5ddd873f452efa1404c7659a2505ca07f51fb5f3))
+* a softer dark mode ([224b391](https://github.com/pesaclarity/pesaclarity-app/commit/224b3914b0f43f6e74163ffcd91a49a69422dbfe))
+* ask before the F-Droid build's daily update check ([cb23d40](https://github.com/pesaclarity/pesaclarity-app/commit/cb23d400c110b866b6f63af048bc799366466bef))
+* **ask:** ship the PyTorch Ask reader v4 (run 16) ([542aeec](https://github.com/pesaclarity/pesaclarity-app/commit/542aeec0d28c15b34840bdffeb0839277e4fe0b0))
+* crash report sheet and the counting and crash report choices in Privacy ([cd9a4d8](https://github.com/pesaclarity/pesaclarity-app/commit/cd9a4d88233dec96dfa0f032289286d7a2f1d2a8))
+* follow the iOS design guidelines ([#307](https://github.com/pesaclarity/pesaclarity-app/issues/307)) ([1afc31d](https://github.com/pesaclarity/pesaclarity-app/commit/1afc31db06167d309b12936ff8065ae23af1cdb3))
+* keep crash reports for the next start and send them only as the person chose ([75a577c](https://github.com/pesaclarity/pesaclarity-app/commit/75a577c3183033c91ae8e07346764f5642db3861))
+* **privacy:** policy 2.4, the monthly count and crash reports ([e8462a1](https://github.com/pesaclarity/pesaclarity-app/commit/e8462a19bf73e1fbe34e08231f0a51d62f587a9a))
+* **privacy:** policy 2.4, the monthly count and crash reports ([9131280](https://github.com/pesaclarity/pesaclarity-app/commit/913128039812000b5d16831d21a48ff3c50b706d))
+* **reader:** read messages with the PyTorch reader on rayo ([c2a71eb](https://github.com/pesaclarity/pesaclarity-app/commit/c2a71eb8b1b928aa808940bfd3f01e9cafa52174))
+* send a monthly counting token with the update check ([6039ca3](https://github.com/pesaclarity/pesaclarity-app/commit/6039ca31e4a499f4a420aba7ed5e1c4d39fb2832))
+
+
+### Fixes
+
+* a neutral grey for the second chart colour in dark mode ([04b9180](https://github.com/pesaclarity/pesaclarity-app/commit/04b918088608c40441d43f9fab1db29edf58765d))
+* **a11y:** darker small text on tinted cards ([914a023](https://github.com/pesaclarity/pesaclarity-app/commit/914a02307c8c242d055ffb59dc7af9d942faec04))
+* **a11y:** draw every tab label at one size ([bcfab9a](https://github.com/pesaclarity/pesaclarity-app/commit/bcfab9ae54f613408619197e615527640f70b20e))
+* **a11y:** follow the phone's reduce-motion setting ([b302d18](https://github.com/pesaclarity/pesaclarity-app/commit/b302d1812c0588a82455642868a810d88d5af57e))
+* **a11y:** keep an amount's currency code and number on one line ([fa0d8e8](https://github.com/pesaclarity/pesaclarity-app/commit/fa0d8e81fa3f53dade8d676617356168fc48e47b))
+* **a11y:** keep screens whole at larger text sizes ([a549498](https://github.com/pesaclarity/pesaclarity-app/commit/a549498936a4993640b161c4f49efdb25af7e019))
+* **a11y:** keep Sell tiles in a row the same height ([61c7a7d](https://github.com/pesaclarity/pesaclarity-app/commit/61c7a7d62fdd3ab5096987a9f30ad2481e32895f))
+* **a11y:** labels above fields so they stay whole at large text ([abd012b](https://github.com/pesaclarity/pesaclarity-app/commit/abd012b689d2ba960abc8c67bdb3a19bd120eca1))
+* **a11y:** labels above fields, names on two lines, darker small text ([#303](https://github.com/pesaclarity/pesaclarity-app/issues/303)) ([9be4136](https://github.com/pesaclarity/pesaclarity-app/commit/9be41360b0a639ec465a0fd34f8ab3f12f26878b))
+* **a11y:** labels above fields, two-line names, darker small print ([9be4136](https://github.com/pesaclarity/pesaclarity-app/commit/9be41360b0a639ec465a0fd34f8ab3f12f26878b))
+* **a11y:** let names in Activity and Money wrap to two lines ([7267c1a](https://github.com/pesaclarity/pesaclarity-app/commit/7267c1aaaa1d50a3fbd47dc29fae06f18848b16e))
+* **a11y:** make small tap targets at least 48 by 48 ([2b7b986](https://github.com/pesaclarity/pesaclarity-app/commit/2b7b986312b9486324206386a8c1c17b1bca26ae))
+* **a11y:** read amounts, headers and messages well with screen readers ([f2f4055](https://github.com/pesaclarity/pesaclarity-app/commit/f2f4055d1f1675c156aa3730425a678215a3a99d))
+* **a11y:** read the debt what-if slider as an amount, and hide its interest ([5cf3ecd](https://github.com/pesaclarity/pesaclarity-app/commit/5cf3ecd06d73d6d22e89c9ba5bee7ad69182cb5c))
+* move to rayo with the security fixes and faster kernels ([883a9f8](https://github.com/pesaclarity/pesaclarity-app/commit/883a9f8e7a5db124e36e0e22261ded3b9d655b8c))
+* never let the counting token hold up the update check ([71309eb](https://github.com/pesaclarity/pesaclarity-app/commit/71309eb1cf8417bde522ec3268eb8354f9c675ff))
+* **policy:** privacy policy 2.3, the hashed sign-in email, app lock and site search ([7aae60f](https://github.com/pesaclarity/pesaclarity-app/commit/7aae60fb865fcabbf890ce78f161912d14517689))
+* put a tab's buttons above its title on iPhone ([#309](https://github.com/pesaclarity/pesaclarity-app/issues/309)) ([df83225](https://github.com/pesaclarity/pesaclarity-app/commit/df83225e33e1307f1b94ecdfbf16240b1d859569))
+* show the Plan income bar ([4fea862](https://github.com/pesaclarity/pesaclarity-app/commit/4fea862d8301c031ee86af6f2af16412802bcf65))
+* tell Debt and Tax reserve apart on the Plan bar ([#301](https://github.com/pesaclarity/pesaclarity-app/issues/301)) ([54b2f3e](https://github.com/pesaclarity/pesaclarity-app/commit/54b2f3edf240955c65303f73467c80553eacc18f))
+* tell the Plan bar's groups apart in dark ([#305](https://github.com/pesaclarity/pesaclarity-app/issues/305)) ([259a52b](https://github.com/pesaclarity/pesaclarity-app/commit/259a52b057227a23d063ae2cb7978cba9c6024bc))
+* the iPhone launch screen uses the pure page colours ([8b90c3e](https://github.com/pesaclarity/pesaclarity-app/commit/8b90c3ee2a7e890c7c08051a11b723f5a5d3909e))
+
+
+### Performance
+
+* build Activity's rows as they scroll in ([d435141](https://github.com/pesaclarity/pesaclarity-app/commit/d435141cb57958196ec2c8c934c30efbebf08f3f))
+* build the book account name map once ([07b6284](https://github.com/pesaclarity/pesaclarity-app/commit/07b6284edf7363d8d662a4d80c9a43aba1c6187f))
+* decode the logo near the size of its tile ([4d9548e](https://github.com/pesaclarity/pesaclarity-app/commit/4d9548e58ea388cb0652585696ee15195841cf5d))
+* index transactions by date ([92a2369](https://github.com/pesaclarity/pesaclarity-app/commit/92a23695decd1711c243f62a97505ac1c38aa440))
+* read journal entries and postings column by column ([5ff4ed4](https://github.com/pesaclarity/pesaclarity-app/commit/5ff4ed416b7c6e1c8b4e497149ff89dba6bd34c4))
+* read ledger entries column by column ([89f6811](https://github.com/pesaclarity/pesaclarity-app/commit/89f681138b62e357946e62c42bc5185794ecff01))
+* read the space and the look at once before the first frame ([fc185ab](https://github.com/pesaclarity/pesaclarity-app/commit/fc185ab967eb8edba430a865acaf88a571049999))
+* share one read of the whole ledger per change ([af0ba96](https://github.com/pesaclarity/pesaclarity-app/commit/af0ba965022df42eaf4c08f8b173b365250d6280))
+* write a journal repost in one batch ([d84eccd](https://github.com/pesaclarity/pesaclarity-app/commit/d84eccdccab04c11c15716a03db9fb3a5cb10642))
+
 ## [0.5.1](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.0...v0.5.1) (2026-11-18)
 
 
