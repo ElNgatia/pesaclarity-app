@@ -170,7 +170,7 @@ SMS parsing comes from the `ujumbe` Dart package in [pesaclarity/ujumbe-parsers]
 - **Scans.** "Scan my messages" reads from the start chosen under "Read messages from" (`ScanRange`): every message by default, or the last 3, 6 or 12 months, or from a date. Afterwards, each time the app opens it reads what arrived since the last scan (from that start for a newly ticked institution), then adds new messages as they land while it runs. Changing the start in Profile › My accounts clears the scan marks, so the next scan reads again from the new start; messages already read are skipped by their hash. Messages that arrive while the app is closed wait in the inbox for the next scan, so there is no background service.
 - **Parsing** runs on a background isolate. A parsed message keeps its fields (amount, time, fee, receipt, balance, counterparty) and a SHA-256 hash; the text is discarded. Each institution gets its own account, created on its first transaction. Transactions are deduplicated per account by ujumbe's dedupe key (receipt, amount and minute), which statement imports share. Counterparties are normalised with `PayeeIdentifier`, so named payees apply.
 - **Review inbox.** A message from a selected sender that no rule matches is kept for review, text included. It lives only in the SQLCipher database and its text is deleted when the item is resolved; the hash stays so a later scan does not bring it back. Home shows "N messages to check"; each one opens with the message reader's suggestions to confirm, and "Read messages like this the same way" saves the layout (the words around the fields, numbers only as their layout, fields as empty slots) so later messages like it are added during capture. See [spec 0004](docs/specs/0004-message-reader.md).
-- **Message reader.** `lib/src/domain/reader/` implements pesaclarity-ml's reader input (`docs/READER.md`), checked against `test/fixtures/reader/reader_vectors.v1.json`. No trained reader ships yet, and the app has no runtime for one: rayo will run it once pesaclarity-ml exports it with a graph (pesaclarity/docs decision 0020). Until then `RuleMessageReader` reads currency amounts, dates, times and payees with plain rules.
+- **Message reader.** `lib/src/domain/reader/` implements pesaclarity-ml's reader input (`docs/READER.md`), checked against `test/fixtures/reader/reader_vectors.v1.json`. The trained reader ships as `assets/models/reader/reader.weights` with `reader-manifest.json` and runs on rayo (`lib/src/features/review/data/rayo_reader_runtime.dart`): exported by pesaclarity-ml (akili 0.2.0 at f830212, `akili reader`, from pesaclarity-ml#56; weights SHA-256 `b82f31284b852a21d2d8e7136f8e6b7e3decb73964031bd9ba01e607fe00b70d`, 188,052 bytes), a PyTorch model exported through ONNX and quantised to int8 by rayo-convert, trained on synthetic messages only and licensed CC BY-SA 4.0 like pesaclarity-ml's other weights. The app checks the file's size and SHA-256 against the manifest, opens it once, the first time a message needs reading, and runs each message as rayo's two inputs, `tokens` and `shapes`, with `T` bound to 96: about 0.5 ms on one core of a 2.1 GHz Xeon. The message being checked is read on the UI thread; Home's count of messages to check reads them all in a short-lived isolate, on a second rayo session. The graph needs rayo's `reduce` and `reshape` ops (rayo 054c831 on, the commit pesaclarity-ml exports and scores the reader with); rayo is pinned at cdd7f55, which builds without fused multiply-adds (`-ffp-contract=off`), so its outputs no longer depend on the compiler or its flags, checks untrusted model files and text against limits (a failed bind no longer crashes a session), and has faster kernels for phones' CPUs, with the same floats. `test/features/review/message_reader_test.dart` checks rayo's outputs against `test/fixtures/reader/reader_decodes.json`, recorded from the same file on the app's own rayo build by `tool/reader_decodes.py`, which also checks them against the PyTorch model: bit for bit on the platform they were recorded on (Linux x64), within 1e-5 with the same labels elsewhere, since another platform's C library may round `exp` or `tanh` differently. Where rayo cannot load, or the files are missing or do not fit, `RuleMessageReader` reads currency amounts, dates, times and payees with plain rules. Its suggestions are worked out each time a message to check is shown, never stored, so a new reader needs no reading again: messages waiting in review get its suggestions at once, and what the person confirmed stays as they confirmed it. To update it: export with pesaclarity-ml (`akili reader`), copy `reader.weights` and `reader-manifest.json` here, then re-record with `tool/reader_decodes.py` and that export's `reader.onnx` (steps in the script).
 
 ## Balances
 
@@ -343,6 +343,29 @@ Tests cover the domain rules with synthetic ledgers, money formatting, the theme
 
 The checks run on your machine (CONTRIBUTING.md, Checks run on your machine); GitHub Actions only builds and releases; pull requests run no builds.
 
+## Performance
+
+The app is meant to stay quick on 2–3 GB phones with Cortex-A53 or A55 cores, with years of messages.
+
+**On a phone.** With a phone on USB debugging (`adb devices`):
+
+```sh
+tool/startup_timing.sh          # profile APK, install, 5 cold starts, medians
+tool/startup_timing.sh 10       # 10 cold starts
+SKIP_BUILD=1 tool/startup_timing.sh   # time the profile APK already installed
+tool/startup_timing.sh --trace  # flutter run --profile --trace-startup, once
+```
+
+Each cold start prints Android's launch time (`am start -W`: process start to first frame) and the app's startup phases in milliseconds since Dart's `main`: `look read`, `first frame`, `database key read`, `database open` and `home data shown` (Home's cards have their numbers). Debug and profile builds log these as `Startup: <phase> <ms> ms` and mark them on the Dart timeline (`lib/src/core/perf/startup_timeline.dart`), so they also show in DevTools' Performance view; release builds do neither. `home data shown` needs the app set up with app lock off. Measure with the phone's usual data in the app: startup work after unlock grows with the ledger.
+
+**On your computer.** `test/perf/hot_paths_benchmark_test.dart` builds a synthetic ledger of 20,000 transactions over two years and times the journal, ledger reads and the providers behind Home, Balances and Insights. It runs with the other tests and fails only on large regressions (generous ceilings in the file). To print the table:
+
+```sh
+flutter test test/perf/hot_paths_benchmark_test.dart --dart-define=PERF_REPORT=true
+```
+
+These are host numbers, from an in-memory database on a desktop CPU; on a phone the database runs in its own isolate and everything is several times slower. Use them to compare before and after a change, not as phone timings.
+
 ## UI screenshots
 
 `tool/check --ui` builds a `foss` debug APK, installs it on the connected emulator or phone and runs the [Maestro](https://maestro.mobile.dev) flows in `.maestro/` twice, in light and dark mode. Each flow walks one journey (onboarding with the account picker before and after ticking M-Pesa, the five tabs, Profile, Profile > My accounts, Debts, Backup, Privacy), checks the screen title is visible and saves a screenshot with a stable name such as `01-onboarding-welcome-dark.png`. Screenshots and JUnit reports land in `build/maestro/`.
@@ -369,6 +392,26 @@ On each push to `dev` or `main` that touches the app, the `Screenshots` workflow
 
 It can also be run by hand (Actions › Screenshots › Run workflow); on other branches it only keeps the artifact.
 
+## Accessibility check
+
+The same screens, plus the sheets and dialogs most screens open (`test/screenshots/sheets_screen_test.dart`), make the accessibility check. `tool/accessibility.sh` draws each one at 1, 1.3, 1.5 and 2 times the text size in light and dark, and at the usual size in high contrast too, scrolls each list to its end, and fails on:
+
+- anything that overflows (Flutter reports a `RenderFlex` overflow as an error),
+- an amount cut short: ellipsized, clipped or narrower than its number, as amounts are always shown whole,
+- a field's label cut short (labels sit above their field, `LabeledField`, and wrap),
+- a row name in Activity or Money (`RowName`) cut before it has used its second line,
+- a tap target under 48 x 48 (Android) or 44 x 44 (iPhone), and
+- something that can be tapped with no label for screen readers.
+
+Text contrast is reported: `contrast.jsonl` in the output folder, summarised at the end. It fails only on Close the day and Support, whose small print once fell short and now takes the darker muted colour (`PesaColors.mutedSmall`). Other text cut short, such as a long name ellipsized in a row, goes to `shortened.jsonl`.
+
+```sh
+tool/accessibility.sh                      # into build/accessibility/
+tool/accessibility.sh --shots /tmp/a11y    # and save each screen as a PNG
+```
+
+The full `tool/check` runs it. Screen-reader labels, headers, live regions and less motion have widget tests in `test/widget/accessibility_test.dart`.
+
 ## Branches and releases
 
 `main` is what users get; nothing lands there untested.
@@ -376,7 +419,7 @@ It can also be run by hand (Actions › Screenshots › Run workflow); on other 
 1. Pull requests go to `dev` and are rebase-merged, so every commit lands on `dev` as is and each needs a [Conventional Commits](https://www.conventionalcommits.org) title (`feat: …`, `fix: …`, `feat!: …` for a breaking change; `docs`, `test`, `ci`, `chore`, `refactor`, `build`, `perf`, `style`, `revert` too). Use `feat` or `fix` for changes users see (a privacy policy text change is a `fix`), and a hidden type (`refactor`, `test`, `style`, `chore`, `docs`, `ci`, `build`) for review follow-ups they don't, as new commits rather than `fixup!` ones. The pre-push hook checks each commit's title.
 2. Each evening `evening-builds.yml` starts the `APK` workflow (`test-apk.yml`) and the iPhone build (`ios-build.yml`) on `dev`; each skips itself when `dev` has not moved since its last test build, and either can be run by hand. The `APK` workflow builds `play` and `foss` release APKs, one per chip (64-bit ARM, and `-32bit` for older phones), each checked to be under 25 MB (native libraries are compressed in APKs; about 19 MB for 64-bit `play`), with debug symbols kept as a separate artifact for reading crash traces, against the `DEV_PESACLARITY_*` variables (`DEV_PESACLARITY_API_URL` is the server), named like `0.2.0-dev.31`, and keeps them as artifacts for 30 days. When the dev key below is set, it also puts them on the `test-build` pre-release, with the changes since the last release as its notes, so the newest test build is always at [pesaclarity-play.apk](https://github.com/pesaclarity/pesaclarity-app/releases/download/test-build/pesaclarity-play.apk) and [pesaclarity-foss.apk](https://github.com/pesaclarity/pesaclarity-app/releases/download/test-build/pesaclarity-foss.apk), with no GitHub login needed. The tests run before the push (`tool/check`), not in the APK build.
 3. When `dev` is ready, open a pull request from `dev` to `main`. The `Release gate` check allows only `dev` (or the release pull request) into `main`, and its QA job waits for a reviewer in the `qa` environment to approve after trying the test APK. Merge it with a merge commit, not a squash, so each change keeps its own title.
-4. On `main`, release-please keeps a release pull request open with the next version (SemVer from the commit titles: `feat` bumps the minor, `fix` the patch; before 1.0 a breaking change bumps the minor) and the `CHANGELOG.md` entry. Merging it tags `vX.Y.Z`, makes a GitHub release with that changelog entry as its notes, and merges the release back into `dev`; the `APK` workflow adds the `0.2.0`-style APKs to the release, so the newest release is always at [pesaclarity-play.apk](https://github.com/pesaclarity/pesaclarity-app/releases/latest/download/pesaclarity-play.apk) and [pesaclarity-foss.apk](https://github.com/pesaclarity/pesaclarity-app/releases/latest/download/pesaclarity-foss.apk). Other pushes to `main` build APKs (`0.2.0-main.32`) as artifacts only, against the release `PESACLARITY_*` server variables. The release also uploads to Google Play (below) once `PLAY_PACKAGE_NAME` is set. release-please needs the organisation and repository to allow GitHub Actions to create pull requests (Settings › Actions › General).
+4. On `main`, release-please keeps a release pull request open with the next version (SemVer from the commit titles: before 1.0, `feat` and `fix` bump the patch and a breaking change bumps the minor; from 1.0, `feat` bumps the minor) and the `CHANGELOG.md` entry. Merging it tags `vX.Y.Z`, makes a GitHub release with that changelog entry as its notes, and merges the release back into `dev`; the `APK` workflow adds the `0.2.0`-style APKs to the release, so the newest release is always at [pesaclarity-play.apk](https://github.com/pesaclarity/pesaclarity-app/releases/latest/download/pesaclarity-play.apk) and [pesaclarity-foss.apk](https://github.com/pesaclarity/pesaclarity-app/releases/latest/download/pesaclarity-foss.apk). Other pushes to `main` build APKs (`0.2.0-main.32`) as artifacts only, against the release `PESACLARITY_*` server variables. The release also uploads to Google Play (below) once `PLAY_PACKAGE_NAME` is set. release-please needs the organisation and repository to allow GitHub Actions to create pull requests (Settings › Actions › General).
 
 ## Website
 
@@ -428,4 +471,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 The app is licensed under the [GNU Affero General Public License v3.0](LICENSE). A commercial licence is available on request for organisations that cannot accept the AGPL.
 
-The bundled fonts are under the SIL Open Font License 1.1. The Pesa Clarity name and logo are trademarks of the project and are not covered by the AGPL; forks must use a different name and logo.
+The bundled fonts are under the SIL Open Font License 1.1. The message reader's weights (`assets/models/reader/`) are pesaclarity-ml's, under CC BY-SA 4.0. The Pesa Clarity name and logo are trademarks of the project and are not covered by the AGPL; forks must use a different name and logo.

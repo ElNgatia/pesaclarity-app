@@ -22,6 +22,7 @@ import '../../../shared/format/ledger_labels.dart';
 import '../../../shared/semantic_ids.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/choice_menu.dart';
+import '../../../shared/widgets/figures.dart';
 import '../../../shared/widgets/marks.dart';
 import '../../../shared/widgets/sections.dart';
 import '../../../shared/widgets/states.dart';
@@ -144,6 +145,97 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     );
 
     final askFilter = askAboutFilter(_filter, categories, today);
+    final head = <Widget>[
+      if (_chosen.isEmpty)
+        const TabHeader(
+          'Activity',
+          semanticsId: SemanticIds.titleActivity,
+          actions: [ActivityExportButton(), AmountsEye()],
+        )
+      else
+        MoveChosenBar(chosen: _chosen, onDone: () => setState(_chosen.clear)),
+      TextField(
+        controller: _search,
+        onChanged: (q) => _update((f) => f.copyWith(query: q)),
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'Search payee, amount, note',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _filter.query.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: 'Clear search',
+                  icon: const Icon(Icons.close),
+                  onPressed: () {
+                    _search.clear();
+                    _update((f) => f.copyWith(query: ''));
+                  },
+                ),
+        ),
+      ),
+      const SizedBox(height: 12),
+      _Filters(
+        filter: _filter,
+        accounts: accounts,
+        categories: categories,
+        onChanged: _update,
+      ),
+      _FixedNote(
+        accounts: accounts,
+        onSeeThem: (id) => _update((f) => f.copyWith(accountId: () => id)),
+      ),
+      const SizedBox(height: 16),
+      _WeekCard(week, code: code, others: others),
+      const SizedBox(height: 8),
+      if (loaded.isLoading && !loaded.hasValue)
+        const LoadingView(inList: true)
+      else if (days.isEmpty)
+        EmptyNote(
+          entries.isEmpty
+              ? 'Transactions show here once your messages are read, '
+                    'or when you add one with +.'
+              : 'Nothing matches these filters.',
+        ),
+    ];
+    // Each day's heading, then its lines. Only the rows on screen are
+    // built: months of history are thousands of rows.
+    final feed = <(ActivityDay, ActivityLine?)>[
+      if (!(loaded.isLoading && !loaded.hasValue))
+        for (final day in days) ...[
+          (day, null),
+          for (final line in day.lines) (day, line),
+        ],
+    ];
+    Widget feedItem((ActivityDay, ActivityLine?) item) => switch (item) {
+      (final day, null) => SectionLabel(dayHeading(day.date, today: today)),
+      (_, final line?) => _Choosable(
+        id: line is EntryLine ? line.entry.id : null,
+        chosen: _chosen,
+        onToggle: _toggle,
+        child: _ActivityRow(
+          line: line,
+          accounts: accounts,
+          categoryName: categoryName,
+          categories: categories,
+          suggest: (e) => suggester?.suggest(e),
+          onAccept: (e, s) => confirmCategory(ref, e, s.categoryId, s),
+          base: base,
+          code: code,
+          fulizaAuto: fulizaAuto,
+        ),
+      ),
+    };
+    final tail = <Widget>[
+      if (_filter.from == null && entries.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        Center(
+          child: TextButton(
+            onPressed: () => setState(() => _pages++),
+            child: const Text('Show older'),
+          ),
+        ),
+      ],
+    ];
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -152,95 +244,15 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             enabled: askFilter != null,
             label: askFilter?.$1,
             route: askFilter?.$2 ?? AppRoutes.ask,
-            builder: (context, bottomPadding) => ListView(
+            builder: (context, bottomPadding) => ListView.builder(
               padding: EdgeInsets.fromLTRB(20, 16, 20, bottomPadding),
-              children: [
-                if (_chosen.isEmpty)
-                  const TabHeader(
-                    'Activity',
-                    semanticsId: SemanticIds.titleActivity,
-                    actions: [ActivityExportButton(), AmountsEye()],
-                  )
-                else
-                  MoveChosenBar(
-                    chosen: _chosen,
-                    onDone: () => setState(_chosen.clear),
-                  ),
-                TextField(
-                  controller: _search,
-                  onChanged: (q) => _update((f) => f.copyWith(query: q)),
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: 'Search payee, amount, note',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _filter.query.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Clear search',
-                            icon: const Icon(Icons.close),
-                            onPressed: () {
-                              _search.clear();
-                              _update((f) => f.copyWith(query: ''));
-                            },
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _Filters(
-                  filter: _filter,
-                  accounts: accounts,
-                  categories: categories,
-                  onChanged: _update,
-                ),
-                _FixedNote(
-                  accounts: accounts,
-                  onSeeThem: (id) =>
-                      _update((f) => f.copyWith(accountId: () => id)),
-                ),
-                const SizedBox(height: 16),
-                _WeekCard(week, code: code, others: others),
-                const SizedBox(height: 8),
-                if (loaded.isLoading && !loaded.hasValue)
-                  const LoadingView(inList: true)
-                else if (days.isEmpty)
-                  EmptyNote(
-                    entries.isEmpty
-                        ? 'Transactions show here once your messages are read, '
-                              'or when you add one with +.'
-                        : 'Nothing matches these filters.',
-                  )
-                else
-                  for (final day in days) ...[
-                    SectionLabel(dayHeading(day.date, today: today)),
-                    for (final line in day.lines)
-                      _Choosable(
-                        id: line is EntryLine ? line.entry.id : null,
-                        chosen: _chosen,
-                        onToggle: _toggle,
-                        child: _ActivityRow(
-                          line: line,
-                          accounts: accounts,
-                          categoryName: categoryName,
-                          categories: categories,
-                          suggest: (e) => suggester?.suggest(e),
-                          onAccept: (e, s) =>
-                              confirmCategory(ref, e, s.categoryId, s),
-                          base: base,
-                          code: code,
-                          fulizaAuto: fulizaAuto,
-                        ),
-                      ),
-                  ],
-                if (_filter.from == null && entries.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Center(
-                    child: TextButton(
-                      onPressed: () => setState(() => _pages++),
-                      child: const Text('Show older'),
-                    ),
-                  ),
-                ],
-              ],
+              itemCount: head.length + feed.length + tail.length,
+              itemBuilder: (context, i) {
+                if (i < head.length) return head[i];
+                i -= head.length;
+                if (i < feed.length) return feedItem(feed[i]);
+                return tail[i - feed.length];
+              },
             ),
           ),
         ),
@@ -342,58 +354,74 @@ class _WeekCard extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = PesaColors.of(context);
     final label = theme.textTheme.bodyMedium!.copyWith(color: colors.textMuted);
-    // A long amount with its code wraps and the card grows; money is
-    // never shrunk to fit.
-    Widget figure(String text, Color color, TextAlign align) =>
-        Text(text, textAlign: align, style: AppTypography.tileFigure(color));
+    // Money is kept whole, code and number on one line, never shrunk.
+    Widget figure(String text, Color color) =>
+        FigureText(text, style: AppTypography.tileFigure(color));
+    final out = _orHidden(
+      context,
+      code == null
+          ? _plain(week.outMinor)
+          : formatMoney(Money(week.outMinor, currency: code)),
+    );
+    final inn = week.inMinor > 0
+        ? _orHidden(context, _signed(week.inMinor, code: code))
+        : '0';
+    final figureStyle = AppTypography.tileFigure(theme.colorScheme.onSurface);
+    Widget side(String title, String value, Color color, {bool end = false}) =>
+        Column(
+          crossAxisAlignment: end
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            Text(title, style: label),
+            figure(value, color),
+          ],
+        );
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(Layout.cardPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            // Side by side while both numbers fit whole in half the card;
+            // with large text, one under the other.
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final half = (constraints.maxWidth - Layout.cardGap) / 2;
+                final fits = [out, inn].every(
+                  (v) =>
+                      FigureText.numberWidth(context, v, figureStyle) <= half,
+                );
+                final outSide = side(
+                  'Out this week',
+                  out,
+                  theme.colorScheme.onSurface,
+                );
+                if (!fits) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text('Out this week', style: label),
-                      figure(
-                        _orHidden(
-                          context,
-                          code == null
-                              ? _plain(week.outMinor)
-                              : formatMoney(
-                                  Money(week.outMinor, currency: code),
-                                ),
-                        ),
-                        theme.colorScheme.onSurface,
-                        TextAlign.start,
-                      ),
+                      outSide,
+                      const SizedBox(height: 8),
+                      side('In this week', inn, colors.successText),
                     ],
-                  ),
-                ),
-                const SizedBox(width: Layout.cardGap),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('In this week', style: label),
-                      figure(
-                        week.inMinor > 0
-                            ? _orHidden(
-                                context,
-                                _signed(week.inMinor, code: code),
-                              )
-                            : '0',
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: outSide),
+                    const SizedBox(width: Layout.cardGap),
+                    Expanded(
+                      child: side(
+                        'In this week',
+                        inn,
                         colors.successText,
-                        TextAlign.end,
+                        end: true,
                       ),
-                    ],
-                  ),
-                ),
-              ],
+                    ),
+                  ],
+                );
+              },
             ),
             if (code != null) ...[
               const SizedBox(height: 8),
@@ -587,7 +615,7 @@ class _ActivityRow extends StatelessWidget {
         name == null
             ? 'Uncategorised · Tap to choose'
             : '$name? ${suggestion!.percent}%',
-        maxLines: 1,
+        maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyMedium,
       ),
@@ -641,12 +669,7 @@ class _ActivityRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
+                RowName(title, style: Theme.of(context).textTheme.titleMedium),
                 subtitle,
               ],
             ),
@@ -666,10 +689,14 @@ class _ActivityRow extends StatelessWidget {
   }) {
     final colors = PesaColors.of(context);
     final inflow = signedMinor > 0 && !borrowed;
-    return Text(
-      _orHidden(context, _signed(signedMinor, code: code)),
-      style: AppTypography.rowAmount(
-        inflow ? colors.successText : Theme.of(context).colorScheme.onSurface,
+    final text = _orHidden(context, _signed(signedMinor, code: code));
+    return readAsAmount(
+      text,
+      Text(
+        text,
+        style: AppTypography.rowAmount(
+          inflow ? colors.successText : Theme.of(context).colorScheme.onSurface,
+        ),
       ),
     );
   }
@@ -711,15 +738,19 @@ class _ActivityRow extends StatelessWidget {
         : ownCode != null
         ? 'Not in totals yet'
         : null;
-    if (under == null) return Text(main, style: style);
+    final mainText = readAsAmount(main, Text(main, style: style));
+    if (under == null) return mainText;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Text(main, style: style),
-        Text(
+        mainText,
+        readAsAmount(
           under,
-          style: Theme.of(context).textTheme.bodySmall!
-              .copyWith(color: colors.textMuted),
+          Text(
+            under,
+            style: Theme.of(context).textTheme.bodySmall!
+                .copyWith(color: colors.textMuted),
+          ),
         ),
       ],
     );
@@ -894,27 +925,33 @@ class _Choosable extends StatelessWidget {
     if (id == null) return child;
     final choosing = chosen.isNotEmpty;
     final on = chosen.contains(id);
-    return GestureDetector(
-      key: Key('activity-choose-$id'),
-      behavior: HitTestBehavior.opaque,
-      onLongPress: () => onToggle(id),
-      onTap: choosing ? () => onToggle(id) : null,
-      child: Row(
-        children: [
-          if (choosing)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Icon(
-                on ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: on
-                    ? Theme.of(context).colorScheme.onSurface
-                    : PesaColors.of(context).textMuted,
+    // Screen readers say whether a row is chosen, and that a long press
+    // chooses it.
+    return Semantics(
+      checked: choosing ? on : null,
+      onLongPressHint: 'Choose',
+      child: GestureDetector(
+        key: Key('activity-choose-$id'),
+        behavior: HitTestBehavior.opaque,
+        onLongPress: () => onToggle(id),
+        onTap: choosing ? () => onToggle(id) : null,
+        child: Row(
+          children: [
+            if (choosing)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Icon(
+                  on ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: on
+                      ? Theme.of(context).colorScheme.onSurface
+                      : PesaColors.of(context).textMuted,
+                ),
               ),
+            Expanded(
+              child: AbsorbPointer(absorbing: choosing, child: child),
             ),
-          Expanded(
-            child: AbsorbPointer(absorbing: choosing, child: child),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

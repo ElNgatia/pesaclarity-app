@@ -89,9 +89,10 @@ class PesaColors extends ThemeExtension<PesaColors> {
   /// The worse of two warnings, such as a struggling health score.
   final Color warningStrong;
 
-  /// Below zero in a large figure, such as a lead card's or a tile's, and
-  /// a destructive button's fill: brand red in light and dark. Small text
-  /// takes the colour scheme's `error`, which dark brightens to read.
+  /// A destructive button's fill: brand red in light and dark, with white
+  /// text on it. Red text, including a large figure below zero, takes the
+  /// colour scheme's `error`, and a red edge takes [link]; dark brightens
+  /// both to read on a card.
   final Color danger;
 
   /// Only for marking the parts of a message, each its own colour.
@@ -130,6 +131,28 @@ class PesaColors extends ThemeExtension<PesaColors> {
 
   /// A light fill behind something to check, such as an item running low.
   Color get warningSoft => warning.withValues(alpha: 0.12);
+
+  /// The second series beside a red [link] one: a deeper brand red (mixed
+  /// with black, never white) in light, and in dark a neutral grey, since
+  /// brand red is under 3:1 on a dark card.
+  Color get secondSeries => shadow.a == 0
+      ? BrandTokens.darkChartGrey
+      : Color.lerp(danger, const Color(0xFF000000), 0.45)!;
+
+  /// Muted small print (12 px) where [textMuted] measures under 4.5:1, such
+  /// as a note under a button or a list: [textMuted] taken 45% of the way
+  /// to [text], the body text colour.
+  Color mutedSmall(Color text) => Color.lerp(textMuted, text, 0.45)!;
+
+  /// The series beside [secondSeries]: muted grey in light, and in dark a
+  /// blue, since [secondSeries] is already a grey there.
+  Color get thirdSeries =>
+      shadow.a == 0 ? BrandTokens.darkChartBlue : textMuted;
+
+  /// The Plan income bar's Living: [secondSeries] in light, and in dark a
+  /// cyan, since the dark grey and the red look alike without red cones.
+  Color get livingSeries =>
+      shadow.a == 0 ? BrandTokens.darkChartCyan : secondSeries;
 
   static PesaColors of(BuildContext context) =>
       Theme.of(context).extension<PesaColors>()!;

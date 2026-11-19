@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/perf/startup_timeline.dart';
 import '../../../core/time/clock.dart';
 import '../../../domain/books/business_report.dart';
 import '../../../domain/budget/safe_to_spend.dart';
@@ -69,6 +70,25 @@ String _kes(BuildContext context, int minor) =>
 /// Every other amount: a plain number in the base currency.
 String _plain(BuildContext context, int minor) => shownMoney(context, minor);
 
+/// The startup phase Home marks once its cards show their numbers.
+const homeShownPhase = 'home data shown';
+
+/// Marks startup's [homeShownPhase] once Home's main cards have loaded,
+/// after the frame that shows them (see [StartupTimeline]).
+void _markShown(WidgetRef ref) {
+  if (!StartupTimeline.waitsFor(homeShownPhase)) return;
+  final loading = [
+    ref.watch(safeToSpendTodayProvider),
+    ref.watch(healthIndexProvider),
+    ref.watch(cashFlowForecastProvider),
+    ref.watch(upcomingBillsProvider),
+  ].any((value) => value.isLoading);
+  if (loading) return;
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => StartupTimeline.mark(homeShownPhase),
+  );
+}
+
 /// Home tab: how am I doing today?
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -92,6 +112,7 @@ class HomeScreen extends ConsumerWidget {
     final health = ref.watch(healthIndexProvider).value;
     final forecast = ref.watch(cashFlowForecastProvider).value;
     final bills = ref.watch(upcomingBillsProvider).value ?? const [];
+    _markShown(ref);
     final space = ref.watch(activeSpaceProvider);
     final isBusiness = space.kind == SpaceKind.business;
     // Products and both lead with today's sales; services with profit.
@@ -298,13 +319,18 @@ class _Header extends ConsumerWidget {
               ActionChip(
                 key: const Key('home-space'),
                 tooltip: 'Switch space',
-                label: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(space.name),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.expand_more, size: 18),
-                  ],
+                // A long name shrinks to fit under large text rather than
+                // fading out at the chip's edge; the chip keeps its height.
+                label: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(space.name),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.expand_more, size: 18),
+                    ],
+                  ),
                 ),
                 onPressed: () => showSpaces(context),
               ),
@@ -317,6 +343,7 @@ class _Header extends ConsumerWidget {
               ),
               Semantics(
                 identifier: SemanticIds.titleHome,
+                header: true,
                 // A business calls its first tab Today.
                 child: Text(
                   space.kind == SpaceKind.business ? 'Today' : 'Home',
@@ -586,62 +613,79 @@ class _HealthIndexCard extends StatelessWidget {
           2 * (_healthRingStroke + 6),
     );
 
+    final healthRing = SizedBox.square(
+      dimension: ring,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox.expand(
+            child: CircularProgressIndicator(
+              value: math.min(index.score, 100) / 100,
+              strokeWidth: _healthRingStroke,
+              // The band's colour on a neutral track: brand red
+              // is kept for actions.
+              color: healthBandColor(context, index.band),
+              backgroundColor: colors.border,
+            ),
+          ),
+          Text('${index.score}', style: figure),
+        ],
+      ),
+    );
+    final details = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Financial health · ${index.band.label}',
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: 2),
+        Text(
+          headline,
+          style: theme.textTheme.bodyMedium!.copyWith(color: colors.textMuted),
+        ),
+        if (action != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Weakest: ${action.indicator.label.toLowerCase()}. '
+            '${action.message}',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ],
+      ],
+    );
+    final chevron = Icon(Icons.chevron_right, color: colors.textMuted);
+    // With very large text the ring leaves too little room beside it for a
+    // long word, so it goes above the words instead.
+    final stacked = MediaQuery.textScalerOf(context).scale(1) >= 1.75;
+
     return Card(
       child: InkWell(
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(Layout.cardPadding),
-          child: Row(
-            children: [
-              SizedBox.square(
-                dimension: ring,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox.expand(
-                      child: CircularProgressIndicator(
-                        value: math.min(index.score, 100) / 100,
-                        strokeWidth: _healthRingStroke,
-                        // The band's colour on a neutral track: brand red
-                        // is kept for actions.
-                        color: healthBandColor(context, index.band),
-                        backgroundColor: colors.border,
-                      ),
-                    ),
-                    Text('${index.score}', style: figure),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
+          child: stacked
+              ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Financial health · ${index.band.label}',
-                      style: theme.textTheme.titleMedium,
+                    healthRing,
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(child: details),
+                        chevron,
+                      ],
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      headline,
-                      style: theme.textTheme.bodyMedium!.copyWith(
-                        color: colors.textMuted,
-                      ),
-                    ),
-                    if (action != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Weakest: ${action.indicator.label.toLowerCase()}. '
-                        '${action.message}',
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                    ],
+                  ],
+                )
+              : Row(
+                  children: [
+                    healthRing,
+                    const SizedBox(width: 16),
+                    Expanded(child: details),
+                    chevron,
                   ],
                 ),
-              ),
-              Icon(Icons.chevron_right, color: colors.textMuted),
-            ],
-          ),
         ),
       ),
     );

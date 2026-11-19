@@ -47,8 +47,9 @@ abstract final class AppTheme {
       secondary: BrandTokens.darkHcText,
       outline: BrandTokens.darkHcTextMuted,
       outlineVariant: BrandTokens.darkHcBorder,
+      surfaceContainerLowest: BrandTokens.darkHcBackground,
     ),
-    background: BrandTokens.darkBackground,
+    background: BrandTokens.darkHcBackground,
     colors: PesaColors.darkHighContrast,
   );
 
@@ -115,12 +116,19 @@ abstract final class AppTheme {
         border: box(colors.border),
         enabledBorder: box(colors.border),
         disabledBorder: box(colors.border.withValues(alpha: 0.5)),
-        focusedBorder: box(base.colorScheme.primary, 2),
+        focusedBorder: box(colors.link, 2),
         errorBorder: box(base.colorScheme.error),
         focusedErrorBorder: box(base.colorScheme.error, 2),
       ),
     );
   }
+
+  /// An iPhone field's outline: rounded, and only drawn when [side] is.
+  static OutlineInputBorder _row([BorderSide side = BorderSide.none]) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(BrandTokens.fieldRadius),
+        borderSide: side,
+      );
 
   static ThemeData _build({
     required ColorScheme scheme,
@@ -136,19 +144,22 @@ abstract final class AppTheme {
       borderRadius: BorderRadius.circular(Layout.panelRadius),
       side: BorderSide(color: colors.border),
     );
+    // Read when the theme is built, so tests can override the platform.
+    final iPhone = defaultTargetPlatform == TargetPlatform.iOS;
     final textTheme = AppTypography.textTheme(
       scheme.onSurface,
       scheme.onSurfaceVariant,
+      iPhone: iPhone,
     );
     const minTouch = Size(BrandTokens.touchTarget, BrandTokens.touchTarget);
     const OutlinedBorder pill = StadiumBorder();
-    // Read when the theme is built, so tests can override the platform.
-    final iPhone = defaultTargetPlatform == TargetPlatform.iOS;
 
     return ThemeData(
       useMaterial3: true,
-      // One design on Android and iPhone (decision 0011); iPhone keeps its
-      // swipe-back page transition.
+      // One design on Android and iPhone (decision 0011). iPhone keeps its
+      // swipe-back page transition and takes the iOS conventions people
+      // expect: a 34 bold tab title, a back chevron with a centred title,
+      // and text fields drawn as filled rows.
       platform: TargetPlatform.android,
       pageTransitionsTheme: iPhone
           ? const PageTransitionsTheme(
@@ -170,12 +181,14 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        centerTitle: false,
-        titleTextStyle: textTheme.titleLarge,
+        centerTitle: iPhone,
+        titleTextStyle: iPhone ? textTheme.titleMedium : textTheme.titleLarge,
       ),
-      // One back arrow on every pushed screen and sheet.
+      // One back arrow on every pushed screen and sheet: a chevron on
+      // iPhone.
       actionIconTheme: ActionIconThemeData(
-        backButtonIconBuilder: (context) => const Icon(Icons.arrow_back),
+        backButtonIconBuilder: (context) =>
+            Icon(iPhone ? Icons.arrow_back_ios_new : Icons.arrow_back),
       ),
       cardTheme: CardThemeData(
         color: scheme.surface,
@@ -263,6 +276,72 @@ abstract final class AppTheme {
         iconColor: scheme.onSurfaceVariant,
         titleTextStyle: textTheme.bodyLarge,
         subtitleTextStyle: textTheme.bodySmall,
+      ),
+      // A focused field, the text cursor, a chosen radio or box and progress
+      // take the link red: brand red in light, brightened in dark, where
+      // brand red is a fill only (2.9:1 on a card).
+      inputDecorationTheme: InputDecorationTheme(
+        // On iPhone a field is a filled row with no line under it.
+        filled: iPhone,
+        fillColor: iPhone ? colors.selected : null,
+        border: iPhone ? _row() : null,
+        enabledBorder: iPhone ? _row() : null,
+        disabledBorder: iPhone ? _row() : null,
+        contentPadding: iPhone
+            ? const EdgeInsets.symmetric(horizontal: 16, vertical: 14)
+            : null,
+        focusedBorder: iPhone
+            ? _row(BorderSide(color: colors.link, width: 2))
+            : UnderlineInputBorder(
+                borderSide: BorderSide(color: colors.link, width: 2),
+              ),
+        errorBorder: iPhone ? _row(BorderSide(color: scheme.error)) : null,
+        focusedErrorBorder: iPhone
+            ? _row(BorderSide(color: scheme.error, width: 2))
+            : null,
+        floatingLabelStyle: WidgetStateTextStyle.resolveWith(
+          (states) => TextStyle(
+            color: states.contains(WidgetState.error)
+                ? scheme.error
+                : states.contains(WidgetState.focused)
+                ? colors.link
+                : scheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: colors.link,
+        selectionHandleColor: colors.link,
+        selectionColor: colors.link.withValues(alpha: 0.4),
+      ),
+      radioTheme: RadioThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? colors.link : null,
+        ),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? colors.link : null,
+        ),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: colors.link),
+      sliderTheme: SliderThemeData(
+        activeTrackColor: colors.link,
+        thumbColor: colors.link,
+      ),
+      // Today's ring in the calendar; the chosen day stays a brand-red fill
+      // with white on it.
+      datePickerTheme: DatePickerThemeData(
+        todayForegroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? scheme.onPrimary
+              : states.contains(WidgetState.disabled)
+              ? colors.link.withValues(alpha: 0.38)
+              : colors.link,
+        ),
+        todayBorder: BorderSide(color: colors.link),
       ),
       // On is calm green, so red stays for danger and the main action.
       switchTheme: SwitchThemeData(
