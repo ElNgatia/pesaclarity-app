@@ -14,6 +14,7 @@ import '../../../theme/pesa_colors.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../application/ask_providers.dart';
 import 'ask_answer_view.dart';
+import 'ask_app_bar.dart';
 import 'ask_strings.dart';
 
 /// Saved conversations in the open space, Today, This week and Earlier.
@@ -69,14 +70,55 @@ class _AskConversationsScreenState
       return dayLabel(day, thisYear: today.year);
     }
 
+    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1;
+    final titleStyle =
+        theme.appBarTheme.titleTextStyle ?? theme.textTheme.titleLarge!;
+    final spaceStyle = theme.textTheme.bodySmall!.copyWith(
+      color: colors.textMuted,
+    );
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text(AskStrings.conversations),
+        // At larger text the space's name goes under the title, as in a
+        // conversation, so the chip doesn't cut the title short.
+        toolbarHeight: largeText
+            ? askToolbarHeight(
+                context,
+                title: AskStrings.conversations,
+                titleStyle: titleStyle,
+                spaceName: space.name,
+                spaceStyle: spaceStyle,
+                // Less the back button and the title's spacing either side.
+                width: MediaQuery.sizeOf(context).width - kToolbarHeight - 32,
+              )
+            : null,
+        title: largeText
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    AskStrings.conversations,
+                    // The app bar's titles don't wrap unless asked.
+                    softWrap: true,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: titleStyle,
+                  ),
+                  Text(
+                    space.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: spaceStyle,
+                  ),
+                ],
+              )
+            : const Text(AskStrings.conversations),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Chip(label: Text(space.name)),
-          ),
+          if (!largeText)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Chip(label: Text(space.name)),
+            ),
         ],
       ),
       floatingActionButton: DecoratedBox(

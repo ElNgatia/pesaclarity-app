@@ -20,6 +20,7 @@ import '../../spaces/application/spaces_providers.dart';
 import '../application/ask_providers.dart';
 import '../application/ask_settings.dart';
 import 'ask_answer_view.dart';
+import 'ask_app_bar.dart';
 import 'ask_strings.dart';
 
 /// Ask: a conversation about the open space's money.
@@ -172,7 +173,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         // Taller when the title wraps to its second line at large text.
         toolbarHeight: session.isEmpty
             ? null
-            : _toolbarHeight(
+            : askToolbarHeight(
                 context,
                 title: session.title ?? AskStrings.title,
                 titleStyle: titleStyle,
@@ -331,38 +332,6 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       ),
     );
   }
-}
-
-/// The app bar's height for a conversation: the usual height, or more when
-/// [title] wraps to its second line in [width] at large text, so the title
-/// and the space's name under it both fit.
-double _toolbarHeight(
-  BuildContext context, {
-  required String title,
-  required TextStyle titleStyle,
-  required String? spaceName,
-  required TextStyle spaceStyle,
-  required double width,
-}) {
-  final scaler = MediaQuery.textScalerOf(context);
-  final direction = Directionality.of(context);
-  double height(String text, TextStyle style, int maxLines) {
-    final painter = TextPainter(
-      text: TextSpan(text: text, style: style),
-      textScaler: scaler,
-      textDirection: direction,
-      maxLines: maxLines,
-      ellipsis: '…',
-    )..layout(maxWidth: width);
-    final h = painter.height;
-    painter.dispose();
-    return h;
-  }
-
-  final content =
-      height(title, titleStyle, 2) +
-      (spaceName == null ? 0 : height(spaceName, spaceStyle, 1));
-  return content + 16 > kToolbarHeight ? content + 16 : kToolbarHeight;
 }
 
 class _Empty extends StatelessWidget {
