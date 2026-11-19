@@ -6,12 +6,14 @@ import '../../../core/network/pinned_http_client.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../auth/data/json_transport.dart';
+import '../../counting/application/counting.dart';
 import '../data/app_status_memo.dart';
 import '../data/app_status_source.dart';
 import '../data/app_status_verifier.dart';
 import '../domain/app_status.dart';
 import '../domain/pinned_keys.dart';
 import 'message_rereader.dart';
+import 'update_check_choice.dart';
 import 'update_links.dart';
 
 /// How often the app asks the server at most.
@@ -65,6 +67,8 @@ class AppStatusController extends AsyncNotifier<AppStatusView?> {
     final build = ref.watch(updateChannelProvider).name;
     final platform = ref.watch(appStatusPlatformProvider);
     try {
+      // The F-Droid build asks first (ADR 0024): no answer, no check.
+      if (!await ref.watch(updateCheckAllowedProvider.future)) return null;
       return await _load(source, verifier, version, build, platform);
     } on Object {
       return null;
@@ -105,6 +109,7 @@ class AppStatusController extends AsyncNotifier<AppStatusView?> {
         version: version,
         build: build,
         platform: platform,
+        countToken: await _countToken(),
       );
       // Offline: try again next time the app opens.
       if (envelope == null) return null;
@@ -126,6 +131,18 @@ class AppStatusController extends AsyncNotifier<AppStatusView?> {
     if (status == null) return null;
     await _askForRereads(status);
     return AppStatusView(status, _memo.dismissed);
+  }
+
+  /// This month's counting token, or null; a failure never stops the check.
+  Future<String?> _countToken() async {
+    try {
+      return await ref
+          .read(countTokenIssuerProvider)
+          .tokenForCheckIn()
+          .timeout(const Duration(seconds: 5));
+    } on Object {
+      return null;
+    }
   }
 
   /// Hands each notice's `reread_from` to the re-reader once.

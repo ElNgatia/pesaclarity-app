@@ -1,0 +1,79 @@
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../routing/app_router.dart';
+import '../../app_status/application/update_check_choice.dart';
+import '../application/crash_reports.dart';
+import '../data/pending_crash_store.dart';
+import 'crash_report_sheet.dart';
+
+/// Starts crash capture, and once the app is unlocked and onboarded deals
+/// with the reports waiting from the last run (ADR 0024). It shows nothing:
+/// with Ask each time, reports wait for the sheet that asks.
+class CrashReportsOnStart extends ConsumerStatefulWidget {
+  const CrashReportsOnStart({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  ConsumerState<CrashReportsOnStart> createState() =>
+      _CrashReportsOnStartState();
+}
+
+class _CrashReportsOnStartState extends ConsumerState<CrashReportsOnStart> {
+  bool _handled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_install());
+    ref.listenManual(launchGateProvider, (_, gate) {
+      if ((gate.value ?? false) && !_handled) {
+        _handled = true;
+        unawaited(
+          _handle().then<void>(
+            (_) {},
+            onError: (Object _) {
+              // Best effort: the reports wait for the next start.
+            },
+          ),
+        );
+      }
+    }, fireImmediately: true);
+  }
+
+  /// Sends or deletes the waiting reports as chosen; with Ask each time,
+  /// once policy 2.4 is agreed, asks with the sheet.
+  Future<void> _handle() async {
+    final outcome = await ref.read(pendingCrashReportsProvider.future);
+    if (outcome != PendingOutcome.waitingForAnswer || !mounted) return;
+    if (!await ref.read(agreedToReportingPolicyProvider.future)) return;
+    final reports = await ref.read(pendingCrashStoreProvider).read();
+    if (reports.isEmpty || !mounted) return;
+    final navigator = ref
+        .read(appRouterProvider)
+        .routerDelegate
+        .navigatorKey
+        .currentContext;
+    if (navigator == null || !navigator.mounted) return;
+    await showCrashReportSheet(navigator, reports);
+  }
+
+  Future<void> _install() async {
+    try {
+      final context = await ref.read(crashContextProvider.future);
+      if (context == null || !mounted) return;
+      CrashCapture(
+        store: ref.read(pendingCrashStoreProvider),
+        context: context,
+      ).install();
+    } on Object {
+      // No capture on a phone or build the report cannot name.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
