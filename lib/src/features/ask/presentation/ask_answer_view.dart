@@ -483,7 +483,8 @@ class SuggestionChips extends StatelessWidget {
         for (final s in suggestions)
           ActionChip(
             avatar: const Icon(Icons.auto_awesome_outlined, size: 16),
-            label: Text(s),
+            // Wraps at large text rather than being clipped.
+            label: Text(s, softWrap: true, maxLines: 3),
             backgroundColor: PesaColors.of(context).field,
             side: BorderSide.none,
             onPressed: () => onTap(s),
