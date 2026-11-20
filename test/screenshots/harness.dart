@@ -145,16 +145,12 @@ Widget tabShell(
 ///
 /// With [checkAccessibility] it registers the screen once for each text
 /// size in [accessibilityScales] and theme instead, and [snap] checks it.
-/// A screen with a [knownAccessibilityIssue] is drawn but left out of that
-/// check until the issue is fixed; say what fails and where.
 void screenshot(
   String name,
   Future<void> Function(WidgetTester tester) body, {
   bool statusBar = true,
-  String? knownAccessibilityIssue,
 }) {
   if (checkAccessibility) {
-    if (knownAccessibilityIssue != null) return;
     for (final scale in accessibilityScales) {
       for (final (dark, contrast) in [
         (false, false),

@@ -7,16 +7,24 @@ import 'package:pesaclarity/src/domain/categoriser/suggester.dart';
 import 'package:pesaclarity/src/domain/enums.dart';
 import 'package:pesaclarity/src/domain/ledger/ledger_entry.dart';
 
-/// The manifest pesaclarity-ml writes for the shipping config.
+/// The manifest pesaclarity-ml writes for the shipping config, without its
+/// `fine_tune` block.
 Map<String, Object?> manifestJson({
   int version = 1,
   int maxTokens = 8,
   List<int>? shape,
   List<String>? layout,
+  int weightsFormat = 1,
 }) => {
-  'model_file': 'categoriser.tflite',
-  'model_sha256': 'AB' * 32,
-  'model_size_bytes': 81234,
+  'weights_file': 'categoriser.weights',
+  'weights_sha256': 'AB' * 32,
+  'weights_size_bytes': 75776,
+  'weights_format_version': weightsFormat,
+  'source': {
+    'file': 'categoriser.onnx',
+    'sha256': 'CD' * 32,
+    'size_bytes': 276510,
+  },
   'feature_schema_version': version,
   'feature_config': {'max_tokens': maxTokens, 'hash_buckets': 4096},
   'input': {
@@ -25,9 +33,16 @@ Map<String, Object?> manifestJson({
     'shape': shape ?? [-1, maxTokens + 5],
   },
   'layout': layout ?? FeatureConfig(maxTokens: maxTokens).layout,
+  'rayo_inputs': {
+    'features': {
+      'dtype': 'int32',
+      'shape': [maxTokens + 5],
+    },
+  },
+  'outputs': ['category'],
 };
 
-class FakeRuntime implements TfliteRuntime {
+class FakeRuntime implements CategoriserRuntime {
   FakeRuntime(this.probs);
 
   final List<double> probs;
@@ -98,8 +113,43 @@ void main() {
     test('accepts the shipping manifest', () {
       final m = ModelManifest.fromJson(manifestJson());
       expect(m.incompatibilities(), isEmpty);
-      expect(m.modelSha256, 'ab' * 32);
+      expect(m.weightsFile, 'categoriser.weights');
+      expect(m.weightsSha256, 'ab' * 32);
+      expect(m.weightsSizeBytes, 75776);
+      expect(m.weightsFormatVersion, 1);
+      expect(m.outputs, ['category']);
+      expect(m.fineTune, isNull);
       expect(m.featureConfig, const FeatureConfig());
+    });
+
+    test('refuses a weights format it does not read', () {
+      final m = ModelManifest.fromJson(manifestJson(weightsFormat: 2));
+      expect(m.incompatibilities(), ['weights format 2; this app reads 1']);
+    });
+
+    test('refuses a model without the category output', () {
+      final m = ModelManifest.fromJson({
+        ...manifestJson(),
+        'outputs': ['logits'],
+      });
+      expect(m.incompatibilities(), ['no category output']);
+    });
+
+    test('does not read the TFLite-era manifest', () {
+      final old = {...manifestJson()}
+        ..remove('weights_file')
+        ..remove('weights_sha256')
+        ..remove('weights_size_bytes')
+        ..remove('weights_format_version');
+      expect(
+        () => ModelManifest.fromJson({
+          ...old,
+          'model_file': 'categoriser.tflite',
+          'model_sha256': 'ab' * 32,
+          'model_size_bytes': 82376,
+        }),
+        throwsFormatException,
+      );
     });
 
     test('refuses a feature schema version it cannot feed', () {
@@ -142,7 +192,7 @@ void main() {
     });
   });
 
-  group('TfliteCategoriser', () {
+  group('ModelCategoriser', () {
     final labels = ModelLabels.fromJson({
       'version': 1,
       'labels': ['groceries', 'eating_out', 'salary'],
@@ -150,7 +200,7 @@ void main() {
 
     test('encodes the row and ranks labels by probability', () {
       final runtime = FakeRuntime([0.1, 0.7, 0.2]);
-      final c = TfliteCategoriser(
+      final c = ModelCategoriser(
         manifest: ModelManifest.fromJson(manifestJson()),
         labels: labels,
         runtime: runtime,
@@ -188,7 +238,7 @@ void main() {
     test('refuses labels that do not match the outputs, closing it', () {
       final runtime = FakeRuntime([0.5, 0.5]);
       expect(
-        () => TfliteCategoriser(
+        () => ModelCategoriser(
           manifest: ModelManifest.fromJson(manifestJson()),
           labels: labels,
           runtime: runtime,
@@ -200,7 +250,7 @@ void main() {
 
     test('refuses a newer feature schema', () {
       expect(
-        () => TfliteCategoriser(
+        () => ModelCategoriser(
           manifest: ModelManifest.fromJson(manifestJson(version: 2)),
           labels: labels,
           runtime: FakeRuntime([0, 0, 1]),
@@ -255,6 +305,139 @@ void main() {
         'money_received',
       ]);
       expect(keys('Unknown Business'), isEmpty);
+    });
+
+    test('a known payee is certain, a word in the name a guess', () {
+      double confidence(String payee, {bool inflow = false}) => rules
+          .score(
+            CategoriserInput(
+              payee: payee,
+              amountMinor: 5000,
+              isInflow: inflow,
+              occurredAt: DateTime.utc(2026),
+            ),
+          )
+          .single
+          .confidence;
+      expect(confidence('Naivas Juja City'), knownPayeeRuleConfidence);
+      expect(confidence('KPLC PREPAID'), knownPayeeRuleConfidence);
+      expect(confidence('HELB', inflow: true), knownPayeeRuleConfidence);
+      expect(confidence('DEMO SUPERMARKET'), payeeRuleConfidence);
+      expect(confidence('DEMO KIBANDA CAFE'), payeeRuleConfidence);
+      // A known payee anywhere in the table wins over an earlier word.
+      expect(keys('UBER WATER DELIVERY'), ['transport']);
+      expect(keys('SAMPLE WATER NAIVAS'), ['groceries']);
+    });
+  });
+
+  group('RulesFirstCategoriser', () {
+    late int modelRuns;
+    late RulesFirstCategoriser c;
+    setUp(() {
+      modelRuns = 0;
+      c = RulesFirstCategoriser(
+        rules: const RuleCategoriser(),
+        model: _CountingCategoriser(() => modelRuns++, [
+          const CategoryScore('eating_out', 0.8),
+        ]),
+      );
+    });
+
+    CategoriserInput input(String payee, TransactionKind? kind) =>
+        CategoriserInput(
+          payee: payee,
+          amountMinor: 5000,
+          isInflow: false,
+          occurredAt: DateTime.utc(2026, 11, 19, 9),
+          kind: kind,
+        );
+
+    test('the rules decide what the message type settles', () {
+      for (final (kind, key) in [
+        (TransactionKind.fulizaRepayment, 'fuliza_repayment'),
+        (TransactionKind.airtime, 'airtime_data'),
+        (TransactionKind.charge, 'fees_charges'),
+      ]) {
+        final scores = c.score(input('SAFARICOM', kind));
+        expect(scores.single.key, key);
+        expect(scores.single.confidence, kindRuleConfidence);
+        expect(scores.single.source, SuggestionSource.rules);
+      }
+      expect(modelRuns, 0);
+    });
+
+    test('the rules decide well-known payees', () {
+      for (final (payee, key) in [
+        ('NAIVAS WESTLANDS', 'groceries'),
+        ('KPLC PREPAID', 'utilities'),
+        ('SPORTPESA', 'betting'),
+      ]) {
+        final scores = c.score(input(payee, TransactionKind.till));
+        expect(scores.single.key, key);
+        expect(scores.single.confidence, knownPayeeRuleConfidence);
+        expect(scores.single.source, SuggestionSource.rules);
+      }
+      expect(modelRuns, 0);
+      expect(
+        knownPayeeRuleConfidence,
+        greaterThanOrEqualTo(certainRuleConfidence),
+      );
+    });
+
+    test('everything else goes to the model, payee-word guesses included', () {
+      expect(
+        c.score(input('DEMO UNKNOWN SHOP', TransactionKind.till)).first.key,
+        'eating_out',
+      );
+      // `supermarket` is a word (0.6), below certainRuleConfidence.
+      expect(
+        c.score(input('DEMO SUPERMARKET', TransactionKind.till)).first.key,
+        'eating_out',
+      );
+      expect(modelRuns, 2);
+      expect(kindRuleConfidence, greaterThanOrEqualTo(certainRuleConfidence));
+      expect(payeeRuleConfidence, lessThan(certainRuleConfidence));
+    });
+
+    test('the suggestion says which one it came from', () {
+      final s = CategorySuggester(
+        categoriser: RulesFirstCategoriser(
+          rules: const RuleCategoriser(),
+          model: FixedCategoriser([const CategoryScore('groceries', 0.7)]),
+        ),
+        categories: [
+          ...options,
+          const CategoryOption(
+            id: 5,
+            key: 'airtime_data',
+            type: CategoryType.expense,
+          ),
+        ],
+        corrections: {'name:my airtime shop': 2, 'name:naivas ruaka': 2},
+      );
+      final airtime = s.suggest(entry(kind: TransactionKind.airtime))!;
+      expect(airtime.key, 'airtime_data');
+      expect(airtime.source, SuggestionSource.rules);
+      expect(autoApplies(airtime), isTrue);
+      final shop = s.suggest(entry(name: 'Demo Unknown Shop'))!;
+      expect(shop.key, 'groceries');
+      expect(shop.source, SuggestionSource.model);
+      final naivas = s.suggest(entry(name: 'Naivas Juja'))!;
+      expect(naivas.key, 'groceries');
+      expect(naivas.source, SuggestionSource.rules);
+      expect(
+        s.suggest(entry(name: 'Demo Supermarket'))!.source,
+        SuggestionSource.model,
+      );
+      // The person's own choice still comes first.
+      final mine = s.suggest(entry(name: 'Naivas Ruaka'))!;
+      expect(mine.categoryId, 2);
+      expect(mine.source, SuggestionSource.correction);
+      final chosen = s.suggest(
+        entry(name: 'My Airtime Shop', kind: TransactionKind.airtime),
+      )!;
+      expect(chosen.categoryId, 2);
+      expect(chosen.source, SuggestionSource.correction);
     });
   });
 
@@ -328,4 +511,23 @@ void main() {
       );
     });
   });
+}
+
+class _CountingCategoriser implements Categoriser {
+  _CountingCategoriser(this.onScore, this.scores);
+
+  final void Function() onScore;
+  final List<CategoryScore> scores;
+
+  @override
+  SuggestionSource get source => SuggestionSource.model;
+
+  @override
+  List<CategoryScore> score(CategoriserInput input) {
+    onScore();
+    return scores;
+  }
+
+  @override
+  void close() {}
 }

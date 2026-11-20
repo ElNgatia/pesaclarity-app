@@ -31,11 +31,15 @@ class CategoriserInput {
 
 /// A category key with a confidence from 0 to 1.
 class CategoryScore {
-  const CategoryScore(this.key, this.confidence);
+  const CategoryScore(this.key, this.confidence, {this.source});
 
   /// A seeded category key, such as `groceries`.
   final String key;
   final double confidence;
+
+  /// Where this score came from, when it is not the categoriser's own
+  /// [Categoriser.source] (a rule's answer under [RulesFirstCategoriser]).
+  final SuggestionSource? source;
 
   @override
   String toString() => 'CategoryScore($key, $confidence)';
@@ -52,10 +56,11 @@ abstract interface class Categoriser {
   void close();
 }
 
-/// A loaded categoriser model (pesaclarity-ml exports it as TFLite), kept
-/// behind this interface so the domain does not depend on a runtime. The
-/// app has none for it yet (pesaclarity/docs decision 0020).
-abstract interface class TfliteRuntime {
+/// A loaded categoriser model, kept behind this interface so the domain does
+/// not depend on a runtime: `categoriser.weights` on rayo, or the same
+/// network in Dart, with weights fine-tuned on the phone or where rayo
+/// cannot load (`DartCategoriserRuntime`).
+abstract interface class CategoriserRuntime {
   /// Number of output classes for one row.
   int get outputSize;
 
@@ -76,16 +81,16 @@ class ModelRefused implements Exception {
 }
 
 /// The exported categoriser from pesaclarity-ml, run on the phone.
-class TfliteCategoriser implements Categoriser {
-  TfliteCategoriser._(this._runtime, this._config, this.labels);
+class ModelCategoriser implements Categoriser {
+  ModelCategoriser._(this._runtime, this._config, this.labels);
 
   /// Wraps [runtime], refusing it with [ModelRefused] when the manifest
   /// asks for features this app cannot produce or the labels do not match
   /// the model's outputs. The runtime is closed when refused.
-  factory TfliteCategoriser({
+  factory ModelCategoriser({
     required ModelManifest manifest,
     required ModelLabels labels,
-    required TfliteRuntime runtime,
+    required CategoriserRuntime runtime,
   }) {
     final reasons = [
       ...manifest.incompatibilities(),
@@ -96,10 +101,10 @@ class TfliteCategoriser implements Categoriser {
       runtime.close();
       throw ModelRefused(reasons);
     }
-    return TfliteCategoriser._(runtime, manifest.featureConfig, labels);
+    return ModelCategoriser._(runtime, manifest.featureConfig, labels);
   }
 
-  final TfliteRuntime _runtime;
+  final CategoriserRuntime _runtime;
   final FeatureConfig _config;
   final ModelLabels labels;
 
@@ -118,3 +123,47 @@ class TfliteCategoriser implements Categoriser {
   @override
   void close() => _runtime.close();
 }
+
+/// The model, except where the rules are certain: when [rules] give an
+/// answer at [certainRuleConfidence] or more (the message type settles it,
+/// such as airtime, a Fuliza repayment or charges, or the payee is a
+/// well-known one in the rules' table, such as Naivas or KPLC), that answer
+/// is used and [model] is not run. Every other transaction, a guess from a
+/// word in the payee's name included, goes to [model].
+///
+/// The person's own choices for a payee and the payee's default category
+/// come before both, in `CategorySuggester` and `applyPayee`.
+class RulesFirstCategoriser implements Categoriser {
+  const RulesFirstCategoriser({required this.rules, required this.model});
+
+  final Categoriser rules;
+  final Categoriser model;
+
+  @override
+  SuggestionSource get source => model.source;
+
+  @override
+  List<CategoryScore> score(CategoriserInput input) {
+    final ruled = rules.score(input);
+    if (ruled.isNotEmpty && ruled.first.confidence >= certainRuleConfidence) {
+      return [
+        for (final s in ruled)
+          CategoryScore(s.key, s.confidence, source: s.source ?? rules.source),
+      ];
+    }
+    return model.score(input);
+  }
+
+  @override
+  void close() {
+    rules.close();
+    model.close();
+  }
+}
+
+/// A rule answer at or above this confidence is used instead of the model:
+/// the confidence the rules give when the message type settles the category
+/// (`kindRuleConfidence`) or the payee is a well-known one
+/// (`knownPayeeRuleConfidence`). Weaker rule guesses, such as a word in the
+/// payee's name (`payeeRuleConfidence`), leave the transaction to the model.
+const certainRuleConfidence = 0.9;

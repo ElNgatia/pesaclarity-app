@@ -160,10 +160,28 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     ];
     final lastReply = session.messages.lastOrNull?.answer;
 
+    final titleStyle = theme.textTheme.titleLarge!.copyWith(fontSize: 18);
+    final spaceStyle = theme.textTheme.bodySmall!.copyWith(
+      color: colors.textMuted,
+    );
+    const leadingWidth = Layout.gutter + 44;
+
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        leadingWidth: Layout.gutter + 44,
+        // Taller when the title wraps to its second line at large text.
+        toolbarHeight: session.isEmpty
+            ? null
+            : _toolbarHeight(
+                context,
+                title: session.title ?? AskStrings.title,
+                titleStyle: titleStyle,
+                spaceName: session.title == null ? null : space.name,
+                spaceStyle: spaceStyle,
+                // The back button and the three 48 x 48 actions.
+                width: MediaQuery.sizeOf(context).width - leadingWidth - 3 * 48,
+              ),
+        leadingWidth: leadingWidth,
         leading: Padding(
           padding: const EdgeInsets.only(left: Layout.gutter - 4),
           child: IconButton(
@@ -181,23 +199,24 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           children: [
             Text(
               session.title ?? AskStrings.title,
-              maxLines: 1,
+              // The app bar's titles don't wrap unless asked.
+              softWrap: true,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleLarge!.copyWith(fontSize: 18),
+              style: titleStyle,
             ),
             if (session.title != null)
               Text(
                 space.name,
-                style: theme.textTheme.bodySmall!.copyWith(
-                  color: colors.textMuted,
-                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: spaceStyle,
               ),
           ],
         ),
         actions: [
           IconButton(
             key: const Key('ask-conversations'),
-            visualDensity: VisualDensity.compact,
             tooltip: AskStrings.conversations,
             icon: const Icon(Icons.menu),
             onPressed: () => context.push(AppRoutes.askConversations),
@@ -210,19 +229,16 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           else ...[
             IconButton(
               key: const Key('ask-new'),
-              visualDensity: VisualDensity.compact,
               tooltip: AskStrings.newConversation,
               icon: const Icon(Icons.add),
               onPressed: _controller.startNew,
             ),
             IconButton(
               key: const Key('ask-menu'),
-              visualDensity: VisualDensity.compact,
               tooltip: AskStrings.more,
               icon: const Icon(Icons.more_vert),
               onPressed: () => showAskMenu(context, ref),
             ),
-            const SizedBox(width: Layout.gutter - 16),
           ],
         ],
       ),
@@ -315,6 +331,38 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       ),
     );
   }
+}
+
+/// The app bar's height for a conversation: the usual height, or more when
+/// [title] wraps to its second line in [width] at large text, so the title
+/// and the space's name under it both fit.
+double _toolbarHeight(
+  BuildContext context, {
+  required String title,
+  required TextStyle titleStyle,
+  required String? spaceName,
+  required TextStyle spaceStyle,
+  required double width,
+}) {
+  final scaler = MediaQuery.textScalerOf(context);
+  final direction = Directionality.of(context);
+  double height(String text, TextStyle style, int maxLines) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textScaler: scaler,
+      textDirection: direction,
+      maxLines: maxLines,
+      ellipsis: '…',
+    )..layout(maxWidth: width);
+    final h = painter.height;
+    painter.dispose();
+    return h;
+  }
+
+  final content =
+      height(title, titleStyle, 2) +
+      (spaceName == null ? 0 : height(spaceName, spaceStyle, 1));
+  return content + 16 > kToolbarHeight ? content + 16 : kToolbarHeight;
 }
 
 class _Empty extends StatelessWidget {
