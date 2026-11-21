@@ -17,6 +17,25 @@ enum SmsAccess {
   unavailable,
 }
 
+/// A message with the SIM it arrived on, on a phone that says: an opaque
+/// key of the SIM subscription, never the phone number. It tells two M-Pesa
+/// lines on one phone apart (see `MpesaLines`).
+class LineSmsMessage extends SmsMessage {
+  const LineSmsMessage({
+    required super.sender,
+    required super.body,
+    required super.receivedAt,
+    required this.line,
+  });
+
+  /// `sim:` and the subscription id the phone gave.
+  final String line;
+}
+
+/// The SIM [message] arrived on, when the phone said.
+String? lineOf(SmsMessage message) =>
+    message is LineSmsMessage ? message.line : null;
+
 /// The phone's SMS inbox and incoming messages, limited to given senders.
 abstract interface class SmsSource {
   Future<SmsAccess> access();
@@ -106,14 +125,29 @@ class PlatformSmsSource implements SmsSource {
     required DateTime before,
   }) async {}
 
-  static SmsMessage _fromMap(Map<Object?, Object?> map) => SmsMessage(
-    sender: map['sender']! as String,
-    body: map['body']! as String,
-    receivedAt: DateTime.fromMillisecondsSinceEpoch(
+  static SmsMessage _fromMap(Map<Object?, Object?> map) {
+    final sender = map['sender']! as String;
+    final body = map['body']! as String;
+    final receivedAt = DateTime.fromMillisecondsSinceEpoch(
       map['receivedAtMillis']! as int,
       isUtc: true,
-    ),
-  );
+    );
+    // Phones that keep no SIM with a message leave it out, or report a
+    // negative id.
+    final subscription = map['subscriptionId'];
+    return subscription is int && subscription >= 0
+        ? LineSmsMessage(
+            sender: sender,
+            body: body,
+            receivedAt: receivedAt,
+            line: 'sim:$subscription',
+          )
+        : SmsMessage(sender: sender, body: body, receivedAt: receivedAt);
+  }
+
+  /// [map] as the platform channel sends it, for tests.
+  @visibleForTesting
+  static SmsMessage fromChannel(Map<Object?, Object?> map) => _fromMap(map);
 }
 
 /// The Shortcuts automation that passes messages on iPhone.

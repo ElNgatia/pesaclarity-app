@@ -9,14 +9,17 @@ import '../../../core/time/clock.dart';
 import '../../../data/database/database_providers.dart';
 import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/accounts_repository.dart';
+import '../../../data/repositories/balances_repository.dart';
 import '../../../data/repositories/institutions_repository.dart';
 import '../../../data/repositories/message_reads_repository.dart';
 import '../../../data/repositories/reader_templates_repository.dart';
 import '../../../data/repositories/review_inbox_repository.dart';
 import '../../../data/repositories/sms_scan_marks_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/space.dart';
 import '../../../domain/time/calendar.dart';
+import '../../accounts/application/mpesa_lines_providers.dart';
 import '../../accounts/application/my_accounts_providers.dart';
 import '../../accounts/domain/institution.dart';
 import '../../categoriser/application/auto_categoriser.dart';
@@ -45,17 +48,34 @@ final smsIngestorProvider = Provider<SmsIngestor>(
     templates: ref.watch(readerTemplatesRepositoryProvider),
     reads: ref.watch(messageReadsRepositoryProvider),
     parse: ref.watch(smsParseBatchProvider),
+    lines: ref.watch(spaceMessageLinesProvider),
+    moveToAccount: ref.watch(balancesRepositoryProvider).moveToAccount,
     heldElsewhere: ref.watch(spaceDatabasesProvider).heldElsewhere,
   ),
 );
 
-final smsScanServiceProvider = Provider<SmsScanService>(
-  (ref) => SmsScanService(
-    source: ref.watch(smsSourceProvider),
+final smsScanServiceProvider = Provider<SmsScanService>((ref) {
+  final source = ref.watch(smsSourceProvider);
+  final spaceId = ref.watch(activeSpaceIdProvider);
+  return SmsScanService(
+    source: source,
     ingestor: ref.watch(smsIngestorProvider),
     marks: ref.watch(smsScanMarksRepositoryProvider),
-  ),
-);
+    // The iPhone's queue lets go of an M-Pesa message only once every space
+    // reading one of its lines has read it.
+    releaseUntil: source is! ShortcutConnection
+        ? null
+        : (institution, startedAt) async {
+            if (institution.id != mpesaInstitutionId) return startedAt;
+            final listed = {
+              for (final s in await ref.read(spacesProvider.future)) s.id,
+            };
+            return ref
+                .read(mpesaLinesProvider.notifier)
+                .change((l) => l.readTo(spaceId, startedAt, listed));
+          },
+  );
+});
 
 /// The institutions switched on in My accounts, in catalogue order.
 final selectedInstitutionsProvider = Provider<List<Institution>>((ref) {
@@ -64,11 +84,10 @@ final selectedInstitutionsProvider = Provider<List<Institution>>((ref) {
   // last space's: reading them would read that space's accounts into this
   // one.
   if (ids.isLoading) return const [];
-  final selected = ids.value ?? const {};
-  return [
-    for (final institution in ref.watch(institutionCatalogueProvider))
-      if (selected.contains(institution.id)) institution,
-  ];
+  return institutionsReadWith(
+    ref.watch(institutionCatalogueProvider),
+    ids.value ?? const {},
+  );
 });
 
 /// Reads what arrived for [selected] since their last scan: the catch-up
@@ -178,6 +197,7 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
 
     final range = await ref.watch(scanRangeProvider.future);
     if (!ref.mounted) return;
+    final readsMpesa = selected.any((i) => i.id == mpesaInstitutionId);
     // The same catch-up when the app opens and each time it comes back.
     Future<SmsIngestSummary> catchUp() => catchUpOnInbox(
       scan,
@@ -189,6 +209,30 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
     // Another space opened, or capture started afresh, meanwhile: the rest
     // is that run's to do.
     if (!ref.mounted) return;
+    if (readsMpesa) {
+      // Two M-Pesa lines read as one before lines were told apart: count
+      // them from the inbox once, so the split is offered.
+      try {
+        await countLines(
+          ref,
+          from: range
+              .firstDay(CalendarDate.local(ref.read(clockProvider)()))
+              ?.startInstant,
+        );
+      } on Object catch (error) {
+        if (kDebugMode) debugPrint('Counting M-Pesa lines failed: $error');
+      }
+      if (!ref.mounted) return;
+    }
+    if (readsMpesa) {
+      // Messages from a SIM the person has since placed on a line here.
+      try {
+        await readWhatLinesSent(ref);
+      } on Object catch (error) {
+        if (kDebugMode) debugPrint('Reading a line again failed: $error');
+      }
+      if (!ref.mounted) return;
+    }
     if (initial.added > 0) triggerAutoCategorise();
     // Amounts read before a pack knew an account's currency or number move
     // to the right ones, once per pack version.

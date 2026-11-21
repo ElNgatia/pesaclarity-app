@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/accounts/mpesa_lines.dart';
 import '../database/app_database.dart';
 import '../database/database_providers.dart';
 import '../database/space_databases.dart';
@@ -53,6 +54,12 @@ class DriftInstitutionsRepository implements InstitutionsRepository {
       await (_db.delete(
         _db.selectedInstitutions,
       )..where((t) => t.institutionId.equals(institutionId))).go();
+      // Switching M-Pesa off here stops every line of it read here too.
+      if (institutionId == mpesaInstitutionId) {
+        await (_db.delete(
+          _db.selectedInstitutions,
+        )..where((t) => t.institutionId.like('${lineSelectionId('')}%'))).go();
+      }
     }
   }
 }

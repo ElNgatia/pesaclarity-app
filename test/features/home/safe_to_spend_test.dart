@@ -14,6 +14,7 @@ import 'package:pesaclarity/src/domain/income/make_it_last.dart';
 import 'package:pesaclarity/src/domain/ledger/ledger_entry.dart';
 import 'package:pesaclarity/src/domain/spaces/money_between_spaces.dart';
 import 'package:pesaclarity/src/domain/time/calendar.dart';
+import 'package:pesaclarity/src/features/accounts/presentation/line_questions.dart';
 import 'package:pesaclarity/src/features/home/application/cash_flow_forecast_provider.dart';
 import 'package:pesaclarity/src/features/home/application/health_index_provider.dart';
 import 'package:pesaclarity/src/features/home/application/safe_to_spend_provider.dart';
@@ -138,6 +139,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          readsMpesaHereProvider.overrideWithValue(const AsyncData(false)),
           pendingReviewProvider.overrideWith((ref) => Stream.value(const [])),
           safeToSpendTodayProvider.overrideWith((ref) async => result),
           cashFlowForecastProvider.overrideWith((ref) async => null),
@@ -162,6 +164,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          readsMpesaHereProvider.overrideWithValue(const AsyncData(false)),
           pendingReviewProvider.overrideWith((ref) => Stream.value(const [])),
           safeToSpendTodayProvider.overrideWith((ref) async => null),
           untilNextMoneyProvider.overrideWith((ref) async => null),
@@ -204,6 +207,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          readsMpesaHereProvider.overrideWithValue(const AsyncData(false)),
           clockProvider.overrideWithValue(() => DateTime.utc(2026, 11, 14, 6)),
           pendingReviewProvider.overrideWith((ref) => Stream.value(const [])),
           safeToSpendTodayProvider.overrideWith((ref) async => null),
