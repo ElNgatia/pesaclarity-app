@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/time/clock.dart';
+import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
+import 'package:pesaclarity/src/domain/savings/savings_account.dart';
+import 'package:pesaclarity/src/domain/savings/savings_product.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/domain/time/calendar.dart';
 import 'package:pesaclarity/src/features/activity/presentation/add_transaction_sheet.dart';
@@ -20,6 +23,9 @@ import 'package:pesaclarity/src/features/home/presentation/add_menu.dart';
 import 'package:pesaclarity/src/features/lending/presentation/loan_sheet.dart';
 import 'package:pesaclarity/src/features/plan/presentation/plan_item_sheet.dart';
 import 'package:pesaclarity/src/features/sales/presentation/records_sheets.dart';
+import 'package:pesaclarity/src/features/savings/presentation/add_savings_sheet.dart';
+import 'package:pesaclarity/src/features/savings/presentation/savings_pocket_sheet.dart';
+import 'package:pesaclarity/src/features/savings/presentation/update_savings_balance_sheet.dart';
 import 'package:pesaclarity/src/features/spaces/application/spaces_providers.dart';
 import 'package:pesaclarity/src/features/spaces/presentation/spaces_sheet.dart';
 import 'package:pesaclarity/src/features/stock/presentation/item_sheet.dart';
@@ -29,26 +35,32 @@ import '../domain/fixtures.dart';
 import '../helpers/fake_app_lock.dart';
 import '../helpers/test_app.dart';
 import 'harness.dart';
+import 'savings_records.dart';
 
 final _now = eat(2026, 11, 19, 9, 30);
 final _today = CalendarDate.local(_now);
 
 /// Registers [name]: an empty screen that opens what [open] shows, then
-/// checks it. Only in the accessibility check.
+/// checks it. Only in the accessibility check. [seed] fills the records
+/// first, for a sheet that shows them.
 void _sheet(
   String name,
   void Function(BuildContext context) open, {
   Space space = Space.personal,
+  Future<void> Function(AppDatabase db)? seed,
 }) {
   if (!checkAccessibility) return;
   screenshot(name, (tester) async {
     final db = openTestDatabase();
+    if (seed != null) await tester.runAsync(() => seed(db));
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
           personalDatabaseProvider.overrideWithValue(db),
-          clockProvider.overrideWithValue(() => _now),
+          clockProvider.overrideWithValue(
+            () => seed == null ? _now : savingsNow,
+          ),
           deviceRegionProvider.overrideWithValue('KE'),
           activeSpaceProvider.overrideWithValue(space),
           ...appLockOverrides(),
@@ -109,6 +121,34 @@ void main() {
   );
   _sheet('item-sheet', showItemSheet, space: _shop);
   _sheet('bought-sheet', showBoughtSheet, space: _shop);
+  _sheet(
+    'add-savings-sheet',
+    (c) => showAddSavingsSheet(c, chumz),
+    seed: (db) => SavingsRecords(db).seed(),
+  );
+  late SavingsAccountSummary chumzAccount;
+  _sheet(
+    'update-savings-balance',
+    (c) => showUpdateSavingsBalanceSheet(c, chumzAccount),
+    seed: (db) async {
+      final records = SavingsRecords(db);
+      final id = await records.addChumz(await records.seed(), balances: false);
+      chumzAccount = await records.account(id);
+    },
+  );
+  _sheet(
+    'savings-pocket-sheet',
+    (c) => showSavingsPocketSheet(
+      c,
+      SavingsPocket(
+        id: 1,
+        accountId: 1,
+        code: 'CH12345',
+        name: 'Christmas',
+        lockedUntil: CalendarDate(2026, 12, 15),
+      ),
+    ),
+  );
   _sheet(
     'confirm-dialog',
     (c) => confirmDelete(
