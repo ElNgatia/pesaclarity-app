@@ -49,13 +49,28 @@ class Tag extends StatelessWidget {
 /// A short note in a tinted box, such as "Each one matches on its own when
 /// the message comes."
 class Notice extends StatelessWidget {
-  const Notice(this.text, {this.tone = Tone.info, this.icon, super.key});
+  const Notice(
+    this.text, {
+    this.tone = Tone.info,
+    this.icon,
+    this.lead,
+    this.problem = false,
+    super.key,
+  });
 
   final String text;
   final Tone tone;
 
   /// Shown before the text.
   final IconData? icon;
+
+  /// A first sentence in bold before [text], such as "Can't reach the
+  /// server."
+  final String? lead;
+
+  /// A real problem: the icon is red, the only red mark besides the main
+  /// button.
+  final bool problem;
 
   @override
   Widget build(BuildContext context) {
@@ -85,10 +100,25 @@ class Notice extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 20, color: ink),
+            Icon(icon, size: 20, color: problem ? colors.danger : ink),
             const SizedBox(width: 12),
           ],
-          Expanded(child: Text(text, style: theme.textTheme.bodyMedium)),
+          Expanded(
+            child: lead == null
+                ? Text(text, style: theme.textTheme.bodyMedium)
+                : Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: lead,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        TextSpan(text: ' $text'),
+                      ],
+                    ),
+                    style: theme.textTheme.bodyMedium,
+                  ),
+          ),
         ],
       ),
     );
