@@ -87,6 +87,10 @@ class ChoiceMenu<T> extends StatelessWidget {
                       fit: expand ? FlexFit.tight : FlexFit.loose,
                       child: Text(
                         text,
+                        // A form field's choice wraps at larger text rather
+                        // than lose its end, such as "Your M-Pesa (KES 250
+                        // is the stall's)".
+                        maxLines: expand ? 3 : 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.labelLarge!.copyWith(color: ink),
                       ),

@@ -273,8 +273,13 @@ class _AccountRow extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Flexible(
-              flex: 2,
+            // The amount takes the width it needs, up to more than half the
+            // row, so a five-figure balance stays whole at twice the text
+            // size; the name and its lines wrap beside it.
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.55,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
