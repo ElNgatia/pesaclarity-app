@@ -1,12 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/time/clock.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
 import 'package:pesaclarity/src/data/repositories/app_settings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/institutions_repository.dart';
+import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/domain/time/calendar.dart';
+import 'package:pesaclarity/src/features/accounts/application/my_accounts_providers.dart';
 import 'package:pesaclarity/src/features/accounts/presentation/choose_accounts_screen.dart';
 import 'package:pesaclarity/src/features/sms/application/read_again.dart';
 import 'package:pesaclarity/src/features/sms/application/sms_capture_providers.dart';
@@ -14,10 +19,12 @@ import 'package:pesaclarity/src/features/sms/application/sms_ingestor.dart';
 import 'package:pesaclarity/src/features/sms/data/sms_source.dart';
 import 'package:pesaclarity/src/features/sms/presentation/read_again_card.dart';
 import 'package:pesaclarity/src/features/sms/presentation/read_again_home_card.dart';
+import 'package:pesaclarity/src/features/spaces/application/spaces_providers.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
 
 import '../helpers/fake_sms_source.dart';
 import '../helpers/sms_samples.dart';
+import '../helpers/spaces_harness.dart' show NoActiveSpaceStore;
 import '../helpers/test_app.dart';
 
 /// A read held at [fixed], to show each of the card's states.
@@ -47,6 +54,8 @@ void main() {
         Widget home, {
         ReadAgainState? held,
         SmsSource? sms,
+        List<Override> overrides = const [],
+        double textScale = 1,
       }) async {
         await tester.pumpWidget(
           ProviderScope(
@@ -62,10 +71,15 @@ void main() {
               ),
               if (held != null)
                 readAgainControllerProvider.overrideWith(() => _Held(held)),
+              ...overrides,
             ],
             child: MaterialApp(
               theme: theme,
-              home: Scaffold(body: home),
+              home: MediaQuery.withClampedTextScaling(
+                minScaleFactor: textScale,
+                maxScaleFactor: textScale,
+                child: Scaffold(body: home),
+              ),
             ),
           ),
         );
@@ -186,15 +200,21 @@ void main() {
         expect(find.byIcon(Icons.chevron_right), findsNothing);
       });
 
-      testAppWidgets('My accounts: hidden with no account ticked, or on '
-          'iPhone', (tester) async {
+      testAppWidgets('My accounts: with no account on, says to switch one '
+          'on; hidden on iPhone', (tester) async {
         await pump(tester, const ReadAgainCard());
-        expect(find.byKey(const Key('read-again-card')), findsNothing);
+        expect(find.byKey(const Key('read-again-card')), findsOneWidget);
+        expect(find.byKey(const Key('read-again-none')), findsOneWidget);
+        expect(
+          find.text('Switch on an account above to read its messages.'),
+          findsOneWidget,
+        );
+        expect(find.text('Read again'), findsNothing);
 
         await tickMpesa(tester);
         await tester.pumpWidget(const SizedBox());
         await pump(tester, const ReadAgainCard());
-        expect(find.byKey(const Key('read-again-card')), findsOneWidget);
+        expect(find.byKey(const Key('read-again')), findsOneWidget);
 
         await tester.pumpWidget(const SizedBox());
         await pump(
@@ -204,6 +224,180 @@ void main() {
         );
         expect(find.byKey(const Key('read-again-card')), findsNothing);
       });
+
+      testAppWidgets('My accounts: while the accounts load, a quiet note '
+          'and the button off', (tester) async {
+        final never = StreamController<Set<String>>();
+        addTearDown(never.close);
+        await pump(
+          tester,
+          const ReadAgainCard(),
+          overrides: [
+            selectedInstitutionIdsProvider.overrideWith((ref) => never.stream),
+          ],
+        );
+        expect(find.text('Checking your accounts…'), findsOneWidget);
+        final button = tester.widget<OutlinedButton>(
+          find.descendant(
+            of: find.byKey(const Key('read-again')),
+            matching: find.byType(OutlinedButton),
+          ),
+        );
+        expect(button.onPressed, isNull);
+      });
+
+      testAppWidgets('My accounts: when the accounts could not be read, '
+          'says so and tries again', (tester) async {
+        await tickMpesa(tester);
+        var calls = 0;
+        await pump(
+          tester,
+          const ReadAgainCard(),
+          overrides: [
+            selectedInstitutionIdsProvider.overrideWith(
+              (ref) => calls++ == 0
+                  ? Stream.error(StateError('database locked'))
+                  : Stream.value({'mpesa'}),
+            ),
+          ],
+        );
+        expect(find.text('Your accounts could not be read.'), findsOneWidget);
+        expect(find.text('Read again'), findsNothing);
+
+        await tester.tap(find.byKey(const Key('read-again-retry')));
+        await settleFrames(tester);
+        expect(find.text('Your accounts could not be read.'), findsNothing);
+        expect(find.byKey(const Key('read-again')), findsOneWidget);
+      });
+
+      testAppWidgets('My accounts: in a business whose M-Pesa Personal '
+          'reads, says to open Personal or choose', (tester) async {
+        final personal = openTestDatabase();
+        addTearDown(personal.close);
+        await tester.runAsync(() async {
+          await DriftAppSettingsRepository(personal).writeJson(
+            SpacesController.settingsKey,
+            spacesToJson([
+              Space.personal,
+              const Space(
+                id: 'shop1',
+                name: 'Mama Mboga',
+                kind: SpaceKind.business,
+              ),
+            ]),
+          );
+          await DriftInstitutionsRepository(personal)
+              .setSelected('mpesa', selected: true);
+        });
+        await pump(
+          tester,
+          const ReadAgainCard(),
+          overrides: [
+            activeSpaceIdProvider.overrideWith(() => ActiveSpaceId('shop1')),
+            activeSpaceStoreProvider.overrideWithValue(
+              const NoActiveSpaceStore(),
+            ),
+            personalDatabaseProvider.overrideWithValue(personal),
+          ],
+        );
+        expect(
+          find.text(
+            'M-Pesa is read in Personal. Open Personal to read its messages '
+            'again, or choose in Business or personal.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('read-again-choose')), findsOneWidget);
+        expect(find.text('Read again'), findsNothing);
+      });
+
+      testAppWidgets('My accounts: a read that cannot start says why', (
+        tester,
+      ) async {
+        await tickMpesa(tester);
+        final sms = FakeSmsSource(
+          inbox: [mpesaSent()],
+          dialogAnswer: SmsAccess.denied,
+        );
+        await pump(tester, const ReadAgainCard(), sms: sms);
+        await tester.tap(find.text('Read again'));
+        await settleFrames(tester);
+        expect(
+          find.text(
+            'Pesa Clarity is not allowed to read your messages, so nothing '
+            'was read. Allow messages in Settings, then read again.',
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const Key('read-again-settings')));
+        expect(sms.settingsOpened, 1);
+
+        await pump(
+          tester,
+          const ReadAgainCard(),
+          held: const ReadAgainState(ReadAgainStage.noAccounts),
+        );
+        expect(
+          find.text('No account was on, so nothing was read. Try again.'),
+          findsOneWidget,
+        );
+      });
+
+      for (final scale in [1.3, 2.0]) {
+        testAppWidgets('My accounts: every state fits at ${scale}x text, '
+            'with labelled, big enough targets', (tester) async {
+          tester.view.physicalSize = const Size(1080, 2340);
+          tester.view.devicePixelRatio = 2.625;
+          addTearDown(tester.view.reset);
+          final never = StreamController<Set<String>>();
+          addTearDown(never.close);
+          Future<void> check(
+            List<Override> overrides, {
+            ReadAgainState? held,
+          }) async {
+            await tester.pumpWidget(const SizedBox());
+            await pump(
+              tester,
+              const ChooseAccountsScreen(),
+              overrides: overrides,
+              held: held,
+              textScale: scale,
+            );
+            await scrollTo(tester, find.byKey(const Key('read-again-card')));
+            expect(tester.takeException(), isNull);
+            await expectLater(
+              tester,
+              meetsGuideline(labeledTapTargetGuideline),
+            );
+            await expectLater(
+              tester,
+              meetsGuideline(androidTapTargetGuideline),
+            );
+          }
+
+          // Loading, could not be read, none on.
+          await check([
+            selectedInstitutionIdsProvider.overrideWith((ref) => never.stream),
+          ]);
+          await check([
+            selectedInstitutionIdsProvider.overrideWith(
+              (ref) => Stream.error(StateError('database locked')),
+            ),
+          ]);
+          await check(const []);
+          // Ready, no access, and a read that finished.
+          await tickMpesa(tester);
+          await check(const []);
+          await check(
+            const [],
+            held: const ReadAgainState(ReadAgainStage.noAccess),
+          );
+          await check(
+            const [],
+            held: ReadAgainState(ReadAgainStage.finished, total: 2, at: _now),
+          );
+        });
+      }
 
       testAppWidgets('Home: shows what newer readers found until closed', (
         tester,
