@@ -12,7 +12,6 @@ import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/ledger/activity_lines.dart';
 import '../../../domain/ledger/cross_currency_transfers.dart';
 import '../../../domain/ledger/ledger_entry.dart';
-import '../../../domain/ledger/own_transfers.dart';
 import '../../../domain/savings/savings_account.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../shared/format/date_labels.dart';
