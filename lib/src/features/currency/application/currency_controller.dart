@@ -29,6 +29,7 @@ class CurrencySettings {
   const CurrencySettings({
     required this.base,
     this.chosen = false,
+    this.secondary,
     this.ownRates = const {},
     this.rates,
     this.history,
@@ -40,6 +41,10 @@ class CurrencySettings {
   /// Whether the person picked [base], rather than it coming from the
   /// phone's region.
   final bool chosen;
+
+  /// A second currency the person likes to see beside [base], such as USD
+  /// under the KES figure on Home; null for none. Never the same as [base].
+  final String? secondary;
 
   /// Rates the person set: one [base] unit buys that much of a currency.
   final Map<String, double> ownRates;
@@ -57,23 +62,54 @@ class CurrencySettings {
     history: history,
   );
 
+  /// [baseMinor] base units in the [secondary] currency at the rate for
+  /// [when]: the person's own rate, else that day's, else the latest. Null
+  /// without a second currency or a rate for it.
+  Money? inSecondary(int baseMinor, DateTime when) {
+    final code = secondary;
+    if (code == null) return null;
+    final rate = converter.rateOn(code, when);
+    if (rate == null) return null;
+    return Money(
+      convertMinor(baseMinor, from: base, to: code, rate: rate.rate),
+      currency: code,
+    );
+  }
+
+  /// A copy with [secondary] set to [code]; null for none, and so is a
+  /// [code] equal to [base].
+  CurrencySettings withSecondary(String? code) => CurrencySettings(
+    base: base,
+    chosen: chosen,
+    secondary: code == base ? null : code,
+    ownRates: ownRates,
+    rates: rates,
+    history: history,
+  );
+
   CurrencySettings copyWith({
     String? base,
     bool? chosen,
     Map<String, double>? ownRates,
     ExchangeRates? rates,
     RateHistory? history,
-  }) => CurrencySettings(
-    base: base ?? this.base,
-    chosen: chosen ?? this.chosen,
-    ownRates: ownRates ?? this.ownRates,
-    rates: rates ?? this.rates,
-    history: history ?? this.history,
-  );
+  }) {
+    final nextBase = base ?? this.base;
+    return CurrencySettings(
+      base: nextBase,
+      chosen: chosen ?? this.chosen,
+      // Counting in the second currency leaves no second one.
+      secondary: secondary == nextBase ? null : secondary,
+      ownRates: ownRates ?? this.ownRates,
+      rates: rates ?? this.rates,
+      history: history ?? this.history,
+    );
+  }
 
   Map<String, Object?> toJson() => {
     'base': base,
     'chosen': chosen,
+    'secondary': ?secondary,
     'ownRates': ownRates,
   };
 }
@@ -110,6 +146,7 @@ class CurrencyController extends AsyncNotifier<CurrencySettings> {
     RateHistory? history,
   }) {
     final base = json?['base'];
+    final secondary = json?['secondary'];
     final own = json?['ownRates'];
     // Amounts saved before a currency was chosen are in KES, so that stays
     // the base until the person picks one; setup suggests their region's.
@@ -119,6 +156,10 @@ class CurrencyController extends AsyncNotifier<CurrencySettings> {
     return CurrencySettings(
       base: code,
       chosen: json?['chosen'] == true,
+      secondary:
+          secondary is String && isKnownCurrency(secondary) && secondary != code
+          ? secondary
+          : null,
       ownRates: {
         if (own is Map)
           for (final MapEntry(:key, :value) in own.entries)
@@ -137,13 +178,14 @@ class CurrencyController extends AsyncNotifier<CurrencySettings> {
     state = AsyncData(next);
   }
 
-  /// Saves [code] as chosen during setup, when nothing is counted yet.
+  /// Saves [code] as chosen during setup, when nothing is counted yet, with
+  /// [secondary] (null for none) as the second currency.
   ///
   /// It waits at most [choiceWait] for the saved settings: on a new phone
   /// there are none, so when they are slow or cannot be read it starts from
   /// the defaults and only the write has to work. A failed write throws, and
   /// nothing changes.
-  Future<void> choose(String code) async {
+  Future<void> choose(String code, {String? secondary}) async {
     var current = state.value;
     var stillLoading = false;
     if (current == null) {
@@ -159,6 +201,7 @@ class CurrencyController extends AsyncNotifier<CurrencySettings> {
     final next = CurrencySettings(
       base: code,
       chosen: true,
+      secondary: secondary == code ? null : secondary,
       ownRates: _rebaseOwn(from, code),
       rates: from.rates,
       history: from.history,
@@ -171,6 +214,12 @@ class CurrencyController extends AsyncNotifier<CurrencySettings> {
     } else {
       state = AsyncData(next);
     }
+  }
+
+  /// Sets the second currency, or clears it with null.
+  Future<void> setSecondary(String? code) async {
+    final current = await _current();
+    await _save(current.withSecondary(code));
   }
 
   /// Switches the base currency, converting the plan, goals, debts, loans
@@ -188,6 +237,8 @@ class CurrencyController extends AsyncNotifier<CurrencySettings> {
       CurrencySettings(
         base: code,
         chosen: true,
+        // Counting in the second currency leaves no second one.
+        secondary: current.secondary == code ? null : current.secondary,
         ownRates: _rebaseOwn(current, code),
         rates: current.rates,
         history: current.history,
@@ -204,6 +255,7 @@ class CurrencyController extends AsyncNotifier<CurrencySettings> {
       CurrencySettings(
         base: current.base,
         chosen: current.chosen,
+        secondary: current.secondary,
         ownRates: {
           for (final e in current.ownRates.entries)
             if (e.key != code) e.key: e.value,
