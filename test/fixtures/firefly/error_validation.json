@@ -1,0 +1,8 @@
+{
+  "message": "The value must be more than zero.",
+  "errors": {
+    "transactions.0.amount": [
+      "The value must be more than zero."
+    ]
+  }
+}

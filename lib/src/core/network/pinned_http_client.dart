@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'trusted_roots.dart';
@@ -46,6 +47,59 @@ class HttpClientFactory {
   /// such as Google Drive. Never use it for our own servers.
   HttpClient createUnpinned() =>
       HttpClient(context: context)..connectionTimeout = connectionTimeout;
+
+  /// A client for one server the person runs themselves, such as their
+  /// Firefly III (decision 0029). It reaches only [server]'s scheme, host
+  /// and port, never through a proxy, and trusts the phone's authorities
+  /// for that host only, plus exactly the certificate whose SHA-256
+  /// fingerprint is [trustedSha256] when the person chose to trust it. A
+  /// certificate the phone does not trust is reported to [onUntrusted]
+  /// with its fingerprint, so it can be shown, and refused. It is never
+  /// used for our own servers, which are pinned ([create]).
+  HttpClient createForUserServer(
+    Uri server, {
+    String? trustedSha256,
+    void Function(String sha256)? onUntrusted,
+  }) {
+    final scheme = server.scheme;
+    final host = server.host.toLowerCase();
+    final port = server.port;
+    // Only reached when the phone's authorities do not trust it.
+    bool accept(X509Certificate certificate) {
+      final fingerprint = sha256
+          .convert(certificate.der)
+          .toString()
+          .toUpperCase();
+      if (trustedSha256 != null && fingerprint == trustedSha256.toUpperCase()) {
+        return true;
+      }
+      onUntrusted?.call(fingerprint);
+      return false;
+    }
+
+    return HttpClient(context: context)
+      ..connectionTimeout = connectionTimeout
+      // The socket is opened here, so a proxy would bypass the checks.
+      ..findProxy = ((_) => 'DIRECT')
+      ..badCertificateCallback = ((_, _, _) => false)
+      ..connectionFactory = (url, proxyHost, proxyPort) async {
+        if (url.scheme != scheme ||
+            url.host.toLowerCase() != host ||
+            url.port != port) {
+          throw CertificatePinningException(
+            '${url.host} is not the server this client is for',
+          );
+        }
+        return url.isScheme('https')
+            ? SecureSocket.startConnect(
+                url.host,
+                url.port,
+                context: context,
+                onBadCertificate: accept,
+              )
+            : Socket.startConnect(url.host, url.port);
+      };
+  }
 
   HttpClient create() {
     if (!pinning) return createUnpinned();
