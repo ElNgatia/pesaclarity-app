@@ -50,6 +50,14 @@ class SpaceDatabases {
         .readJson(spacesListKey),
   );
 
+  /// [spaceId]'s name as the list has it: Personal's is "Personal".
+  Future<String> nameOf(String spaceId) async {
+    for (final space in await listed()) {
+      if (space.id == spaceId) return space.name;
+    }
+    return spaceId == personalSpaceId ? 'Personal' : spaceId;
+  }
+
   /// [spaceId]'s database, and whether the caller must close it.
   ///
   /// Throws [SpaceNotOnPhone], touching no file, when the space is not on

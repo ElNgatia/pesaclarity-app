@@ -325,10 +325,12 @@ class SharedLineRouter {
 /// The router, moving out of Personal into whichever business is asked.
 final sharedLineRouterProvider = Provider<SharedLineRouter>((ref) {
   final personal = ref.watch(personalDatabaseProvider);
+  final spaces = ref.watch(spaceDatabasesProvider);
   final mover = DriftSpaceMoveRepository(
     personal,
     // Only a business still on the list: see [SpaceDatabases.open].
-    ref.watch(spaceDatabasesProvider).open,
+    spaces.open,
+    nameOf: spaces.nameOf,
   );
   return SharedLineRouter(
     personal: personal,
