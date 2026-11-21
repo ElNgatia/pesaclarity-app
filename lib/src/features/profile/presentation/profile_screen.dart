@@ -28,6 +28,8 @@ import '../../close/application/business_day_providers.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../export/application/export_service.dart';
 import '../../export/presentation/export_sheet.dart';
+import '../../firefly/application/firefly_controller.dart';
+import '../../firefly/presentation/firefly_labels.dart';
 import '../../income/application/income_providers.dart';
 import '../../look/application/look_providers.dart';
 import '../../reminders/presentation/reminders_settings_card.dart';
@@ -181,6 +183,20 @@ class ProfileScreen extends ConsumerWidget {
         onTap: () => context.go(AppRoutes.backup),
       ),
     );
+    final firefly = ref.watch(fireflySettingsProvider).value;
+    final fireflyRow = Semantics(
+      identifier: SemanticIds.profileFirefly,
+      child: ListTile(
+        leading: const RowIcon(Icons.dns_outlined),
+        title: const Text('Firefly III'),
+        subtitle: Text(
+          fireflyRowSummary(firefly, ref.watch(clockProvider)()),
+          key: const Key('profile-firefly-summary'),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => context.go(AppRoutes.firefly),
+      ),
+    );
     final privacy = Semantics(
       identifier: SemanticIds.profilePrivacy,
       child: ListTile(
@@ -275,7 +291,7 @@ class ProfileScreen extends ConsumerWidget {
       subscriptionsRow,
       askRow,
     ];
-    final data = [export, if (canImport) importRow, backup];
+    final data = [export, if (canImport) importRow, backup, fireflyRow];
     final about = [privacy, ?support, buildRow];
 
     return Scaffold(

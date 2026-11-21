@@ -46,6 +46,9 @@ abstract final class AppRoutes {
   static const chooseAccounts = '/home/profile/accounts/choose';
   static const backup = '/home/profile/backup';
   static const backupSetup = '/home/profile/backup/setup';
+
+  /// Sending to the person's own Firefly III (decision 0029).
+  static const firefly = '/home/profile/firefly';
   static const privacy = '/home/profile/privacy';
   static const support = '/home/profile/support';
   static const spaces = '/home/profile/spaces';
