@@ -20,10 +20,13 @@ import '../../../shared/widgets/progress_ring.dart';
 import '../../../shared/widgets/sections.dart';
 import '../../../shared/widgets/states.dart';
 import '../../../theme/app_typography.dart';
+import '../../../theme/brand_tokens.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../debts/presentation/debt_row.dart';
+import '../../debts/presentation/due_line.dart' show IconLine;
 import '../../lending/application/lending_providers.dart';
+import '../../savings/presentation/savings_text.dart';
 import '../application/goals_overview_provider.dart';
 import 'goal_sheet.dart';
 
@@ -361,6 +364,24 @@ class _GoalCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(pace, style: theme.textTheme.bodySmall),
               ],
+              if (goal.backing case final backing?) ...[
+                const SizedBox(height: 10),
+                SavedInChip(backing.accountName),
+                if (backing.lockedUntil case final until?
+                    when backing.isLockedOn(today)) ...[
+                  const SizedBox(height: 8),
+                  IconLine(
+                    icon: Icons.lock_outline,
+                    text: TextSpan(
+                      text: SavingsText.lockedUntilDay(until, today.year),
+                    ),
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: colors.textMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
             ],
           ),
         ),
@@ -490,6 +511,44 @@ class _LinkCard extends StatelessWidget {
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right),
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+/// "Saved in Chumz", on a goal whose money a savings app keeps.
+class SavedInChip extends StatelessWidget {
+  const SavedInChip(this.accountName, {super.key});
+
+  final String accountName;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = PesaColors.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: colors.markTeal.withValues(alpha: dark ? 0.12 : 0.10),
+        borderRadius: BorderRadius.circular(BrandTokens.pillRadius),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.account_balance_outlined,
+            size: MediaQuery.textScalerOf(context).scale(14),
+            color: colors.markTeal,
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              SavingsText.savedIn(accountName),
+              style: Theme.of(context).textTheme.labelMedium!
+                  .copyWith(color: colors.markTeal, fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }
