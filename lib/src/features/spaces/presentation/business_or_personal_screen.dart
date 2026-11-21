@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/database/database_providers.dart';
 import '../../../data/repositories/institutions_repository.dart';
+import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/line_routing.dart';
 import '../../../shared/widgets/choice_menu.dart';
 import '../../../shared/widgets/states.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../accounts/application/mpesa_lines_providers.dart';
 import '../../accounts/application/my_accounts_providers.dart';
 import '../../accounts/domain/institution.dart';
 import '../application/routing_providers.dart';
@@ -40,9 +42,13 @@ class BusinessOrPersonalScreen extends ConsumerWidget {
     final rules = ref.watch(routingRulesProvider).value;
     final loading = inBusiness == null || inPersonal == null || rules == null;
     final shared = rules?.sharedWith(space.id) ?? const <String>{};
+    // Split M-Pesa lines are each given a space in My accounts, M-Pesa
+    // lines.
+    final split = ref.watch(mpesaLinesProvider).value?.split ?? false;
     final lines = [
       for (final i in ref.watch(institutionCatalogueProvider))
         if (!loading &&
+            !(split && i.id == mpesaInstitutionId) &&
             (inBusiness.contains(i.id) ||
                 inPersonal.contains(i.id) ||
                 shared.contains(i.id)))

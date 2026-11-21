@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart' hide Tag;
+import '../../../domain/books/cash_book.dart' show CashColumn;
 import '../../../domain/ledger/activity_lines.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../routing/app_routes.dart';
@@ -18,6 +19,7 @@ import '../../../shared/widgets/sections.dart';
 import '../../../shared/widgets/states.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../accounts/application/mpesa_lines_providers.dart';
 import '../../activity/application/activity_providers.dart';
 import '../../payees/presentation/transaction_sheet.dart';
 import '../application/cash_book_providers.dart';
@@ -45,6 +47,15 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
     final accounts = ref.watch(activityAccountsProvider).value ?? const {};
     final categories = ref.watch(activityCategoriesProvider).value ?? const {};
     final hidden = AmountsHidden.of(context);
+    // With one M-Pesa line here, its tile says which.
+    final hiddenLines = ref.watch(hiddenLineAccountsProvider);
+    final wallets = [
+      for (final a in accounts.values)
+        if (a.type == AccountType.mpesa && !hiddenLines.contains(a.id)) a.id,
+    ];
+    final line = wallets.length == 1
+        ? ref.watch(readLineAccountsProvider)[wallets.single]
+        : null;
 
     String plain(int minor) =>
         moneyOrHidden(minor, hidden: hidden, withCurrency: false);
@@ -87,7 +98,9 @@ class _MoneyScreenState extends ConsumerState<MoneyScreen> {
                     for (final MapEntry(:key, :value) in book.balances.entries)
                       FigureTile(
                         key: Key('money-balance-${key.name}'),
-                        label: key.label,
+                        label: key == CashColumn.mpesa && line != null
+                            ? '${key.label} · ${line.label}'
+                            : key.label,
                         value: plain(value),
                       ),
                   ],
