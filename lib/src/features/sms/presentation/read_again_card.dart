@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/time/clock.dart';
 import '../../../domain/ledger/activity_feed.dart';
+import '../../../domain/spaces/space.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../routing/app_routes.dart';
 import '../../../shared/format/date_labels.dart';
@@ -11,10 +12,13 @@ import '../../../shared/widgets/marks.dart';
 import '../../../theme/brand_tokens.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../accounts/application/my_accounts_providers.dart';
+import '../../spaces/application/spaces_providers.dart';
 import '../application/read_again.dart';
 import '../application/sms_capture_providers.dart';
 import '../application/sms_ingestor.dart';
 import '../data/sms_source.dart';
+import 'read_again_home_card.dart' show namesList;
 
 /// `2,960`.
 String countLabel(int n) {
@@ -42,40 +46,94 @@ ActivityFilter changedFilter(List<ReadChange> changes) {
 /// "Read messages again", under "Read messages from": reads every ticked
 /// account's messages again with the readers this app has, then says what
 /// changed. The read goes on when the person leaves the screen.
+///
+/// On Android it always shows, and says why when it cannot read: the
+/// accounts are still being checked, could not be read, or none is on in
+/// this space.
 class ReadAgainCard extends ConsumerWidget {
   const ReadAgainCard({super.key});
+
+  static const _title = 'Read messages again';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // iPhone has no inbox to read again: messages come one at a time.
-    if (ref.watch(smsSourceProvider) is ShortcutSmsSource ||
-        ref.watch(selectedInstitutionsProvider).isEmpty) {
+    if (ref.watch(smsSourceProvider) is ShortcutSmsSource) {
       return const SizedBox.shrink();
     }
     final state = ref.watch(readAgainControllerProvider);
+    final ids = ref.watch(selectedInstitutionIdsProvider);
+    final selected = ref.watch(selectedInstitutionsProvider);
     final last = ref.watch(lastReadProvider).value;
-    void readAgain() =>
-        ref.read(readAgainControllerProvider.notifier).readAgain();
+    final controller = ref.read(readAgainControllerProvider.notifier);
 
     final button = PillButton(
       key: const Key('read-again'),
       label: 'Read again',
-      onPressed: readAgain,
+      onPressed: controller.readAgain,
     );
-    return Card(
-      key: const Key('read-again-card'),
-      child: switch (state.stage) {
+    final Widget child;
+    if (state.reading) {
+      child = _Reading(state);
+    } else if (ids.isLoading) {
+      child = const _Body(
+        title: _title,
+        body: 'Checking your accounts…',
+        button: PillButton(
+          key: Key('read-again'),
+          label: 'Read again',
+          onPressed: null,
+        ),
+      );
+    } else if (ids.hasError) {
+      child = _Body(
+        title: _title,
+        body: 'Your accounts could not be read.',
+        button: PillButton(
+          key: const Key('read-again-retry'),
+          label: 'Try again',
+          onPressed: () => ref.invalidate(selectedInstitutionIdsProvider),
+        ),
+      );
+    } else if (selected.isEmpty) {
+      child = const _NoAccounts();
+    } else {
+      child = switch (state.stage) {
         ReadAgainStage.reading => _Reading(state),
         ReadAgainStage.finished => _Finished(state, button: button),
         ReadAgainStage.failed => _Body(
-          title: 'Read messages again',
+          title: _title,
           body:
               'Your messages could not be read again. Nothing was changed. '
               'Try again.',
           button: button,
         ),
+        // The accounts were switched off as the read began.
+        ReadAgainStage.noAccounts => _Body(
+          title: _title,
+          body: 'No account was on, so nothing was read. Try again.',
+          button: button,
+        ),
+        ReadAgainStage.noAccess => _Body(
+          title: _title,
+          body:
+              'Pesa Clarity is not allowed to read your messages, so nothing '
+              'was read. Allow messages in Settings, then read again.',
+          button: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              PillButton(
+                key: const Key('read-again-settings'),
+                label: 'Open settings',
+                onPressed: () => ref.read(smsSourceProvider).openSettings(),
+              ),
+              button,
+            ],
+          ),
+        ),
         ReadAgainStage.idle => _Body(
-          title: 'Read messages again',
+          title: _title,
           body:
               'Reads your messages again with the latest readers, to catch '
               'any that were missed. Your names and categories stay.',
@@ -85,7 +143,55 @@ class ReadAgainCard extends ConsumerWidget {
               : 'Last read ${shortDate(CalendarDate.local(last!.at!))}, '
                     'with readers ${last.readers.engine}',
         ),
-      },
+      };
+    }
+    return Card(key: const Key('read-again-card'), child: child);
+  }
+}
+
+/// No account is on in this space: says why, and what to do. An account
+/// another space reads is named with that space (each account is read in
+/// one space); in a business whose account Personal reads, it leads to
+/// Business or personal, where it can be shared.
+class _NoAccounts extends ConsumerWidget {
+  const _NoAccounts();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final elsewhere = ref.watch(readElsewhereProvider).value;
+    final here = ref.watch(activeSpaceProvider);
+    const switchOn = 'Switch on an account above to read its messages.';
+    if (elsewhere == null) {
+      return const _Body(
+        key: Key('read-again-none'),
+        title: ReadAgainCard._title,
+        body: switchOn,
+      );
+    }
+    final reader = elsewhere.space;
+    final names = elsewhere.institutions.map((i) => i.name).toList();
+    final one = names.length == 1;
+    final share =
+        reader.id == personalSpaceId && here.kind == SpaceKind.business;
+    final read =
+        '${namesList(names)} ${one ? 'is' : 'are'} read in '
+        '${reader.name}.';
+    final its = one ? 'its' : 'their';
+    return _Body(
+      key: const Key('read-again-none'),
+      title: ReadAgainCard._title,
+      body: share
+          ? '$read Open ${reader.name} to read $its messages again, or '
+                'choose in Business or personal.'
+          : '$read Open ${reader.name} to read $its messages again, or '
+                '${switchOn[0].toLowerCase()}${switchOn.substring(1)}',
+      button: share
+          ? PillButton(
+              key: const Key('read-again-choose'),
+              label: 'Business or personal',
+              onPressed: () => context.push(AppRoutes.businessOrPersonal),
+            )
+          : null,
     );
   }
 }
@@ -95,13 +201,14 @@ class _Body extends StatelessWidget {
   const _Body({
     required this.title,
     required this.body,
-    required this.button,
+    this.button,
     this.footer,
+    super.key,
   });
 
   final String title;
   final String body;
-  final Widget button;
+  final Widget? button;
   final String? footer;
 
   @override
@@ -118,8 +225,7 @@ class _Body extends StatelessWidget {
           Text(title, style: theme.textTheme.bodyLarge),
           const SizedBox(height: 2),
           Text(body, style: muted),
-          const SizedBox(height: 12),
-          button,
+          if (button != null) ...[const SizedBox(height: 12), button!],
           if (footer != null) ...[
             const SizedBox(height: 8),
             Text(footer!, key: const Key('read-again-last'), style: muted),

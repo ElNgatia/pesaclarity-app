@@ -96,6 +96,26 @@ class SpaceDatabases {
     }
     return null;
   }
+
+  /// Each institution another space on the list reads, with the first
+  /// space that reads it, Personal first. Empty when only the open space
+  /// reads anything.
+  Future<Map<String, Space>> readers() async {
+    final open = _ref.read(activeSpaceIdProvider);
+    final found = <String, Space>{};
+    for (final space in await listed()) {
+      if (space.id == open) continue;
+      final (db, close) = await this.open(space.id);
+      try {
+        for (final row in await db.select(db.selectedInstitutions).get()) {
+          found.putIfAbsent(row.institutionId, () => space);
+        }
+      } finally {
+        if (close) await db.close();
+      }
+    }
+    return found;
+  }
 }
 
 final spaceDatabasesProvider = Provider<SpaceDatabases>(SpaceDatabases.new);
