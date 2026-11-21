@@ -1228,7 +1228,8 @@ class _PutMoneyInSheetState extends ConsumerState<PutMoneyInSheet> {
             builder: (context, _) {
               final amount = AmountField.amountFrom(_amount.text) ?? 0;
               final yours = switch (into) {
-                PutInto.staysOnMpesa => 'Your own part of M-Pesa',
+                PutInto.staysOnMpesa =>
+                  'Your own part of ${from.accountName ?? 'M-Pesa'}',
                 _ => switch (from.source) {
                   PutInSource.cash => from.accountName ?? 'Cash',
                   _ => from.accountName ?? from.label,

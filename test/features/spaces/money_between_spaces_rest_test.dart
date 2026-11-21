@@ -404,7 +404,7 @@ void main() {
     /// The stall restored from a backup made before the three.
     Future<void> stallRestored() async {
       await business.delete(business.transactions).go();
-      await RestoreCheck.mark(business, DateTime.utc(2026, 11, 14));
+      await RestoreCheck.mark(() => business, DateTime.utc(2026, 11, 14));
     }
 
     test('the stall restored: 3 payments on one side only, made again with '
@@ -480,7 +480,7 @@ void main() {
     test('Personal restored: the stall still has them, so Personal\'s '
         'records are made again in full, with no row added', () async {
       await personal.delete(personal.balanceRecords).go();
-      await RestoreCheck.mark(personal, DateTime.utc(2026, 11, 14));
+      await RestoreCheck.mark(() => personal, DateTime.utc(2026, 11, 14));
       final missing = await missingInPersonal(
         personal: personal,
         business: business,

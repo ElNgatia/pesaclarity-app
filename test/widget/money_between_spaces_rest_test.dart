@@ -307,7 +307,7 @@ void main() {
   group('restore check', () {
     Future<void> stallRestored(_Dbs dbs) async {
       await dbs.business.delete(dbs.business.transactions).go();
-      await RestoreCheck.mark(dbs.business, eat(2026, 11, 14));
+      await RestoreCheck.mark(() => dbs.business, eat(2026, 11, 14));
     }
 
     testWidgets('the card on Today, and the sheet with three answers', (
@@ -362,7 +362,7 @@ void main() {
         inStall: false,
         before: (dbs) async {
           await dbs.personal.delete(dbs.personal.balanceRecords).go();
-          await RestoreCheck.mark(dbs.personal, eat(2026, 11, 14));
+          await RestoreCheck.mark(() => dbs.personal, eat(2026, 11, 14));
         },
       );
       expect(

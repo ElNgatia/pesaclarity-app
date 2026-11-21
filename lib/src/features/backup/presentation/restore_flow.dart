@@ -78,7 +78,10 @@ Future<void> _unlockAndRestore(
   if (manifest == null) return;
   // Checks once whether a payment between spaces lost a side (decision
   // 0027, section 7).
-  await RestoreCheck.mark(ref.read(appDatabaseProvider), manifest.createdAt);
+  await RestoreCheck.mark(
+    () => ref.read(appDatabaseProvider),
+    manifest.createdAt,
+  );
   if (!context.mounted) return;
   final when = backupTimeLabel(manifest.createdAt, ref.read(clockProvider)());
   showNote(context, 'Restored. Your data is from $when.');

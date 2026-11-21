@@ -348,7 +348,10 @@ class SpaceManager {
         .replaceWith(staged, kept.keyHex, ofSpace: kept.space.id);
     // Checks once whether a payment between spaces lost a side (decision
     // 0027, section 7).
-    await RestoreCheck.mark(_ref.read(appDatabaseProvider), kept.removedAt);
+    await RestoreCheck.mark(
+      () => _ref.read(appDatabaseProvider),
+      kept.removedAt,
+    );
     await _forget(kept);
   }
 

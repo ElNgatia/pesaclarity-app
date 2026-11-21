@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../domain/spaces/space.dart';
 import '../../domain/spaces/space_categories.dart';
@@ -513,8 +514,18 @@ class RestoreCheck {
 
   /// Marks [db]'s space as restored from a backup made at [backupAt], so
   /// it checks its linked sides once.
-  static Future<void> mark(AppDatabase db, DateTime? backupAt) =>
-      RestoreCheck(backupAt: backupAt).save(db);
+  /// It is only a check: should the space not open, the restore stands
+  /// and nothing is asked.
+  static Future<void> mark(
+    AppDatabase Function() db,
+    DateTime? backupAt,
+  ) async {
+    try {
+      await RestoreCheck(backupAt: backupAt).save(db());
+    } on Object catch (error) {
+      if (kDebugMode) debugPrint('Could not mark the restore: $error');
+    }
+  }
 
   /// The check is done: nothing left on one side only.
   static Future<void> clear(AppDatabase db) => (db.delete(

@@ -91,12 +91,14 @@ String putInNotice({
 }) {
   final short = shortSpaceName(business);
   if (into == PutInto.staysOnMpesa) {
-    return 'No money moves. ${money(amountMinor)} of your M-Pesa becomes the '
+    return 'No money moves. ${money(amountMinor)} of your '
+        '${from.accountName ?? 'M-Pesa'} becomes the '
         "$short's.";
   }
   final mine = switch (from.source) {
     PutInSource.cash => null,
-    PutInSource.mpesa => 'the M-Pesa message in Personal',
+    PutInSource.mpesa =>
+      'the ${from.accountName ?? 'M-Pesa'} message in Personal',
     PutInSource.bank =>
       'the ${bankShortName(from.accountName ?? 'bank')} message in Personal',
   };
@@ -116,16 +118,17 @@ final putInSourcesProvider = FutureProvider.autoDispose<List<PutInFrom>>((
 ) async {
   final personal = ref.watch(personalDatabaseProvider);
   final accounts = await personal.select(personal.accounts).get();
-  final mpesa = accounts.where((a) => a.type == AccountType.mpesa).firstOrNull;
   final cash = accounts.where((a) => a.type == AccountType.cash).firstOrNull;
   return [
-    if (mpesa != null)
-      PutInFrom(
-        source: PutInSource.mpesa,
-        label: 'Your M-Pesa',
-        accountId: mpesa.id,
-        accountName: mpesa.name,
-      ),
+    // Each of the owner's M-Pesa lines.
+    for (final a in accounts)
+      if (a.type == AccountType.mpesa)
+        PutInFrom(
+          source: PutInSource.mpesa,
+          label: 'Your ${a.name}',
+          accountId: a.id,
+          accountName: a.name,
+        ),
     PutInFrom(
       source: PutInSource.cash,
       label: 'Your cash',
