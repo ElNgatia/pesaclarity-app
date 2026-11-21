@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/money/exchange_rates.dart';
 import '../../core/money/money.dart';
 import '../../domain/accounts/account_reference.dart';
+import '../../domain/accounts/mpesa_lines.dart';
 import '../../domain/ledger/balances.dart';
 import '../../features/currency/application/currency_controller.dart';
 import '../database/app_database.dart';
@@ -100,6 +101,24 @@ class DriftAccountsRepository implements AccountsRepository {
     final printed = AccountReference.tryParse(reference);
     Account? pick(Iterable<Account> accounts) =>
         accounts.where((a) => a.currency == currency).firstOrNull;
+
+    // An M-Pesa line is its own account, by its key alone: never another
+    // line's, nor the one account all lines were read into before.
+    if (lineOfReference(reference) != null) {
+      final line = existing.where((a) => a.reference == reference);
+      final match = pick(line) ?? line.firstOrNull;
+      if (match != null) return match.id;
+      return add(
+        AccountsCompanion.insert(
+          name: name,
+          type: type,
+          currency: Value(currency),
+          openingDate: openingDate,
+          institutionId: Value(institutionId),
+          reference: Value(reference),
+        ),
+      );
+    }
 
     if (printed == null) {
       final match = pick(existing) ?? existing.firstOrNull;

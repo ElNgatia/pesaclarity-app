@@ -7,10 +7,12 @@ import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/reader_templates_repository.dart';
 import '../../../data/repositories/review_inbox_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/accounts/mpesa_lines.dart' show whichLineReason;
 import '../../../domain/reader/fuliza_wording.dart';
 import '../../../domain/reader/message_reading.dart';
 import '../../../domain/reader/reader_tokens.dart';
 import '../../../domain/reader/reading_template.dart';
+import '../../accounts/application/mpesa_lines_providers.dart';
 import '../../accounts/domain/institution.dart';
 import '../../ask/data/ask_model_store.dart' show AssetReader;
 import '../data/rayo_reader_runtime.dart';
@@ -49,9 +51,39 @@ final messageReaderProvider = FutureProvider<MessageReader>((ref) async {
 });
 
 /// Messages waiting to be checked, oldest first.
-final pendingReviewProvider = StreamProvider<List<ReviewItem>>(
-  (ref) => ref.watch(reviewInboxRepositoryProvider).watchPending(),
-);
+///
+/// A message whose M-Pesa line could not be told waits for "Which line was
+/// this?" instead, unless the person asked not to be asked.
+final pendingReviewProvider = StreamProvider<List<ReviewItem>>((ref) {
+  final asking = ref.watch(askWhichLineProvider).value ?? true;
+  return ref
+      .watch(reviewInboxRepositoryProvider)
+      .watchPending()
+      .map(
+        (items) => asking
+            ? [
+                for (final item in items)
+                  if (item.reason != whichLineReason) item,
+              ]
+            : items,
+      );
+});
+
+/// Messages waiting for "Which line was this?", oldest first; none once the
+/// person asked not to be asked.
+final whichLineItemsProvider = StreamProvider<List<ReviewItem>>((ref) {
+  final asking = ref.watch(askWhichLineProvider).value ?? true;
+  if (!asking) return Stream.value(const []);
+  return ref
+      .watch(reviewInboxRepositoryProvider)
+      .watchPending()
+      .map(
+        (items) => [
+          for (final item in items)
+            if (item.reason == whichLineReason) item,
+        ],
+      );
+});
 
 /// What the reader makes of review item [id]'s message, or null once the
 /// item is gone or while the reader loads.

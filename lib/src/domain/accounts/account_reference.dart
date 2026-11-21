@@ -1,11 +1,14 @@
+import 'mpesa_lines.dart';
+
 /// An account number as a message prints it, usually masked with a few
 /// digits at each end: `0170*****4321` shows `0170` and `4321`.
 class AccountReference {
   AccountReference._(this.start, this.end, {required this.masked});
 
-  /// Reads [printed]; null when it shows no digits.
+  /// Reads [printed]; null when it shows no digits, or for the key of an
+  /// M-Pesa line, which is no number (see [lineReference]).
   static AccountReference? tryParse(String? printed) {
-    if (printed == null) return null;
+    if (printed == null || lineOfReference(printed) != null) return null;
     final text = printed.replaceAll(RegExp(r'\s'), '');
     if (!RegExp(r'\d').hasMatch(text)) return null;
     if (RegExp(r'^\d+$').hasMatch(text)) {

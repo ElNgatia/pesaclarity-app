@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/accounts/mpesa_lines.dart';
 import '../database/app_database.dart';
 import '../database/database_providers.dart';
 import '../database/space_databases.dart';
@@ -48,6 +49,23 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
         )..orderBy([(c) => OrderingTerm.asc(c.name)])).get())
           (id: c.id, name: c.name),
       ];
+    } finally {
+      if (close) await target.close();
+    }
+  }
+
+  /// Moves each of [transactionIds] to [spaceId], as [move] does, opening
+  /// that space's database once.
+  Future<void> moveMany(Iterable<int> transactionIds, String spaceId) async {
+    final (target, close) = await _openTarget(spaceId);
+    try {
+      final once = DriftSpaceMoveRepository(
+        _source,
+        (_) async => (target, false),
+      );
+      for (final id in transactionIds) {
+        await once.move(id, spaceId);
+      }
     } finally {
       if (close) await target.close();
     }
@@ -183,9 +201,13 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
   }
 
   /// Whether [db]'s space reads [account]: has its institution switched on
-  /// (each account is read in one space only).
+  /// (each account is read in one space only), or, for an M-Pesa line's
+  /// account, that line.
   Future<bool> _reads(AppDatabase db, Account account) async {
-    final institution = account.institutionId;
+    final line = lineOfReference(account.reference);
+    final institution = line == null
+        ? account.institutionId
+        : lineSelectionId(line);
     if (institution == null) return false;
     return await (db.select(db.selectedInstitutions)
               ..where((s) => s.institutionId.equals(institution)))

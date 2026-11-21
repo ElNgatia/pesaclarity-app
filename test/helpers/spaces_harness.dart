@@ -40,9 +40,11 @@ ProviderContainer twoSpaces({
   required DateTime Function() clock,
   SmsSource? sms,
   String active = personalSpaceId,
+  List<Override> overrides = const [],
 }) {
   final container = ProviderContainer(
     overrides: [
+      ...overrides,
       activeSpaceIdProvider.overrideWith(() => ActiveSpaceId(active)),
       activeSpaceStoreProvider.overrideWithValue(const NoActiveSpaceStore()),
       personalDatabaseProvider.overrideWithValue(personal),

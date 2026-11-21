@@ -11,10 +11,54 @@ import '../../../data/repositories/message_reads_repository.dart';
 import '../../../data/repositories/reader_templates_repository.dart';
 import '../../../data/repositories/review_inbox_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/reader/reading_template.dart';
 import '../../accounts/domain/institution.dart';
 import '../../review/application/review_draft.dart';
+import '../data/sms_source.dart';
 import 'transaction_mapping.dart';
+
+/// Where this space reads one M-Pesa message, by its line.
+sealed class LineRead {
+  const LineRead();
+}
+
+/// On the account keyed by [reference]: a line's (see [lineReference]), or
+/// null for the one M-Pesa account every line is read into before a split.
+final class ReadOnAccount extends LineRead {
+  const ReadOnAccount(this.reference);
+
+  final String? reference;
+}
+
+/// On a line another space reads, or a SIM waiting on a question: not here.
+final class ReadElsewhere extends LineRead {
+  const ReadElsewhere();
+}
+
+/// Its line cannot be told: it waits for "Which line was this?".
+final class AskLine extends LineRead {
+  const AskLine();
+}
+
+/// Tells which M-Pesa line each message is on and where it is read (see
+/// `MpesaLines`).
+abstract interface class MessageLines {
+  /// One answer for each of [facts], in order; they come oldest first.
+  Future<List<LineRead>> place(List<LineFacts> facts);
+}
+
+/// What [parsed], from [message], says about its line.
+LineFacts lineFactsOf(ParsedTransaction parsed, SmsMessage message) =>
+    LineFacts(
+      hash: parsed.rawHash,
+      at: parsed.time,
+      sim: lineOf(message),
+      amountMinor: parsed.amountMinor,
+      feeMinor: parsed.feeMinor ?? 0,
+      inflow: parsed.direction == Direction.incoming,
+      balanceMinor: parsed.balanceMinor,
+    );
 
 /// Parses [messages] with [packs]; one result per message, in order.
 typedef SmsParseBatch = Future<List<ParseResult>> Function(
@@ -153,6 +197,8 @@ class SmsIngestor {
     this._templates,
     this._reads,
     this._parse = parseInBackground,
+    this._lines,
+    this._moveToAccount,
     List<Institution>? catalogue,
   }) : _catalogue = catalogue ?? institutionCatalogue;
 
@@ -168,6 +214,14 @@ class SmsIngestor {
   /// keep a message from being stored twice.
   final MessageReadsRepository? _reads;
   final SmsParseBatch _parse;
+
+  /// The M-Pesa lines on this phone; without it every M-Pesa message is
+  /// read into one account, as before lines were told apart.
+  final MessageLines? _lines;
+
+  /// Moves a stored transaction to another account of this space, for a
+  /// message read again into the line it was on.
+  final Future<void> Function(int transactionId, int accountId)? _moveToAccount;
 
   /// Every institution the app knows, for messages one institution sends
   /// about money on another's account (see
@@ -227,6 +281,49 @@ class SmsIngestor {
       if (item != null) leavingReview.add(item.$1);
     }
 
+    // A message can be about money on another institution's account, such
+    // as KCB confirming an M-Pesa payment: it goes on that account even when
+    // that institution's own messages are not read.
+    final institutions = {
+      for (final i in _catalogue) i.id: i,
+      for (final i in selected) i.id: i,
+    };
+    // An institution this app does not know keeps the message on the
+    // sender's own account.
+    String accountOn(ParsedTransaction p) =>
+        institutions.containsKey(p.accountInstitution)
+        ? p.accountInstitution
+        : p.packId;
+
+    // Each M-Pesa message's line, oldest first, so a balance carries on.
+    // One stored already is placed again only when read again, when it may
+    // move to the line it was on.
+    final lineReads = <int, LineRead>{};
+    final lines = _lines;
+    if (lines != null) {
+      final order = <int>[];
+      final facts = <LineFacts>[];
+      for (final (i, result) in results.indexed) {
+        if (result is! ParsedTransaction ||
+            accountOn(result) != mpesaInstitutionId ||
+            (!again && settled(result.rawHash))) {
+          continue;
+        }
+        order.add(i);
+        facts.add(lineFactsOf(result, messages[i]));
+      }
+      if (facts.isNotEmpty) {
+        final placed = await lines.place(facts);
+        for (final (k, i) in order.indexed) {
+          lineReads[i] = placed[k];
+        }
+      }
+    }
+    // The line account of each message read onto one.
+    final lineReferences = <String, String?>{};
+    // Stored transactions read again onto a line, to move there.
+    final moves = <(StoredReading, String, ParsedTransaction)>[];
+
     final parsedByPack = <String, List<ParsedTransaction>>{};
     final readByPack = <String, List<(ReviewDraft, SmsMessage, String)>>{};
     final templates = <String, List<ReadingTemplate>>{};
@@ -235,9 +332,10 @@ class SmsIngestor {
     var settledCount = 0;
     var updated = 0;
     final changes = <ReadChange>[];
-    for (final result in results) {
+    for (final (i, result) in results.indexed) {
       switch (result) {
         case ParsedTransaction(:final rawHash):
+          final line = lineReads[i];
           if (settled(rawHash)) {
             settledCount++;
             final row = known[rawHash];
@@ -252,8 +350,34 @@ class SmsIngestor {
                   ),
                 );
               }
+              if (line case ReadOnAccount(:final reference?)) {
+                moves.add((row, reference, result));
+              }
             }
             continue;
+          }
+          switch (line) {
+            case ReadElsewhere():
+              ignored++;
+              continue;
+            case AskLine():
+              // Kept as a message, the one place its text is, until the
+              // person says which line it was on.
+              final message = messages[i];
+              if (await _reviewInbox.addIfNew(
+                institutionId: result.packId,
+                sender: message.sender,
+                receivedAt: message.receivedAt,
+                messageHash: rawHash,
+                body: message.body,
+                reason: whichLineReason,
+              )) {
+                forReview++;
+              }
+              continue;
+            case ReadOnAccount(:final reference):
+              lineReferences[rawHash] = reference;
+            case null:
           }
           leaveReview(rawHash);
           (parsedByPack[result.packId] ??= []).add(result);
@@ -296,13 +420,6 @@ class SmsIngestor {
 
     var added = 0;
     var parsedCount = 0;
-    // A message can be about money on another institution's account, such
-    // as KCB confirming an M-Pesa payment: it goes on that account even when
-    // that institution's own messages are not read.
-    final institutions = {
-      for (final i in _catalogue) i.id: i,
-      for (final i in selected) i.id: i,
-    };
 
     // Each account gets the messages that show its number and currency,
     // oldest first so an account from before numbers were read takes the
@@ -328,18 +445,18 @@ class SmsIngestor {
     }
     for (final parsed in parsedByPack.values) {
       for (final p in parsed) {
-        // An institution this app does not know keeps the message on the
-        // sender's own account.
-        final on = institutions.containsKey(p.accountInstitution)
-            ? p.accountInstitution
-            : p.packId;
+        final on = accountOn(p);
         // A message that names no account of its own, such as a card
         // payment abroad, is on the account in the institution's own
         // currency, though its amount is in another.
         final currency = p.ownAccount == null
             ? institutions[on]!.pack.currency
             : p.currency;
-        note((on, p.ownAccount, currency), p.time, p);
+        // An M-Pesa line's message is on that line's account.
+        final reference = lineReferences.containsKey(p.rawHash)
+            ? lineReferences[p.rawHash]
+            : p.ownAccount;
+        note((on, reference, currency), p.time, p);
       }
     }
     final keys = pending.keys.toList()
@@ -386,6 +503,27 @@ class SmsIngestor {
         for (final row in now.values) {
           changes.add(ReadChange(packId, accountId, row.record.occurredAt));
         }
+      }
+    }
+    // Read again onto the line it was on: the same transaction, moved, so
+    // nothing is stored twice and what the person set stays.
+    final move = _moveToAccount;
+    if (move != null) {
+      for (final (stored, reference, p) in moves) {
+        final row = stored.record;
+        final institution = institutions[mpesaInstitutionId]!;
+        final accountId = await _accounts.accountForInstitution(
+          institution.id,
+          name: institution.name,
+          type: institution.type,
+          openingDate: p.time,
+          currency: row.currency,
+          reference: reference,
+        );
+        if (accountId == row.accountId) continue;
+        await move(row.id, accountId);
+        updated++;
+        changes.add(ReadChange(institution.id, accountId, row.occurredAt));
       }
     }
     for (final id in leavingReview) {

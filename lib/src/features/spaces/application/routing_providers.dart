@@ -9,6 +9,7 @@ import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/institutions_repository.dart';
 import '../../../data/repositories/space_move_repository.dart';
+import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/kept_data.dart';
 import '../../../domain/spaces/line_routing.dart';
 import '../../../domain/spaces/space.dart';
@@ -136,6 +137,14 @@ class RoutingRulesController extends AsyncNotifier<RoutingRules> {
     return true;
   }
 
+  /// Shares [line] (an institution, or one M-Pesa line by its
+  /// `lineSelectionId`) with [businessId], or stops sharing it with null.
+  Future<void> shareLine(String line, String? businessId) async {
+    final current = await _current();
+    if (current.sharedLines[line] == businessId) return;
+    await _save(current.withLine(line, businessId));
+  }
+
   /// Remembers that money from [key] goes to [spaceId].
   Future<void> rememberPerson(String key, String spaceId) async =>
       _save((await _current()).withPerson(key, spaceId));
@@ -235,38 +244,57 @@ class SharedLineRouter {
     final t = _personal.transactions;
     final a = _personal.accounts;
     final since = now().subtract(sharedLineLookback);
+    // A shared M-Pesa line is its own account.
+    final lines = [
+      for (final key in rules.sharedLines.keys)
+        if (lineOfSelection(key) case final id?) lineReference(id),
+    ];
+    final shared =
+        a.institutionId.isIn(rules.sharedLines.keys) |
+        (a.institutionId.equals(mpesaInstitutionId) & a.reference.isIn(lines));
     final rows =
         await (_personal.select(t).join([
                 innerJoin(a, a.id.equalsExp(t.accountId)),
               ])
               ..where(
-                a.institutionId.isIn(rules.sharedLines.keys) &
+                shared &
                     t.occurredAt.isBiggerOrEqualValue(since) &
                     t.transferPairId.isNull(),
               )
               ..orderBy([OrderingTerm.desc(t.occurredAt)]))
             .get();
+    String? ruleOf(Account account) {
+      final line = lineOfReference(account.reference);
+      final key = line == null ? null : lineSelectionId(line);
+      return rules.sharedLines.containsKey(key)
+          ? key
+          : rules.sharedLines.containsKey(account.institutionId)
+          ? account.institutionId
+          : null;
+    }
+
     final kept = (await _keptIds()).toSet();
     return [
       for (final row in rows)
         if (row.readTable(t) case final tx when !kept.contains(tx.id))
-          (
-            SharedLineQuestion(
-              transactionId: tx.id,
-              institutionId: row.readTable(a).institutionId!,
-              amountMinor: tx.amountMinor,
-              currency: tx.currency,
-              isInflow: tx.direction.name == 'inflow',
-              at: tx.occurredAt,
-              name: tx.counterpartyName,
-              personKey: personKey(
-                kind: tx.counterpartyKind,
-                value: tx.counterpartyValue,
+          if (ruleOf(row.readTable(a)) case final rule?)
+            (
+              SharedLineQuestion(
+                transactionId: tx.id,
+                institutionId: row.readTable(a).institutionId!,
+                amountMinor: tx.amountMinor,
+                currency: tx.currency,
+                isInflow: tx.direction.name == 'inflow',
+                at: tx.occurredAt,
                 name: tx.counterpartyName,
+                personKey: personKey(
+                  kind: tx.counterpartyKind,
+                  value: tx.counterpartyValue,
+                  name: tx.counterpartyName,
+                ),
               ),
+              rules.sharedLines[rule]!,
             ),
-            rules.sharedLines[row.readTable(a).institutionId!]!,
-          ),
     ];
   }
 
