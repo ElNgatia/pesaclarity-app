@@ -1,0 +1,8 @@
+{
+  "message": "This account name is already in use.",
+  "errors": {
+    "name": [
+      "This account name is already in use."
+    ]
+  }
+}
