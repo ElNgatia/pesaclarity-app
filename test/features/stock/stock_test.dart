@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,7 @@ import 'package:pesaclarity/src/features/stock/presentation/item_screen.dart';
 import 'package:pesaclarity/src/features/stock/presentation/stock_screen.dart';
 import 'package:pesaclarity/src/shared/widgets/amounts_hidden.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
+import 'package:pesaclarity/src/theme/pesa_colors.dart';
 
 import '../../domain/fixtures.dart';
 import '../../helpers/test_app.dart';
@@ -199,9 +201,36 @@ void main() {
         await tester.pumpAndSettle();
       }
 
+      // The filter pill is plain; narrowing turns its label red, with no
+      // fill, as the chosen side of a switch.
+      const colors = PesaColors.light;
+      Material pill() => tester.widget<Material>(
+        find
+            .descendant(
+              of: find.byKey(const Key('stock-kind')),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      Color? ink(String label) => tester
+          .renderObject<RenderParagraph>(
+            find.descendant(
+              of: find.byKey(const Key('stock-kind')),
+              matching: find.text(label),
+            ),
+          )
+          .text
+          .style!
+          .color;
+      expect(pill().color, colors.field);
+      expect(ink('All'), AppTheme.light.colorScheme.onSurface);
+
       await show('service');
       expect(find.text('Tomatoes'), findsNothing);
       expect(find.text('Delivery'), findsOneWidget);
+      expect(pill().color, colors.field);
+      expect((pill().shape! as StadiumBorder).side.color, colors.border);
+      expect(ink('Services'), colors.link);
       await show('product');
       expect(find.text('Tomatoes'), findsOneWidget);
       expect(find.text('Delivery'), findsNothing);
@@ -304,12 +333,26 @@ void main() {
       // Then there turns out to be more than the records.
       await tester.enterText(find.byKey(Key('count-$id')), '7');
       await tester.pump();
-      expect(
-        tester
-            .widget<ChoiceChip>(find.byKey(Key('reason-$id-miscounted')))
-            .selected,
-        isTrue,
+      final chip = tester.widget<ChoiceChip>(
+        find.byKey(Key('reason-$id-miscounted')),
       );
+      expect(chip.selected, isTrue);
+      // Chosen as the side of a switch is: red text and tick, no fill.
+      const colors = PesaColors.light;
+      expect(chip.selectedColor, colors.field);
+      expect(chip.selectedColor, AppTheme.light.chipTheme.backgroundColor);
+      expect(chip.checkmarkColor, colors.link);
+      final label = tester
+          .renderObject<RenderParagraph>(
+            find.descendant(
+              of: find.byKey(Key('reason-$id-miscounted')),
+              matching: find.text('Miscounted'),
+            ),
+          )
+          .text
+          .style!;
+      expect(label.color, colors.link);
+      expect(label.fontWeight, AppTheme.light.chipTheme.labelStyle!.fontWeight);
       expect(
         find.text('The records are corrected, with no cost.'),
         findsOneWidget,

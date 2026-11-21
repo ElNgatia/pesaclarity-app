@@ -110,6 +110,10 @@ class _CountStockScreenState extends ConsumerState<CountStockScreen> {
         onChanged: choose,
       );
     }
+    // As the chosen side of a switch: no fill, the chosen label and its
+    // tick in the link red, the others as they are.
+    final colors = PesaColors.of(context);
+    final labelStyle = Theme.of(context).chipTheme.labelStyle;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -119,6 +123,11 @@ class _CountStockScreenState extends ConsumerState<CountStockScreen> {
             key: rowKey(reason),
             label: Text(label),
             selected: chosen == reason,
+            selectedColor: colors.field,
+            checkmarkColor: colors.link,
+            labelStyle: chosen == reason
+                ? (labelStyle ?? const TextStyle()).copyWith(color: colors.link)
+                : null,
             onSelected: (_) => choose(reason),
           ),
       ],

@@ -33,6 +33,7 @@ import 'package:pesaclarity/src/features/people/presentation/remind_sheet.dart';
 import 'package:pesaclarity/src/features/sales/application/sales_providers.dart';
 import 'package:pesaclarity/src/features/spaces/application/spaces_providers.dart';
 import 'package:pesaclarity/src/routing/app_routes.dart';
+import 'package:pesaclarity/src/shared/widgets/choice_menu.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
 
 import '../../domain/fixtures.dart';
@@ -515,6 +516,15 @@ void main() {
       expect(find.byKey(const Key('invoice-AC-INV-0001')), findsNothing);
       await show('unpaid');
       expect(find.byKey(const Key('invoice-AC-INV-0001')), findsOneWidget);
+      // Narrowing shows as red text on the plain pill, never a red fill.
+      expect(
+        tester
+            .widget<ChoiceMenu<Object?>>(
+              find.byKey(const Key('invoices-filter')),
+            )
+            .highlightAs,
+        ChoiceHighlight.text,
+      );
 
       await tester.tap(find.byKey(const Key('invoice-AC-INV-0001')));
       await settleFrames(tester);
