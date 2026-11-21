@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../database/app_database.dart';
 import '../database/database_providers.dart';
 import 'savings_links.dart';
+import 'transactions_repository.dart';
 
 /// A transaction already read from a message, and whether the person has
 /// made it theirs since (see [MessageReadsRepository.stored]).
@@ -128,6 +129,7 @@ class MessageReadsRepository {
         counterpartyValue: fresh.counterpartyValue,
         counterpartyName: fresh.counterpartyName,
         receiptNo: fresh.receiptNo,
+        linkedReceiptNo: fresh.linkedReceiptNo,
         dedupeKey: fresh.dedupeKey,
         balanceAfterMinor: fresh.balanceAfterMinor,
         owedAfterMinor: fresh.owedAfterMinor,
@@ -137,6 +139,10 @@ class MessageReadsRepository {
     );
     // Read now as a payment into a savings account the app keeps.
     await linkSavingsPayments(_db, [row.id]);
+    // A code the readers now read, such as a bank's M-Pesa ref, can pair it
+    // with its other side (decision 0030).
+    final at = fresh.occurredAt.value;
+    await DriftTransactionsRepository(_db).pairOwnTransfers(from: at, to: at);
     return true;
   });
 

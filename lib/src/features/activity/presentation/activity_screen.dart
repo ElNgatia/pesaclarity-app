@@ -648,12 +648,7 @@ class _ActivityRow extends StatelessWidget {
         context,
         avatar: _Avatar.icon(Icons.swap_horiz, colors: colors),
         title: transferTitle(transfer, transferNames ?? accounts),
-        subtitle: Text(
-          transferSubtitle(context, transfer, accounts),
-          style: muted,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
+        subtitle: OwnTransferSubtitle(transfer, accounts, style: muted),
         amount: _entryAmount(
           context,
           shown,

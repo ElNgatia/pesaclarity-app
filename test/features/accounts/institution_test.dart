@@ -11,6 +11,7 @@ void main() {
       'airtel_money',
       'co_op_bank',
       'equity',
+      'etica',
       'im_bank',
       'kcb',
       'loop',

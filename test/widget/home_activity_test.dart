@@ -148,9 +148,11 @@ void main() {
     expect(findDetailLine('Groceries and household · M-Pesa'), findsOneWidget);
     expect(find.text('-1,440'), findsOneWidget);
 
-    // The transfer shows once, as not spending.
+    // The transfer shows once, as not spending. Paired by amount and time
+    // alone, it asks whether it was a move between the person's accounts
+    // (decision 0030).
     expect(find.text('I&M → M-Pesa'), findsOneWidget);
-    expect(find.text('Own transfer · not spending'), findsOneWidget);
+    expect(find.text('Was this a move between your accounts?'), findsOneWidget);
 
     // Weekly totals: groceries and the unnamed send out, salary in.
     expect(find.text('1,790'), findsOneWidget);
@@ -249,6 +251,38 @@ void main() {
 
     expect(find.text('Tap to name this payee'), findsNothing);
     expect(find.text('John'), findsOneWidget);
+  });
+
+  testAppWidgets('a guessed move asks once: Yes keeps it, No undoes it', (
+    tester,
+  ) async {
+    for (final yes in [true, false]) {
+      final db = openTestDatabase();
+      await tester.runAsync(() => _seed(db));
+      await _pumpActivity(tester, db);
+      const question = 'Was this a move between your accounts?';
+      expect(find.text(question), findsOneWidget);
+
+      await tester.tap(find.text('I&M → M-Pesa'));
+      await tester.pumpAndSettle();
+      // The own transfer's sheet asks, in place of Unmatch.
+      expect(find.byKey(const Key('own-transfer-unmatch')), findsNothing);
+      await tester.tap(find.byKey(Key(yes ? 'own-move-yes' : 'own-move-no')));
+      for (var i = 0; i < 3; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      expect(find.text(question), findsNothing);
+      expect(
+        find.text('Own transfer · not spending'),
+        yes ? findsOneWidget : findsNothing,
+      );
+      expect(find.text('I&M → M-Pesa'), yes ? findsOneWidget : findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
   });
 
   testAppWidgets('+ adds a transaction that shows in Activity', (tester) async {

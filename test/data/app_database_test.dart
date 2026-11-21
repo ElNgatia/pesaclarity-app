@@ -863,9 +863,39 @@ void main() {
       expect(await columns(db, 'debts'), contains('next_due_day'));
     });
 
+    /// Takes the current schema in [old] back to version 43, before the
+    /// other side's code.
+    Future<void> toVersion43(AppDatabase old) async {
+      await old.customStatement(
+        'ALTER TABLE transactions DROP COLUMN linked_receipt_no',
+      );
+      await old.customStatement('PRAGMA user_version = 43');
+    }
+
+    test('migrates a version 43 database: the other side\'s code, and is '
+        'safe to run twice', () async {
+      final old = AppDatabase(NativeDatabase(file));
+      await toVersion43(old);
+      await old.close();
+      final db = AppDatabase(NativeDatabase(file));
+      expect(await userVersion(db), db.schemaVersion);
+      expect(db.schemaVersion, 44);
+      expect(await columns(db, 'transactions'), contains('linked_receipt_no'));
+      await db.customStatement('PRAGMA user_version = 43');
+      await db.close();
+      final again = AppDatabase(NativeDatabase(file));
+      addTearDown(again.close);
+      expect(await userVersion(again), again.schemaVersion);
+      expect(
+        await columns(again, 'transactions'),
+        contains('linked_receipt_no'),
+      );
+    });
+
     /// Takes the current schema in [old] back to version 42, before money
     /// between spaces.
     Future<void> toVersion42(AppDatabase old) async {
+      await toVersion43(old);
       for (final trigger in [
         'journal_dirty_balance_record_insert',
         'journal_dirty_balance_record_update',
@@ -902,7 +932,7 @@ void main() {
       final db = AppDatabase(NativeDatabase(file));
       addTearDown(db.close);
       expect(await userVersion(db), db.schemaVersion);
-      expect(db.schemaVersion, 43);
+      expect(db.schemaVersion, 44);
       expect(
         (await columns(db, 'accounts')).keys,
         containsAll(['linked_space_id', 'linked_account_id']),
@@ -1082,7 +1112,7 @@ void main() {
       final db = AppDatabase(NativeDatabase(file));
       addTearDown(db.close);
       expect(await userVersion(db), db.schemaVersion);
-      expect(db.schemaVersion, 43);
+      expect(db.schemaVersion, 44);
       expect((await columns(db, 'accounts'))['product'], isFalse);
       expect((await columns(db, 'goals'))['saved_in_pocket_id'], isFalse);
       expect(

@@ -2,6 +2,7 @@ import '../../core/money/money.dart';
 import '../accounts/account_reference.dart';
 import '../enums.dart';
 import 'ledger_entry.dart';
+import 'own_accounts.dart';
 
 /// An outflow from one of the user's accounts and the matching inflow into
 /// another.
@@ -206,41 +207,155 @@ String? _code(String? receipt) {
   return c == null || c.length < 6 ? null : c;
 }
 
-/// Finds own-account transfers (bank to M-Pesa, M-Pesa to bank, money market
-/// and savings moves) among entries not already paired.
+/// The codes [id]'s message prints: its own receipt ([receipts]) and the
+/// other side's code ([linked]), such as Airtel's "Sender TID".
+Set<String> _codesOf(
+  int id,
+  Map<int, String?> receipts,
+  Map<int, String?> linked,
+) => {?_code(receipts[id]), ?_code(linked[id])};
+
+/// Whether the codes the two messages print rule them out as one movement:
+/// one side prints the other side's code ([linked]) and the other side's
+/// own receipt is another code. Airtel's "Sender TID" is the receipt of the
+/// M-Pesa send it came from; a send with any other receipt is other money.
+bool _codedApart(
+  LedgerEntry out,
+  LedgerEntry into,
+  Map<int, String?> receipts,
+  Map<int, String?> linked,
+) {
+  bool apart(LedgerEntry a, LedgerEntry b) {
+    final theirs = _code(linked[a.id]);
+    final own = _code(receipts[b.id]);
+    return theirs != null && own != null && theirs != own;
+  }
+
+  return apart(into, out) || apart(out, into);
+}
+
+/// How sure the app is that [out] and [into] are one move between the
+/// person's own accounts (decision 0030).
+enum MoveCertainty {
+  /// Both print one transaction code (rule 2).
+  code,
+
+  /// [out] paid into [into]'s account by the number both print, or one
+  /// side names the other's account: an own phone number, an own account
+  /// number or an own paybill account (rule 3).
+  named,
+
+  /// The person named the other account, matched it, or answered Yes for
+  /// this sender (rule 5).
+  person,
+
+  /// Only the amount and the time agree: a guess, held as a move until the
+  /// person answers "Was this a move between your accounts?" (rule 5).
+  guess,
+}
+
+/// How sure [out] and [into], two sides already paired, are one move, for
+/// asking the person about guesses; see [findOwnTransfers] for the inputs.
+MoveCertainty moveCertainty(
+  LedgerEntry out,
+  LedgerEntry into, {
+  Map<int, String?> references = const {},
+  Map<int, String?> receipts = const {},
+  Map<int, String?> linked = const {},
+  OwnAccounts own = const OwnAccounts.none(),
+  Map<String, bool> answers = const {},
+}) {
+  final codes = _codesOf(out.id, receipts, linked);
+  if (codes.intersection(_codesOf(into.id, receipts, linked)).isNotEmpty) {
+    return MoveCertainty.code;
+  }
+  if (paidIntoAccount(out, into, references) ||
+      own.namedBy(out) == into.accountId ||
+      own.namedBy(into) == out.accountId) {
+    return MoveCertainty.named;
+  }
+  if (_named(out, into) || answers[moveSenderKey(out, into)] == true) {
+    return MoveCertainty.person;
+  }
+  return MoveCertainty.guess;
+}
+
+/// Whether what the messages print rules [out] and [into] out as one move
+/// between own accounts, whatever their amounts and times: a side names
+/// another account of the person's, an account or phone number that is not
+/// the other account's, or a code the other side does not print, or the
+/// person said No for this sender.
+bool movesApart(
+  LedgerEntry out,
+  LedgerEntry into, {
+  Map<int, String?> references = const {},
+  Map<int, String?> receipts = const {},
+  Map<int, String?> linked = const {},
+  OwnAccounts own = const OwnAccounts.none(),
+  Map<String, bool> answers = const {},
+}) {
+  if (_namedApart(out, into)) return true;
+  if (_numberedApart(out, into, references)) return true;
+  if (_codedApart(out, into, receipts, linked)) return true;
+  final outNames = own.namedBy(out);
+  final inNames = own.namedBy(into);
+  if (outNames != null && outNames != into.accountId) return true;
+  if (inNames != null && inNames != out.accountId) return true;
+  if (outNames == null && own.namesAnotherPhone(out, into.accountId)) {
+    return true;
+  }
+  if (inNames == null && own.namesAnotherPhone(into, out.accountId)) {
+    return true;
+  }
+  return !_named(out, into) && answers[moveSenderKey(out, into)] == false;
+}
+
+/// Finds own-account transfers (bank to M-Pesa, M-Pesa to bank, M-Pesa to
+/// Airtel Money, money market and savings moves) among entries not already
+/// paired, by decision 0030's rules.
 ///
-/// Two entries pair when they are on different accounts, in the same
-/// currency, one out and one in, no more than [window] apart in either
-/// order, and the amounts are equal or the outflow is larger by a transfer
-/// fee: its own fee when its message gave one, else up to
-/// [transferFeeAllowanceMinor]. Only send, paybill and bank movements
-/// qualify, and an entry the user has put in a non-transfer category is
-/// left alone. An entry the person named as an own transfer pairs only with
-/// the account they named, and waits up to [waitingTransferWindow]. Pairs
-/// in [declined] were unmatched by the person and never pair again.
+/// Two sides that print one transaction code are one movement whatever
+/// else either names, equal amounts within [sameCodeTransferWindow] (rule
+/// 2). The code is a side's own receipt ([receipts], by id) or the other
+/// side's code its message prints ([linked], by id): Airtel's "Sender TID",
+/// the M-Pesa ref in a bank's send to a mobile wallet, a fund's
+/// "Transaction ref". Compared by [sameTransactionCode].
 ///
-/// An outflow whose message names the account number it paid into, such as
-/// an M-Pesa payment to a bank's paybill for a masked account, pairs with
-/// money into the account with that number in [references] (each account's
-/// number, by id) first, and waits as long as a named transfer. Money in
-/// that names the bank account it came from never pairs with money out of
-/// an account with another number, and the same the other way.
+/// Otherwise two entries pair when they are on different accounts, in the
+/// same currency, one out and one in, and the amounts are equal or the
+/// outflow is larger by a transfer fee: its own fee when its message gave
+/// one, else up to [transferFeeAllowanceMinor]. Only send, paybill and bank
+/// movements qualify, and an entry the user has put in a non-transfer
+/// category is left alone. Then, by how sure the pair is (rule 3):
 ///
-/// Two sides that print the same transaction code ([receipts], by id, and
-/// [sameTransactionCode]) are one movement whatever either names, such as
-/// a fund's payment out with its "Transaction ref" and M-Pesa's message for
-/// the money arriving: equal amounts, within [sameCodeTransferWindow].
+/// * an outflow whose message names the account number it paid into
+///   ([references], each account's number, by id), such as an M-Pesa
+///   payment to a bank's paybill for a masked account, or an entry the
+///   person named as an own transfer, waits up to [waitingTransferWindow];
+/// * a side naming one of the person's own accounts in [own] (an own phone
+///   number, account number or paybill account) pairs with the other
+///   side on that account within [window];
+/// * with neither, the pair is a guess within [window]: held as a move and
+///   asked about (rule 5, see [moveCertainty]) unless the person already
+///   answered for this sender in [answers] ([moveSenderKey]): Yes pairs it
+///   as theirs, No leaves it apart.
+///
+/// Pairs [movesApart] rules out never pair, and pairs in [declined] were
+/// unmatched by the person and never pair again.
 ///
 /// When several candidates fit, pairs by one code come first, then pairs
-/// confirmed by account number, then equal amounts before ones with a fee,
-/// then the closest in time, so each entry is used at most once and the
-/// result does not depend on input order.
+/// confirmed by a number, then equal amounts before ones with a fee, then
+/// the closest in time, so each entry is used at most once and the result
+/// does not depend on input order.
 List<TransferPair> findOwnTransfers(
   Iterable<LedgerEntry> entries, {
   Duration window = defaultTransferWindow,
   Set<TransferPair> declined = const {},
   Map<int, String?> references = const {},
   Map<int, String?> receipts = const {},
+  Map<int, String?> linked = const {},
+  OwnAccounts own = const OwnAccounts.none(),
+  Map<String, bool> answers = const {},
 }) {
   final outflows = <String, List<LedgerEntry>>{};
   final inflows = <String, List<LedgerEntry>>{};
@@ -258,23 +373,28 @@ List<TransferPair> findOwnTransfers(
 
   final candidates = <(int, int, Duration, LedgerEntry, LedgerEntry)>[];
   // One transaction code on both sides: the same movement, such as a fund's
-  // "Transaction ref: QAB1CD2EF3" and M-Pesa's QAB1CD2EF3, whatever either
-  // names or however it was read. It wins over everything else.
+  // "Transaction ref: QAB1CD2EF3" and M-Pesa's QAB1CD2EF3, or Airtel's
+  // "Sender TID" and the M-Pesa send it came from, whatever either names
+  // or however it was read. It wins over everything else.
   final byCode = <String, List<LedgerEntry>>{};
   for (final entry in entries) {
     if (entry.transferPairId != null || entry.isCorrection) continue;
     final type = entry.categoryType;
     if (type != null && type != CategoryType.transfer) continue;
-    final code = _code(receipts[entry.id]);
-    if (code != null) (byCode[code] ??= []).add(entry);
+    for (final code in _codesOf(entry.id, receipts, linked)) {
+      (byCode[code] ??= []).add(entry);
+    }
   }
+  final coded = <TransferPair>{};
   for (final sides in byCode.values) {
     for (final out in sides.where((e) => e.isOutflow)) {
       for (final into in sides.where((e) => e.isInflow)) {
+        final pair = TransferPair(out.id, into.id);
         if (out.accountId == into.accountId ||
             out.currency != into.currency ||
             out.amountMinor != into.amountMinor ||
-            declined.contains(TransferPair(out.id, into.id))) {
+            declined.contains(pair) ||
+            !coded.add(pair)) {
           continue;
         }
         final gap = out.occurredAt.difference(into.occurredAt).abs();
@@ -290,9 +410,18 @@ List<TransferPair> findOwnTransfers(
     for (final out in outs) {
       for (final into in ins) {
         if (out.accountId == into.accountId) continue;
-        if (_namedApart(out, into)) continue;
-        if (_numberedApart(out, into, references)) continue;
         if (declined.contains(TransferPair(out.id, into.id))) continue;
+        if (movesApart(
+          out,
+          into,
+          references: references,
+          receipts: receipts,
+          linked: linked,
+          own: own,
+          answers: answers,
+        )) {
+          continue;
+        }
         final fit = transferFit(out, into);
         if (fit == null || fit == TransferFit.loose) continue;
         final gap = out.occurredAt.difference(into.occurredAt).abs();
@@ -300,9 +429,12 @@ List<TransferPair> findOwnTransfers(
         final allowed = _named(out, into) || byNumber
             ? waitingTransferWindow
             : window;
-        if (gap <= allowed) {
-          candidates.add((byNumber ? 0 : 1, fit.index, gap, out, into));
-        }
+        if (gap > allowed) continue;
+        final sure =
+            byNumber ||
+            own.namedBy(out) == into.accountId ||
+            own.namedBy(into) == out.accountId;
+        candidates.add((sure ? 0 : 1, fit.index, gap, out, into));
       }
     }
   }
