@@ -316,11 +316,11 @@ class FireflyService {
   Future<void> _send({required bool resendAll}) async {
     final settings = await this.settings();
     final address = settings.server;
-    final token = await _secure.read(fireflyTokenKey);
-    if (!settings.on || address == null || token == null || token.isEmpty) {
-      return;
-    }
+    // Off, the usual: nothing else is read.
+    if (!settings.on || address == null) return;
     if (settings.problem == FireflyProblem.tokenRefused) return;
+    final token = await _secure.read(fireflyTokenKey);
+    if (token == null || token.isEmpty) return;
     final firefly = client(address, token, trusted: settings.trusted);
     final clock = _ref.read(clockProvider);
     final from =
