@@ -20,7 +20,9 @@ final cashBookProvider = FutureProvider.family<CashBook, CalendarDate>((
   ref.watch(ledgerChangesProvider);
   final today = CalendarDate.local(ref.watch(clockProvider)());
   final to = today.addDays(1).startInstant;
-  final accounts = await ref.watch(accountsRepositoryProvider).openings();
+  final accounts = await ref
+      .watch(accountsRepositoryProvider)
+      .openings(betweenSpaces: true);
   // Balances count from each account's opening, so all records are read.
   final entries = await ref
       .watch(transactionsRepositoryProvider)

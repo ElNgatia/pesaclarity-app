@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/database/database_providers.dart';
 import '../../../data/repositories/institutions_repository.dart';
 import '../../../domain/spaces/line_routing.dart';
+import '../../../domain/spaces/money_between_spaces.dart';
 import '../../../shared/widgets/choice_menu.dart';
 import '../../../shared/widgets/states.dart';
 import '../../../theme/pesa_colors.dart';
@@ -11,6 +12,7 @@ import '../../accounts/application/my_accounts_providers.dart';
 import '../../accounts/domain/institution.dart';
 import '../application/routing_providers.dart';
 import '../application/spaces_providers.dart';
+import 'till_sheet.dart';
 
 /// Lines Personal reads, whichever space is open.
 final personalLinesProvider = StreamProvider<Set<String>>(
@@ -134,10 +136,30 @@ class BusinessOrPersonalScreen extends ConsumerWidget {
                               ),
                             ),
                           ),
+                          if (shared.contains(line.id))
+                            _LineChannelsRows(
+                              line: line,
+                              channels: rules.channelsOn(line.id),
+                              business: space.name,
+                            ),
                         ],
                       ],
                     ),
                   ),
+                for (final line in lines)
+                  if (shared.contains(line.id))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Text(
+                        '${line.name}: used for both. It stays in Personal; '
+                        'the ${shortSpaceName(space.name)} keeps what is its '
+                        'own.',
+                        key: Key('line-both-note-${line.id}'),
+                        style: theme.textTheme.bodyMedium!.copyWith(
+                          color: colors.textMuted,
+                        ),
+                      ),
+                    ),
                 if (learnt != null && learnt.business + learnt.personal > 0)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),
@@ -160,3 +182,54 @@ class BusinessOrPersonalScreen extends ConsumerWidget {
 /// How wide a line's choice can grow before a long business name is cut
 /// short.
 const _choiceWidth = 160.0;
+
+/// Under a line used for both: the business's own till or paybill, and
+/// whether customers also send money to the owner's number (decision 0027,
+/// section 4; owner's decisions 15 and 17).
+class _LineChannelsRows extends ConsumerWidget {
+  const _LineChannelsRows({
+    required this.line,
+    required this.channels,
+    required this.business,
+  });
+
+  final Institution line;
+  final LineChannels channels;
+  final String business;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final named = channels.named;
+    return Column(
+      children: [
+        const Divider(height: 1),
+        ListTile(
+          key: Key('line-till-${line.id}'),
+          title: const Text("Your business's till or paybill"),
+          subtitle: Text(
+            named.isEmpty
+                ? 'None yet'
+                : [for (final (k, n) in named) channelLabel(k, n)].join(', '),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => showTillSheet(context, line: line.id),
+        ),
+        const Divider(height: 1),
+        SwitchListTile.adaptive(
+          key: Key('line-customers-to-number-${line.id}'),
+          value: channels.customersToNumber,
+          title: const Text('Customers also send money to my number'),
+          subtitle: Text(
+            'Then the ${shortSpaceName(business)} asks about those payments',
+          ),
+          onChanged: (on) async {
+            await ref
+                .read(routingRulesProvider.notifier)
+                .setChannels(line.id, channels.copyWith(customersToNumber: on));
+            ref.invalidate(sharedLineQuestionsProvider);
+          },
+        ),
+      ],
+    );
+  }
+}

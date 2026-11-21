@@ -125,14 +125,29 @@ class FakeFirefly {
         accounts[id] = {
           'name': body!['name'],
           'type': body['type'] == 'liability' ? 'liabilities' : body['type'],
+          'liability_direction': body['liability_direction'],
+          'opening_balance': body['opening_balance'],
           'current_balance': '0',
         };
         return send(200, {
           'data': {'id': id, 'attributes': accounts[id]},
         });
       case ('PUT', final p) when p.startsWith('/api/v1/accounts/'):
+        final account = accounts[parts.last];
+        if (account != null && body?['opening_balance'] != null) {
+          account['opening_balance'] = body!['opening_balance'];
+        }
         return send(200, {
-          'data': {'id': parts.last, 'attributes': accounts[parts.last]},
+          'data': {'id': parts.last, 'attributes': account},
+        });
+      case ('GET', final p) when p.startsWith('/api/v1/accounts/'):
+        final account = accounts[parts.last];
+        if (account == null) return send(404, {'message': 'Not found'});
+        return send(200, {
+          'data': {
+            'id': parts.last,
+            'attributes': {...account, 'current_balance': _balance(parts.last)},
+          },
         });
       case ('POST', '/api/v1/transactions'):
         final split =
@@ -225,6 +240,40 @@ class FakeFirefly {
         });
     }
     return send(404, {'message': 'Resource not found'});
+  }
+
+  /// [id]'s balance as Firefly III shows it: its opening (a liability the
+  /// person owes opens below zero) and what every live split moved in and
+  /// out of it.
+  String _balance(String id) {
+    int cents(Object? amount) {
+      if (amount is! String || amount.isEmpty) return 0;
+      final negative = amount.startsWith('-');
+      final [whole, fraction] = [
+        ...amount.replaceFirst('-', '').split('.'),
+        '',
+      ].take(2).toList();
+      final value =
+          int.parse(whole) * 100 +
+          int.parse(fraction.padRight(2, '0').substring(0, 2));
+      return negative ? -value : value;
+    }
+
+    final account = accounts[id]!;
+    var balance = cents(account['opening_balance']);
+    if (account['type'] == 'liabilities' &&
+        account['liability_direction'] == 'debit') {
+      balance = -balance;
+    }
+    for (final split in live) {
+      if (split['source_id'] == id) balance -= cents(split['amount']);
+      if (split['destination_id'] == id) {
+        balance += cents(split['foreign_amount'] ?? split['amount']);
+      }
+    }
+    final sign = balance < 0 ? '-' : '';
+    final abs = balance.abs();
+    return '$sign${abs ~/ 100}.${(abs % 100).toString().padLeft(2, '0')}';
   }
 
   /// The live groups' splits.

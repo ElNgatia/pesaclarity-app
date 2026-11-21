@@ -328,4 +328,7 @@ String accountTypeLabel(AccountType type) => switch (type) {
   AccountType.moneyMarket => 'Money market',
   AccountType.cash => 'Cash',
   AccountType.other => 'Other',
+  AccountType.heldForSpace => 'Held for another space',
+  AccountType.ownersAccount => "Owner's account",
+  AccountType.paidBySpace => 'Paid by another space',
 };

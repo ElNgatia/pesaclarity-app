@@ -80,6 +80,7 @@ class LeakageBreakdown {
             LedgerRole.saving ||
             LedgerRole.awaitingPayee ||
             LedgerRole.correction ||
+            LedgerRole.betweenSpaces ||
             LedgerRole.reversal:
           break;
       }

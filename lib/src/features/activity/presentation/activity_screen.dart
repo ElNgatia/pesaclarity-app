@@ -141,7 +141,11 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           matchesTagFilter(e, tagId) &&
           inWindow.matches(
             e,
-            labels: [categoryName(e), accounts[e.accountId]?.name],
+            labels: [
+              categoryName(e),
+              if (accounts[e.accountId] case final a?)
+                accountTag(a.name, a.type),
+            ],
           ),
     );
     final days = buildActivityFeed(shown, all: entries);
@@ -519,7 +523,10 @@ class _ActivityRow extends StatelessWidget {
   final CategorySuggestion? Function(LedgerEntry) suggest;
   final void Function(LedgerEntry, CategorySuggestion) onAccept;
 
-  String _account(int id) => accounts[id]?.name ?? 'Account';
+  String _account(int id) => switch (accounts[id]) {
+    final a? => accountTag(a.name, a.type),
+    null => 'Account',
+  };
 
   @override
   Widget build(BuildContext context) {

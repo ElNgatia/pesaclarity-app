@@ -32,6 +32,17 @@ class Accounts extends Table {
   /// itself, from the payments into it (see [SavingsPockets]). Null for
   /// every other account.
   TextColumn get product => text().withLength(min: 1, max: 40).nullable()();
+
+  /// For an account kept for money between spaces (decision 0027, see
+  /// `AccountType.isBetweenSpaces`): the other space's id.
+  TextColumn get linkedSpaceId => text().nullable()();
+
+  /// For an account kept for money between spaces: the real account the
+  /// money is on, by its id in the space where that account lives. In
+  /// Personal, "Held for Vegetable stall" names Personal's own M-Pesa; in
+  /// the business, "On your M-Pesa" names Personal's M-Pesa. Null for a
+  /// purchase paid by another space.
+  IntColumn get linkedAccountId => integer().nullable()();
 }
 
 @TableIndex(name: 'categories_key', columns: {#key}, unique: true)
@@ -395,6 +406,61 @@ class Transactions extends Table {
   /// versions, such as `0.3.0 mpesa@0.3.1`. Null for rows from before it
   /// was kept, and for rows not read by the bundled readers.
   TextColumn get readBy => text().nullable()();
+
+  /// The link both sides of money between spaces share (decision 0027): a
+  /// switched payment and its balance record, the two sides of Pay
+  /// yourself, or a purchase with the business's money and its Paid
+  /// yourself. Written so that doing it twice changes nothing.
+  TextColumn get linkId => text().nullable()();
+
+  /// The space on the other side of [linkId].
+  TextColumn get linkedSpaceId => text().nullable()();
+}
+
+/// What a payment switched to another space leaves on its account where
+/// the account lives (decision 0027, section 2): only what the account's
+/// balance needs. It is not a transaction: no list, total, report, search
+/// or export reads it. The journal posts it against Held for that space,
+/// and balances walk it with the account's transactions, so each reported
+/// balance is still checked and the message is never read in again.
+@DataClassName('BalanceRecord')
+@TableIndex(name: 'balance_records_account', columns: {#accountId})
+@TableIndex(name: 'balance_records_link', columns: {#linkId}, unique: true)
+class BalanceRecords extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get accountId =>
+      integer().references(Accounts, #id, onDelete: KeyAction.cascade)();
+  DateTimeColumn get occurredAt => dateTime()();
+
+  /// Always positive; [direction] says which way it moved.
+  IntColumn get amountMinor => integer()();
+  TextColumn get direction => textEnum<TransactionDirection>()();
+  TextColumn get kind => textEnum<TransactionKind>().nullable()();
+  IntColumn get feeMinor => integer().withDefault(const Constant(0))();
+  TextColumn get currency =>
+      text().withLength(min: 3, max: 3).withDefault(const Constant('KES'))();
+
+  /// The M-Pesa code or bank reference.
+  TextColumn get receiptNo => text().nullable()();
+  TextColumn get dedupeKey => text().nullable()();
+  TextColumn get messageHash => text().nullable()();
+  TextColumn get twinMessageHash => text().nullable()();
+
+  /// The balance the message printed, a checkpoint as on a transaction.
+  IntColumn get balanceAfterMinor => integer().nullable()();
+  IntColumn get claimedBalanceMinor => integer().nullable()();
+  IntColumn get owedAfterMinor => integer().nullable()();
+  DateTimeColumn get owedDueAt => dateTime().nullable()();
+
+  /// The id the payment had as a transaction here, which keeps its place
+  /// among payments made at the same minute.
+  IntColumn get transactionId => integer().nullable()();
+
+  /// The link shared with the transaction in [spaceId].
+  TextColumn get linkId => text()();
+
+  /// The space the payment went to.
+  TextColumn get spaceId => text()();
 }
 
 /// Own-transfer pairs the person unmatched, so pairing never makes them

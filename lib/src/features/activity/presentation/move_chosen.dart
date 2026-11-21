@@ -10,7 +10,7 @@ import '../../../shared/widgets/marks.dart';
 import '../../../shared/widgets/states.dart';
 import '../../spaces/application/spaces_providers.dart';
 
-/// "3 chosen", with Move to another space and Done, in place of the title
+/// "3 chosen", with Switch to another space and Done, in place of the title
 /// while transactions are chosen.
 class MoveChosenBar extends ConsumerWidget {
   const MoveChosenBar({required this.chosen, required this.onDone, super.key});
@@ -46,7 +46,7 @@ class MoveChosenBar extends ConsumerWidget {
               key: const Key('activity-move-chosen'),
               label: 'Move',
               icon: Icons.drive_file_move_outline,
-              tooltip: 'Move to another space',
+              tooltip: 'Switch to another space',
               onPressed: () async {
                 final moved = await showAppSheet<String>(
                   context: context,
@@ -92,7 +92,7 @@ class _MoveSheetState extends ConsumerState<_MoveSheet> {
     final n = widget.ids.length;
     final things = n == 1 ? '1 transaction' : '$n transactions';
     return SheetBody(
-      title: 'Move to another space',
+      title: 'Switch to another space',
       children: [
         Text(
           '$things leave $from and go to the space you choose.',
@@ -101,10 +101,10 @@ class _MoveSheetState extends ConsumerState<_MoveSheet> {
         const SizedBox(height: 16),
         Card(
           child: ChoiceTile<Space>(
-            title: const Text('Move to'),
+            title: const Text('Switch to'),
             trailing: ChoiceMenu<Space>(
               key: const Key('move-chosen-to'),
-              name: 'Move to',
+              name: 'Switch to',
               options: [for (final s in widget.others) (s, s.name)],
               value: _to,
               itemKey: (s) => Key('move-chosen-to-${s.id}'),

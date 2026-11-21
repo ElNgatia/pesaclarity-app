@@ -47,7 +47,11 @@ abstract interface class AccountsRepository {
   Future<bool> setCurrency(int accountId, String currency);
 
   /// Every account's opening balance, for working out balances.
-  Future<List<AccountOpening>> openings();
+  ///
+  /// Accounts kept for money between spaces (decision 0027) are left out:
+  /// they are not money the space's own accounts hold. With
+  /// [betweenSpaces], they are in, for the journal.
+  Future<List<AccountOpening>> openings({bool betweenSpaces = false});
 
   /// Starts [accountId]'s records at [date] with [balanceMinor], in the
   /// account's own currency.
@@ -246,28 +250,29 @@ class DriftAccountsRepository implements AccountsRepository {
   });
 
   @override
-  Future<List<AccountOpening>> openings() async => [
+  Future<List<AccountOpening>> openings({bool betweenSpaces = false}) async => [
     for (final a in await _db.select(_db.accounts).get())
-      // At the rates of the day the account opened.
-      if (_converter
-              ?.convert(a.openingBalanceMinor, a.currency, a.openingDate)
-              ?.baseMinor
-          case final inBase? when a.currency != _converter!.base)
-        AccountOpening(
-          id: a.id,
-          type: a.type,
-          openingBalanceMinor: inBase,
-          openingDate: a.openingDate,
-          currency: _converter.base,
-        )
-      else
-        AccountOpening(
-          id: a.id,
-          type: a.type,
-          openingBalanceMinor: a.openingBalanceMinor,
-          openingDate: a.openingDate,
-          currency: a.currency,
-        ),
+      if (betweenSpaces || !a.type.isBetweenSpaces)
+        // At the rates of the day the account opened.
+        if (_converter
+                ?.convert(a.openingBalanceMinor, a.currency, a.openingDate)
+                ?.baseMinor
+            case final inBase? when a.currency != _converter!.base)
+          AccountOpening(
+            id: a.id,
+            type: a.type,
+            openingBalanceMinor: inBase,
+            openingDate: a.openingDate,
+            currency: _converter.base,
+          )
+        else
+          AccountOpening(
+            id: a.id,
+            type: a.type,
+            openingBalanceMinor: a.openingBalanceMinor,
+            openingDate: a.openingDate,
+            currency: a.currency,
+          ),
   ];
 }
 

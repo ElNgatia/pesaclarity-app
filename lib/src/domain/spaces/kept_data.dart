@@ -11,6 +11,11 @@ enum KeptKind {
 
   /// A whole space was deleted.
   space,
+
+  /// A space as it was before the update that put money between spaces
+  /// right (decision 0027, owner's decision 8). Restoring it puts its
+  /// records back as they were, like cleared records.
+  beforeRepair,
 }
 
 /// Data the person removed but asked to keep for 30 days. Its locked copy is

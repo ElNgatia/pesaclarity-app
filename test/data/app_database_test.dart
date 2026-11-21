@@ -863,9 +863,110 @@ void main() {
       expect(await columns(db, 'debts'), contains('next_due_day'));
     });
 
+    /// Takes the current schema in [old] back to version 42, before money
+    /// between spaces.
+    Future<void> toVersion42(AppDatabase old) async {
+      for (final trigger in [
+        'journal_dirty_balance_record_insert',
+        'journal_dirty_balance_record_update',
+        'journal_dirty_balance_record_delete',
+      ]) {
+        await old.customStatement('DROP TRIGGER $trigger');
+      }
+      await old.customStatement('DROP TABLE balance_records');
+      for (final (table, column) in [
+        ('accounts', 'linked_space_id'),
+        ('accounts', 'linked_account_id'),
+        ('transactions', 'link_id'),
+        ('transactions', 'linked_space_id'),
+      ]) {
+        await old.customStatement('ALTER TABLE $table DROP COLUMN $column');
+      }
+      await old.customStatement('PRAGMA user_version = 42');
+    }
+
+    test('migrates a version 42 database: money between spaces', () async {
+      final old = AppDatabase(NativeDatabase(file));
+      final wallet = await old
+          .into(old.accounts)
+          .insert(
+            AccountsCompanion.insert(
+              name: 'M-Pesa',
+              type: AccountType.mpesa,
+              openingDate: DateTime.utc(2026),
+            ),
+          );
+      await toVersion42(old);
+      await old.close();
+
+      final db = AppDatabase(NativeDatabase(file));
+      addTearDown(db.close);
+      expect(await userVersion(db), db.schemaVersion);
+      expect(db.schemaVersion, 43);
+      expect(
+        (await columns(db, 'accounts')).keys,
+        containsAll(['linked_space_id', 'linked_account_id']),
+      );
+      expect(
+        (await columns(db, 'transactions')).keys,
+        containsAll(['link_id', 'linked_space_id']),
+      );
+      expect(await tableNames(db), contains('balance_records'));
+
+      // A balance record marks its account for the journal, as a
+      // transaction does, and goes with its account.
+      await db.delete(db.journalDirty).go();
+      await db
+          .into(db.balanceRecords)
+          .insert(
+            BalanceRecordsCompanion.insert(
+              accountId: wallet,
+              occurredAt: DateTime.utc(2026, 11, 20, 14, 6),
+              amountMinor: 65000,
+              direction: TransactionDirection.inflow,
+              linkId: 'link-1',
+              spaceId: 'stall',
+            ),
+          );
+      expect(
+        [for (final d in await db.select(db.journalDirty).get()) d.accountId],
+        [wallet],
+      );
+      // One record per link.
+      await expectLater(
+        db
+            .into(db.balanceRecords)
+            .insert(
+              BalanceRecordsCompanion.insert(
+                accountId: wallet,
+                occurredAt: DateTime.utc(2026, 11, 20, 14, 6),
+                amountMinor: 65000,
+                direction: TransactionDirection.inflow,
+                linkId: 'link-1',
+                spaceId: 'stall',
+              ),
+            ),
+        throwsA(isA<SqliteException>()),
+      );
+      await (db.delete(db.accounts)..where((a) => a.id.equals(wallet))).go();
+      expect(await db.select(db.balanceRecords).get(), isEmpty);
+    });
+
+    test('the version 43 step is safe to run twice', () async {
+      final old = AppDatabase(NativeDatabase(file));
+      await old.customStatement('PRAGMA user_version = 42');
+      await old.close();
+      final db = AppDatabase(NativeDatabase(file));
+      addTearDown(db.close);
+      expect(await userVersion(db), db.schemaVersion);
+      expect(await columns(db, 'transactions'), contains('link_id'));
+      expect(await db.select(db.balanceRecords).get(), isEmpty);
+    });
+
     /// Takes the current schema in [old] back to version 41, before sending
     /// to Firefly III.
     Future<void> toVersion41(AppDatabase old) async {
+      await toVersion42(old);
       for (final trigger in [
         'firefly_outbox_transaction_insert',
         'firefly_outbox_transaction_update',
@@ -981,7 +1082,7 @@ void main() {
       final db = AppDatabase(NativeDatabase(file));
       addTearDown(db.close);
       expect(await userVersion(db), db.schemaVersion);
-      expect(db.schemaVersion, 42);
+      expect(db.schemaVersion, 43);
       expect((await columns(db, 'accounts'))['product'], isFalse);
       expect((await columns(db, 'goals'))['saved_in_pocket_id'], isFalse);
       expect(

@@ -75,6 +75,10 @@ extension on ProviderContainer {
       business: read(institutionsRepositoryProvider),
       personal: DriftInstitutionsRepository(personal),
     );
+    // Its customers send money to the owner's number, so the business
+    // asks about it (decision 0027, owner's decision 15).
+    await read(routingRulesProvider.notifier)
+        .setChannels('mpesa', const LineChannels(customersToNumber: true));
     return id;
   }
 
@@ -193,7 +197,7 @@ void main() {
       // Out of use, and kept with the copy.
       expect((await c.read(routingRulesProvider.future)).isEmpty, isTrue);
       final kept = (await c.read(keptDataProvider.future)).single;
-      expect(kept.rules!.toJson(), {
+      expect(kept.rules!.toJson().withoutChannels, {
         'sharedLines': {'mpesa': shopId},
         'people': {_grace: shopId},
       });
@@ -205,10 +209,13 @@ void main() {
       await manager.restore(kept);
 
       expect(c.read(activeSpaceIdProvider), shopId);
-      expect((await c.read(routingRulesProvider.future)).toJson(), {
-        'sharedLines': {'mpesa': shopId},
-        'people': {_grace: shopId},
-      });
+      expect(
+        (await c.read(routingRulesProvider.future)).toJson().withoutChannels,
+        {
+          'sharedLines': {'mpesa': shopId},
+          'people': {_grace: shopId},
+        },
+      );
       // Grace is a customer of the shop again: what she sent meanwhile,
       // and what she sends next, go to it.
       await c.personalReads(_fromGrace(3));
@@ -262,10 +269,13 @@ void main() {
 
       await manager.restore((await c.read(keptDataProvider.future)).single);
 
-      expect((await c.read(routingRulesProvider.future)).toJson(), {
-        'sharedLines': {'mpesa': second},
-        'people': {_john: first, _grace: second},
-      });
+      expect(
+        (await c.read(routingRulesProvider.future)).toJson().withoutChannels,
+        {
+          'sharedLines': {'mpesa': second},
+          'people': {_john: first, _grace: second},
+        },
+      );
     });
   });
 
@@ -284,10 +294,13 @@ void main() {
         .read(spaceManagerProvider)
         .delete(await c.space(shopId), keep: false);
 
-    expect((await c.read(routingRulesProvider.future)).toJson(), {
-      'sharedLines': <String, String>{},
-      'people': {_grace: personalSpaceId},
-    });
+    expect(
+      (await c.read(routingRulesProvider.future)).toJson().withoutChannels,
+      {
+        'sharedLines': <String, String>{},
+        'people': {_grace: personalSpaceId},
+      },
+    );
     expect(await c.inPersonal(), ['TJA0000021']);
   });
 
@@ -519,4 +532,10 @@ class _Store implements ActiveSpaceStore {
 
   @override
   Future<void> writeOpenChoice(String choice) async => written.add(choice);
+}
+
+extension on Map<String, Object?> {
+  /// The rules that sort money by person and line, without the line's
+  /// channels (decision 0027, section 4).
+  Map<String, Object?> get withoutChannels => {...this}..remove('channels');
 }

@@ -52,6 +52,14 @@ class SpaceDatabases {
         .readJson(spacesListKey),
   );
 
+  /// [spaceId]'s name as the list has it: Personal's is "Personal".
+  Future<String> nameOf(String spaceId) async {
+    for (final space in await listed()) {
+      if (space.id == spaceId) return space.name;
+    }
+    return spaceId == personalSpaceId ? 'Personal' : spaceId;
+  }
+
   /// [spaceId]'s database, and whether the caller must close it.
   ///
   /// Throws [SpaceNotOnPhone], touching no file, when the space is not on
@@ -120,7 +128,9 @@ class SpaceDatabases {
   }
 
   /// Which of [hashes] another space on the list already holds as a
-  /// transaction, the message's own or as its twin. Each message lands in
+  /// transaction, the message's own or as its twin, or as the balance
+  /// record a payment switched away left there (decision 0027; see
+  /// [heldIn]). Each message lands in
   /// one space only: the one that read it first, or the one the person
   /// moved it to. A space that cannot be opened is skipped, so reading
   /// never stops for it.
@@ -148,7 +158,8 @@ class SpaceDatabases {
   }
 }
 
-/// Which of [hashes] [db] holds as a transaction's message or its twin.
+/// Which of [hashes] [db] holds as a transaction's message or its twin, or
+/// as a balance record's (decision 0027).
 Future<Set<String>> heldIn(AppDatabase db, Set<String> hashes) async {
   final t = db.transactions;
   final list = hashes.toList();
@@ -169,6 +180,25 @@ Future<Set<String>> heldIn(AppDatabase db, Set<String> hashes) async {
       for (final hash in [
         row.read(t.messageHash),
         row.read(t.twinMessageHash),
+      ]) {
+        if (hash != null && hashes.contains(hash)) found.add(hash);
+      }
+    }
+    // A payment switched to another space (decision 0027) leaves its
+    // message with the balance record where its account lives: that space
+    // still holds it, and the other space has it on the owner's account.
+    final r = db.balanceRecords;
+    final records =
+        await (db.selectOnly(r)
+              ..addColumns([r.messageHash, r.twinMessageHash])
+              ..where(
+                r.messageHash.isIn(chunk) | r.twinMessageHash.isIn(chunk),
+              ))
+            .get();
+    for (final row in records) {
+      for (final hash in [
+        row.read(r.messageHash),
+        row.read(r.twinMessageHash),
       ]) {
         if (hash != null && hashes.contains(hash)) found.add(hash);
       }
