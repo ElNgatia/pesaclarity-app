@@ -63,6 +63,73 @@ void main() {
       expect(p('last 7 days').from, CalendarDate(2026, 11, 7));
     });
 
+    test('the last N months is this month and the N - 1 before', () {
+      final three = AskPeriod.lastMonths(3, today);
+      for (final q in [
+        'the 3 months',
+        'during the 3 months',
+        'the last 3 months',
+        'past three months',
+        'over the last 3 months',
+        'in these 3 months',
+        '3 months',
+        'for the previous three months',
+        'miezi mitatu iliyopita',
+        'miezi 3 iliyopita',
+        'kwa miezi mitatu',
+      ]) {
+        expect(parsePeriod(q, today), three, reason: q);
+      }
+      expect(p('the last one month'), AskPeriod.lastMonths(1, today));
+      expect(p('past twelve months').from, CalendarDate(2025, 12, 1));
+    });
+
+    test('not the months to come, nor the first of the year', () {
+      expect(parsePeriod('the next 3 months', today), isNull);
+      expect(parsePeriod('the coming three months', today), isNull);
+      expect(parsePeriod('the first 3 months', today), isNull);
+    });
+
+    test('N months ago is that month', () {
+      expect(p('3 months ago'), AskPeriod.month(YearMonth(2026, 8), today));
+      expect(p('two months ago').from, CalendarDate(2026, 9, 1));
+    });
+
+    test('days and weeks, in words and Swahili', () {
+      final ninety = p('the past 90 days');
+      expect(ninety.kind, PeriodKind.days);
+      expect(ninety.from, CalendarDate(2026, 8, 16));
+      expect(ninety.to, CalendarDate(2026, 11, 14));
+      expect(p('last ninety days'), ninety);
+      expect(p('siku tisini zilizopita'), ninety);
+      expect(p('the last 2 weeks').from, CalendarDate(2026, 10, 31));
+      expect(p('wiki mbili zilizopita').length, 14);
+      expect(p('these 30 days').length, 30);
+    });
+
+    test('quarters are calendar quarters', () {
+      final last = p('the last quarter');
+      expect(last.kind, PeriodKind.quarter);
+      expect(last.from, CalendarDate(2026, 7, 1));
+      expect(last.to, CalendarDate(2026, 10, 1));
+      expect(p('past quarter'), last);
+      expect(p('previous quarter'), last);
+      final now = p('this quarter');
+      expect(now.from, CalendarDate(2026, 10, 1));
+      expect(now.to, CalendarDate(2026, 11, 14));
+      expect(now.previous(), last);
+      expect(last.label(today), 'Jul to Sep 2026');
+      expect(last.phrase(today), 'last quarter');
+      expect(now.phrase(today), 'this quarter');
+      expect(AskPeriod.fromJson(last.toJson()), last);
+    });
+
+    test('since a month, in Swahili too', () {
+      expect(p('tangu septemba'), p('since september'));
+      expect(p('tangu septemba').from, CalendarDate(2026, 9, 1));
+      expect(p('mwezi wa oktoba').from, CalendarDate(2026, 10, 1));
+    });
+
     test('nothing named', () {
       expect(parsePeriod('how much did I spend on food', today), isNull);
     });
@@ -71,6 +138,34 @@ void main() {
       final m = findPeriod('Food last month please', today)!;
       expect(m.text, 'last month');
       expect(m.start, 5);
+    });
+  });
+
+  group('unreadPeriod', () {
+    test('words of time no rule reads', () {
+      for (final q in [
+        'over the last few months',
+        'the past year',
+        'last 2 years',
+        'these days',
+        'miezi kadhaa',
+      ]) {
+        expect(parsePeriod(q, today), isNull, reason: q);
+        expect(unreadPeriod(q), isNotNull, reason: q);
+      }
+    });
+
+    test('not words that say how, not when', () {
+      for (final q in [
+        'How much do I save a month?',
+        'How has food changed each month?',
+        'spending month by month',
+        'sales by day',
+        'What did I spend on food?',
+        'What was my best day?',
+      ]) {
+        expect(unreadPeriod(q), isNull, reason: q);
+      }
     });
   });
 
@@ -110,6 +205,12 @@ void main() {
       expect(p('in september').phrase(today), 'in September');
       expect(p('this year').phrase(today), 'this year');
       expect(p('october 2025').phrase(today), 'in October 2025');
+    });
+
+    test('the last N months reads as a stretch of months', () {
+      final three = p('the 3 months');
+      expect(three.label(today), 'Sep to Nov 2026');
+      expect(three.phrase(today), 'in the last 3 months');
     });
 
     test('JSON round trip', () {

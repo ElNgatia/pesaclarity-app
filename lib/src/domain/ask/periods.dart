@@ -2,7 +2,7 @@ import '../time/calendar.dart';
 import '../time/date_labels.dart';
 
 /// How a period was named, which decides its comparable period.
-enum PeriodKind { day, week, month, year, months, days, since, range }
+enum PeriodKind { day, week, month, year, months, days, since, range, quarter }
 
 /// Days from [from] up to, not including, [to], in the user's timezone.
 class AskPeriod {
@@ -49,7 +49,21 @@ class AskPeriod {
     _cap(CalendarDate(year + 1, 1, 1), today),
   );
 
-  /// The last [count] months, this one included.
+  /// A calendar quarter (January to March, April to June, July to
+  /// September, October to December), up to today when it is this one.
+  factory AskPeriod.quarter(YearMonth first, CalendarDate today) {
+    final start = YearMonth(first.year, (first.month - 1) ~/ 3 * 3 + 1);
+    return AskPeriod(
+      PeriodKind.quarter,
+      start.firstDay,
+      _cap(start.addMonths(3).firstDay, today),
+    );
+  }
+
+  /// The last [count] months, this one included: "the last 3 months" on
+  /// 21 November is 1 September to today. One rule for every way of saying
+  /// it ("the 3 months", "past three months", "miezi mitatu iliyopita"),
+  /// the same as Ask's "Last 3 months" period.
   factory AskPeriod.lastMonths(int count, CalendarDate today) => AskPeriod(
     PeriodKind.months,
     today.yearMonth.addMonths(1 - count).firstDay,
@@ -104,6 +118,9 @@ class AskPeriod {
       case PeriodKind.months:
         final start = from.yearMonth.addMonths(-length);
         return AskPeriod(kind, start.firstDay, from, length: length);
+      case PeriodKind.quarter:
+        final start = from.yearMonth.addMonths(-3);
+        return AskPeriod(kind, start.firstDay, from);
       case PeriodKind.days || PeriodKind.since || PeriodKind.range:
         final days = from.daysUntil(to);
         return AskPeriod(kind, from.addDays(-days), from, length: length);
@@ -132,7 +149,7 @@ class AskPeriod {
             '${monthName(last.yearMonth)}';
       case PeriodKind.range:
         return _range(from, last);
-      case PeriodKind.months || PeriodKind.since:
+      case PeriodKind.months || PeriodKind.since || PeriodKind.quarter:
         final sameYear = from.year == last.year;
         return '${monthName(from.yearMonth)}${sameYear ? '' : ' ${from.year}'}'
             ' to ${monthName(last.yearMonth)} ${last.year}';
@@ -168,6 +185,12 @@ class AskPeriod {
         return 'in the last $length days';
       case PeriodKind.since:
         return 'since ${_monthNames[from.month - 1]}';
+      case PeriodKind.quarter:
+        final start = today.yearMonth.addMonths(-((today.month - 1) % 3));
+        if (from.yearMonth == start) return 'this quarter';
+        if (from.yearMonth == start.addMonths(-3)) return 'last quarter';
+        return 'from ${monthName(from.yearMonth)} to '
+            '${monthName(lastDay.yearMonth)} ${lastDay.year}';
       case PeriodKind.range:
         return 'from ${_range(from, lastDay)}';
     }
@@ -257,9 +280,25 @@ const _monthWords = {
   'nov': 11,
   'december': 12,
   'dec': 12,
+  // Swahili.
+  'januari': 1,
+  'februari': 2,
+  'machi': 3,
+  'aprili': 4,
+  'mei': 5,
+  'juni': 6,
+  'julai': 7,
+  'agosti': 8,
+  'septemba': 9,
+  'oktoba': 10,
+  'novemba': 11,
+  'desemba': 12,
 };
 
+/// Counts written as words, English and Swahili. Swahili counts of months
+/// agree with "miezi" (mitatu, minne); the plain forms are there too.
 const _numberWords = {
+  'one': 1,
   'two': 2,
   'three': 3,
   'four': 4,
@@ -271,6 +310,33 @@ const _numberWords = {
   'ten': 10,
   'eleven': 11,
   'twelve': 12,
+  'fourteen': 14,
+  'fifteen': 15,
+  'eighteen': 18,
+  'twenty': 20,
+  'twenty-four': 24,
+  'thirty': 30,
+  'sixty': 60,
+  'ninety': 90,
+  'moja': 1,
+  'mmoja': 1,
+  'mbili': 2,
+  'miwili': 2,
+  'tatu': 3,
+  'mitatu': 3,
+  'nne': 4,
+  'minne': 4,
+  'tano': 5,
+  'mitano': 5,
+  'sita': 6,
+  'saba': 7,
+  'nane': 8,
+  'minane': 8,
+  'tisa': 9,
+  'kumi': 10,
+  'thelathini': 30,
+  'sitini': 60,
+  'tisini': 90,
 };
 
 /// A period found in a question, and where its words sit.
@@ -289,17 +355,53 @@ final _monthAlt =
 final _countAlt = '[0-9]{1,3}|${_numberWords.keys.join('|')}';
 
 final _rules = <(RegExp, AskPeriod? Function(RegExpMatch, CalendarDate))>[
+  // "3 months ago": that one month.
   (
-    RegExp('\\b(?:in |over )?(?:the )?(?:last|past) ($_countAlt) months?\\b'),
+    RegExp('\\b($_countAlt) months? ago\\b'),
+    (m, today) {
+      final n = _count(m.group(1)!);
+      return n == null || n < 1
+          ? null
+          : AskPeriod.month(today.yearMonth.addMonths(-n), today);
+    },
+  ),
+  // "the last 3 months", "the 3 months", "past three months", "over the
+  // last 3 months", "in these 3 months", "3 months": the last N months,
+  // this one included. Never "the next 3 months" or "the first 3 months".
+  (
+    RegExp(
+      '\\b(?:(?:in|over|during|for|within|across) )?'
+      '(?:(?:the|these|those|my) )?'
+      '(?:(?:last|past|previous|recent) )?'
+      '(?<!(?:next|coming|first|following|upcoming) )'
+      '($_countAlt) months?\\b(?! ago)',
+    ),
+    (m, today) {
+      final n = _count(m.group(1)!);
+      return n == null || n < 1 ? null : AskPeriod.lastMonths(n, today);
+    },
+  ),
+  // "miezi mitatu iliyopita", "kwa miezi 3", "miezi mitatu".
+  (
+    RegExp(
+      '\\b(?:(?:kwa|katika|ndani ya) )?miezi ($_countAlt)'
+      '(?: (?:iliyopita|hii|ya mwisho))?\\b',
+    ),
     (m, today) {
       final n = _count(m.group(1)!);
       return n == null || n < 1 ? null : AskPeriod.lastMonths(n, today);
     },
   ),
   (
-    RegExp('\\b(?:in |over )?(?:the )?(?:last|past) ($_countAlt) days?\\b'),
+    RegExp(
+      '\\b(?:(?:in|over|during|for|within) )?(?:(?:the|these|those) )?'
+      '(?:last|past|previous) ($_countAlt) days?\\b'
+      '|\\b(?:(?:in|over|during|for|within) )?(?:the|these|those) '
+      '($_countAlt) days?\\b'
+      '|\\bsiku ($_countAlt)(?: (?:zilizopita|hizi))?\\b',
+    ),
     (m, today) {
-      final n = _count(m.group(1)!);
+      final n = _count(m.group(1) ?? m.group(2) ?? m.group(3)!);
       if (n == null || n < 1) return null;
       return AskPeriod(
         PeriodKind.days,
@@ -309,8 +411,35 @@ final _rules = <(RegExp, AskPeriod? Function(RegExpMatch, CalendarDate))>[
       );
     },
   ),
+  // "the last 2 weeks", "wiki mbili zilizopita": that many days.
   (
-    RegExp('\\bsince ($_monthAlt)(?: ([0-9]{4}))?\\b'),
+    RegExp(
+      '\\b(?:(?:in|over|during|for|within) )?(?:(?:the|these|those) )?'
+      '(?:last|past|previous) ($_countAlt) weeks?\\b'
+      '|\\bwiki ($_countAlt)(?: (?:zilizopita|hizi))?\\b',
+    ),
+    (m, today) {
+      final n = _count(m.group(1) ?? m.group(2)!);
+      if (n == null || n < 1) return null;
+      return AskPeriod(
+        PeriodKind.days,
+        today.addDays(1 - 7 * n),
+        today.addDays(1),
+        length: 7 * n,
+      );
+    },
+  ),
+  // Calendar quarters: "last quarter" on 21 November is July to September.
+  (
+    RegExp(r'\b(?:so far )?this quarter\b|\b(?:the )?current quarter\b'),
+    (m, today) => AskPeriod.quarter(today.yearMonth, today),
+  ),
+  (
+    RegExp(r'\b(?:the )?(?:last|past|previous) quarter\b'),
+    (m, today) => AskPeriod.quarter(today.yearMonth.addMonths(-3), today),
+  ),
+  (
+    RegExp('\\b(?:since|tangu) ($_monthAlt)(?: ([0-9]{4}))?\\b'),
     (m, today) {
       final month = _monthOf(m.group(1)!, m.group(2), today);
       return AskPeriod(PeriodKind.since, month.firstDay, today.addDays(1));
@@ -402,6 +531,26 @@ PeriodMatch? findPeriod(String question, CalendarDate today) {
     // covers the same place.
   }
   return best;
+}
+
+const _units = '(?:months?|weeks?|days?|years?|quarters?)';
+
+/// Words of time that [findPeriod] reads as no period: "the last few
+/// months", "past year", "2 years", "miezi kadhaa". Not "a month", "each
+/// month" or "by day", which say how, not when; nor "next week", which no
+/// record has.
+final _unread = RegExp(
+  '\\b(?:$_countAlt|few|several|couple of|some) $_units\\b'
+  '|\\b(?:last|past|previous|recent|these|those) '
+  '(?:few |several |couple of )?$_units\\b'
+  '|\\bmiezi\\b|\\bmiaka\\b|\\b(?:siku|wiki) \\S+ zilizopita\\b',
+);
+
+/// The words of time in [question] that name no period Ask can read, or
+/// null when there are none (or [findPeriod] reads them).
+String? unreadPeriod(String question) {
+  final text = question.toLowerCase();
+  return _unread.firstMatch(text)?.group(0);
 }
 
 /// The period [text] names, such as `last month`, or null.

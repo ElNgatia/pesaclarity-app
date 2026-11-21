@@ -183,6 +183,31 @@ void main() {
       AskIntent.spent,
       {SlotKind.payee: 'naivas', SlotKind.period: 'yesterday'},
     ),
+    (
+      'how much money got in during the 3 months',
+      AskIntent.received,
+      {SlotKind.period: 'during the 3 months'},
+    ),
+    (
+      'How much came in the last 3 months?',
+      AskIntent.received,
+      {SlotKind.period: 'in the last 3 months'},
+    ),
+    (
+      'Spent on food in the past quarter',
+      AskIntent.spent,
+      {SlotKind.category: 'food', SlotKind.period: 'the past quarter'},
+    ),
+    (
+      'pesa iliyoingia miezi mitatu iliyopita',
+      AskIntent.received,
+      {SlotKind.period: 'miezi mitatu iliyopita'},
+    ),
+    (
+      'nimetumia pesa ngapi kwa chakula tangu septemba',
+      AskIntent.spent,
+      {SlotKind.category: 'chakula', SlotKind.period: 'tangu septemba'},
+    ),
   ];
 
   test(
