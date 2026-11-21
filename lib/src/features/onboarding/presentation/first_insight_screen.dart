@@ -76,13 +76,13 @@ class FirstInsightScreen extends ConsumerWidget {
             : 'From $count transactions in your messages.',
       ),
       const SizedBox(height: 20),
-      _Figure(label: 'Money in', value: amount(insight.incomeMinor)),
+      _Figure(label: 'Money in', value: amount(insight.moneyInMinor)),
       const SizedBox(height: 12),
       _Figure(
         label: 'Spent, with fees',
         value: amount(insight.spendingMinor),
-        note: insight.incomeMinor > 0
-            ? _vsIncome(insight.spendingMinor, insight.incomeMinor, amount)
+        note: insight.moneyInMinor > 0
+            ? _vsIncome(insight.spendingMinor, insight.moneyInMinor, amount)
             : null,
       ),
       const SizedBox(height: 12),
