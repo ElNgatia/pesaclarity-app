@@ -1,4 +1,5 @@
 import '../../../data/database/app_database.dart';
+import '../../../data/repositories/balance_records_repository.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/firefly/firefly_mapping.dart';
@@ -78,8 +79,14 @@ Future<FireflySpaceSnapshot> readFireflySpace(
             .get())
       row.read(db.transactions.id)!: row.read(db.transactions.receiptNo)!,
   };
-  final entries = await DriftTransactionsRepository(db)
-      .ledgerEntries(from: DateTime.utc(1970), to: DateTime.utc(9999));
+  final entries = [
+    ...await DriftTransactionsRepository(db)
+        .ledgerEntries(from: DateTime.utc(1970), to: DateTime.utc(9999)),
+    // What payments switched to other spaces left here (decision 0027):
+    // sent against Held for that space, so the account ends at its balance
+    // here. Their ids are negative, never a transaction's.
+    ...await BalanceRecordsReader(db).ledgerEntries(),
+  ]..sort((a, b) => a.occurredAt.compareTo(b.occurredAt));
   final byId = {for (final e in entries) e.id: e};
 
   // Each source's postings, netted: a reversal cancels what it reverses.
@@ -114,8 +121,17 @@ Future<FireflySpaceSnapshot> readFireflySpace(
   List<FireflyPart> partsOf(LedgerEntry e) {
     final account = accounts[e.accountId];
     if (account == null) return const [];
-    final own = lines[('transaction', e.id)] ?? const {};
+    final own =
+        lines[e.isBalanceRecord
+            ? ('balanceRecord', e.balanceRecordId!)
+            : ('transaction', e.id)] ??
+        const {};
     int line(String bookKey) => own[(bookKey, e.currency)] ?? 0;
+    final held = e.isBalanceRecord
+        ? accounts[e.heldForAccountId]
+        : account.isHeldFor
+        ? account
+        : null;
     final transit = roleOf(e) == LedgerRole.ownTransfer
         ? 0
         : line('ownTransfers');
@@ -137,7 +153,7 @@ Future<FireflySpaceSnapshot> readFireflySpace(
       FireflyTransactionFacts(
         entry: e,
         account: account,
-        journalMoneyMinor: line('money:${e.accountId}') + transit,
+        journalMoneyMinor: line(account.bookKey) + transit,
         journalFulizaMinor: -line('fulizaOwed:${e.accountId}'),
         journalBorrowedMinor: -line('borrowed'),
         partner: paired ? partner : null,
@@ -147,6 +163,8 @@ Future<FireflySpaceSnapshot> readFireflySpace(
         receipt: receipts[e.id],
         tagNames: [for (final id in e.tagIds) ?tags[id]]..sort(),
         gapMinor: gap,
+        heldFor: held,
+        journalHeldMinor: held == null ? 0 : -line(held.bookKey),
       ),
       naming,
     );
@@ -190,7 +208,14 @@ Future<FireflySpaceSnapshot> readFireflySpace(
       final currency = spec.currency;
       if (currency == null) continue;
       final [kind, id, ...] = [...key.split(':'), ''];
+      final book = spec.bookKey;
       final value = switch (kind) {
+        // Money between spaces (decision 0027), from its own journal
+        // account: Held for another space is owed.
+        _ when book != null => switch (sums[(book, currency)]) {
+          final v? => spec.kind == FireflyAccountKind.liability ? -v : v,
+          null => null,
+        },
         'money' => sums[('money:$id', currency)],
         'fuliza' => switch (sums[('fulizaOwed:$id', currency)]) {
           final v? => -v,
