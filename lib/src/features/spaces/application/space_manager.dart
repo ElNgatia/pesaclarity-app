@@ -11,8 +11,10 @@ import '../../../data/database/app_database.dart';
 import '../../../data/database/database_providers.dart';
 import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../data/repositories/balances_repair.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/message_reads_repository.dart';
+import '../../../data/repositories/money_repair.dart';
 import '../../../data/repositories/savings_links.dart';
 import '../../../domain/spaces/kept_data.dart';
 import '../../../domain/spaces/space.dart';
@@ -106,6 +108,51 @@ class SpaceManager {
       ),
       ...kept,
     ]);
+  }
+
+  /// Keeps a locked copy of every space for 30 days, then runs the one-time
+  /// repair of money between spaces (decision 0027, section 8), and saves
+  /// what it did for the sheet that tells the person. Runs once: nothing
+  /// to repair, it is only marked done.
+  ///
+  /// The repair of messages stored in two spaces ([repairSpaceLeakOnce])
+  /// runs first, in every space that has not run it yet: it takes out the
+  /// copies, and what it keeps on purpose it leaves as a move, so the
+  /// moves this repair then turns into the owner's account are only moves,
+  /// each once. Should a space not open, neither runs, and both run again
+  /// the next time.
+  Future<MoneyRepairState> repairMoneyBetweenSpaces() async {
+    final personal = _ref.read(personalDatabaseProvider);
+    final store = MoneyRepairStore(personal);
+    final state = await store.read();
+    if (state.ran) return state;
+    final spaces = await _ref.read(spaceDatabasesProvider).listed();
+    final ids = [for (final space in spaces) space.id];
+    for (final id in ids) {
+      final (db, close) = await _open(id);
+      try {
+        await repairSpaceLeakOnce(db, (here: id, ids: ids, open: _open));
+      } finally {
+        if (close) await db.close();
+      }
+    }
+    final repair = MoneyRepair(
+      personal: personal,
+      spaces: spaces.isEmpty ? [Space.personal] : spaces,
+      open: _open,
+    );
+    if (!await repair.needed()) {
+      const done = MoneyRepairState(ran: true, shown: true);
+      await store.save(done);
+      return done;
+    }
+    for (final space in spaces) {
+      await _keep(space, KeptKind.beforeRepair);
+    }
+    final result = await repair.run();
+    final done = MoneyRepairState(ran: true, result: result);
+    await store.save(done);
+    return done;
   }
 
   /// Makes [space] a [kind] of space, open or not. Its records stay.

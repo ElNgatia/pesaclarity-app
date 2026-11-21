@@ -63,7 +63,8 @@ void main() {
     await business.close();
   });
 
-  test('moves a transaction, its account and its category key', () async {
+  test("switches a transaction onto the owner's account, with its category "
+      'key, and leaves its balance record', () async {
     final id = await DriftTransactionsRepository(personal).add(sale(mpesa));
     final received = await (personal.select(
       personal.categories,
@@ -78,9 +79,22 @@ void main() {
     final moved = await business.select(business.transactions).getSingle();
     expect(moved.amountMinor, 150000);
     expect(moved.receiptNo, 'QK1');
+    // No M-Pesa account in the business: the owner's account on
+    // Personal's M-Pesa (decision 0027).
     final account = await business.select(business.accounts).getSingle();
-    expect(account.institutionId, 'mpesa');
+    expect(account.type, AccountType.ownersAccount);
+    expect(account.institutionId, isNull);
+    expect(account.linkedSpaceId, personalSpaceId);
+    expect(account.linkedAccountId, mpesa);
+    expect(account.name, 'Your M-Pesa');
     expect(moved.accountId, account.id);
+    expect(moved.linkId, isNotNull);
+    expect(moved.linkedSpaceId, personalSpaceId);
+    final record = await personal.select(personal.balanceRecords).getSingle();
+    expect(record.accountId, mpesa);
+    expect(record.amountMinor, 150000);
+    expect(record.linkId, moved.linkId);
+    expect(record.spaceId, 'abc123');
     final category = await (business.select(
       business.categories,
     )..where((c) => c.id.equals(moved.categoryOverrideId!))).getSingle();
@@ -95,7 +109,8 @@ void main() {
     expect(other, 1);
   });
 
-  test('a category the other space lacks is left unset', () async {
+  test('money in switched to a business, with a category it lacks, is '
+      'filed as Sales', () async {
     final id = await DriftTransactionsRepository(personal).add(sale(mpesa));
     final betting = await (personal.select(
       personal.categories,
@@ -106,7 +121,10 @@ void main() {
 
     await moves.move(id, 'abc123');
     final moved = await business.select(business.transactions).getSingle();
-    expect(moved.categoryOverrideId, isNull);
+    final category = await (business.select(
+      business.categories,
+    )..where((c) => c.id.equals(moved.categoryOverrideId!))).getSingle();
+    expect(category.key, 'sales');
   });
 
   // The balance a message reported is the balance of the space that reads
@@ -180,6 +198,7 @@ void main() {
       await DriftSpaceMoveRepository(
         business,
         (_) async => (personal, false),
+        sourceSpaceId: 'shop1',
       ).move(id, personalSpaceId);
 
       final back = await personal.select(personal.transactions).getSingle();
@@ -387,6 +406,7 @@ void main() {
       await DriftSpaceMoveRepository(
         business,
         (spaceId) async => (personal, false),
+        sourceSpaceId: 'shop1',
       ).move(there.id, personalSpaceId);
 
       final back = (await repayments()).single;

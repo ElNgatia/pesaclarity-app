@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/network/pinned_http_client.dart';
 import 'package:pesaclarity/src/core/network/trusted_roots.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
+import 'package:pesaclarity/src/data/repositories/space_move_repository.dart';
 import 'package:pesaclarity/src/domain/firefly/firefly_server.dart';
 import 'package:pesaclarity/src/features/firefly/application/firefly_sender.dart';
 import 'package:pesaclarity/src/features/firefly/data/firefly_client.dart';
@@ -288,12 +289,11 @@ void main() {
     );
 
     test(
-      'a delete deletes there; a move keeps the record and retags',
+      'a delete deletes there; a switch to another space is sent from there',
       () async {
         await sender().sendSpace(month.personal, month.personalDb);
         await sender().sendSpace(month.business, month.businessDb);
         final saleExternal = 'pesaclarity:${month.personal.id}:${month.sale}';
-        final made = server.live.length;
         await month.changes();
         await sender().sendSpace(month.personal, month.personalDb);
         await sender().sendSpace(month.business, month.businessDb);
@@ -305,16 +305,62 @@ void main() {
           ),
           isEmpty,
         );
-        final sale = server.live.singleWhere(
-          (s) => s['external_id'] == saleExternal,
+        // The sale on the shared line is switched (decision 0027): it is on
+        // the owner's account in the business now, so Personal's goes and
+        // the business sends its own, once. The balance record Personal
+        // keeps is no transaction and is not sent.
+        expect(
+          server.live.where((s) => s['external_id'] == saleExternal),
+          isEmpty,
         );
-        expect(sale['tags'], contains(month.business.name));
-        expect(server.live.length, lessThan(made));
-        // The business keeps the record under the sale's id there.
-        final moved = await FireflySpaceStore(month.businessDb).allSent();
-        expect(moved.values.map((r) => r.externalId), contains(saleExternal));
+        final switched = await (month.businessDb.select(
+          month.businessDb.transactions,
+        )..where((t) => t.linkId.isNotNull())).getSingle();
+        final there = server.live.where(
+          (s) =>
+              s['external_id'] ==
+              'pesaclarity:${month.business.id}:${switched.id}',
+        );
+        expect(there, hasLength(1));
+        expect(there.single['tags'], contains(month.business.name));
       },
     );
+
+    test('a move outright keeps the record and retags', () async {
+      final p = month.personalDb;
+      final bus = await month.tx(
+        p,
+        month.cash,
+        DateTime.utc(2026, 11, 16, 8),
+        20000,
+        TransactionDirection.outflow,
+        TransactionKind.bank,
+        counterparty: 'MADE UP BUS',
+      );
+      await sender().sendSpace(month.personal, p);
+      await sender().sendSpace(month.business, month.businessDb);
+      final external = 'pesaclarity:${month.personal.id}:$bus';
+      expect(
+        server.live.where((s) => s['external_id'] == external),
+        isNotEmpty,
+      );
+      final made = server.live.length;
+      // Typed by hand on an account no messages are read into: it moves
+      // whole, and Firefly III keeps the one transaction, retagged.
+      await DriftSpaceMoveRepository(
+        p,
+        (_) async => (month.businessDb, false),
+      ).move(bus, month.business.id);
+      await sender().sendSpace(month.personal, p);
+      await sender().sendSpace(month.business, month.businessDb);
+      final moved = server.live.singleWhere(
+        (s) => s['external_id'] == external,
+      );
+      expect(moved['tags'], contains(month.business.name));
+      expect(server.live.length, made);
+      final kept = await FireflySpaceStore(month.businessDb).allSent();
+      expect(kept.values.map((r) => r.externalId), contains(external));
+    });
 
     test('a move to a space not sent deletes it there', () async {
       await sender().sendSpace(month.personal, month.personalDb);

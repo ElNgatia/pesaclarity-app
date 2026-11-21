@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pesaclarity/src/domain/enums.dart';
 import 'package:pesaclarity/src/domain/spaces/line_routing.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
 
@@ -62,5 +63,117 @@ void main() {
     expect(back.sharedLines, {'mpesa': 'shop2', 'kcb': 'shop2'});
     expect(back.people['phone:0700***002'], personalSpaceId);
     expect(back.people['phone:0700***004'], 'shop1');
+  });
+
+  // Decision 0027, section 4: on a line used for both, the channel decides
+  // first.
+  group('channels on a line used for both', () {
+    const pochi = ReceivedThrough(ChannelKind.ownPochi);
+    const till = ReceivedThrough(ChannelKind.till, number: '123456');
+    const number = ReceivedThrough(ChannelKind.ownNumber);
+    const unclear = ReceivedThrough(ChannelKind.unclear);
+    final shared = const RoutingRules().withNewShare('mpesa', 'stall');
+
+    test("money into the owner's Pochi goes to the business, unasked", () {
+      expect(shared.routeOf('mpesa', pochi).spaceId, 'stall');
+    });
+
+    test('a till the owner named goes to the business, unasked; one not '
+        'seen is asked about once, and "No" falls back to the question', () {
+      final route = shared.routeOf('mpesa', till);
+      expect(route.asksNumber, isTrue);
+      expect(route.number, '123456');
+      final named = shared.withChannels(
+        'mpesa',
+        shared
+            .channelsOn('mpesa')
+            .withNumber(ChannelKind.till, '123456', 'stall'),
+      );
+      expect(named.routeOf('mpesa', till).spaceId, 'stall');
+      final notOurs = shared.withChannels(
+        'mpesa',
+        shared.channelsOn('mpesa').withNotOurs(ChannelKind.till, '123456'),
+      );
+      final asked = notOurs.routeOf('mpesa', till);
+      expect(asked.spaceId, isNull);
+      expect(asked.asksNumber, isFalse);
+    });
+
+    test("money sent to the owner's number is personal, unless customers "
+        'send to it too (owner\'s decision 15)', () {
+      expect(shared.routeOf('mpesa', number).spaceId, personalSpaceId);
+      final customers = shared.withChannels(
+        'mpesa',
+        shared.channelsOn('mpesa').copyWith(customersToNumber: true),
+      );
+      expect(customers.routeOf('mpesa', number).spaceId, isNull);
+    });
+
+    test('anything unclear is asked about, as today', () {
+      expect(shared.routeOf('mpesa', unclear).spaceId, isNull);
+      expect(shared.routeOf('mpesa', unclear).asksNumber, isFalse);
+    });
+
+    test('a line shared before channels keeps asking about money sent to '
+        "the owner's number", () {
+      final saved = RoutingRules.fromJson({
+        'sharedLines': {'mpesa': 'stall'},
+        'people': <String, String>{},
+      });
+      expect(saved.routeOf('mpesa', number).spaceId, isNull);
+    });
+
+    test('channels are saved and read back, and go with their space', () {
+      final named = shared.withChannels(
+        'mpesa',
+        shared
+            .channelsOn('mpesa')
+            .withNumber(ChannelKind.paybill, '400200', 'stall')
+            .withNotOurs(ChannelKind.till, '765432'),
+      );
+      final back = RoutingRules.fromJson(named.toJson());
+      expect(back.channelsOn('mpesa').named, [(ChannelKind.paybill, '400200')]);
+      expect(back.channelsOn('mpesa').notOurs, {'till:765432'});
+      expect(back.channelsOn('mpesa').customersToNumber, isFalse);
+      expect(named.withoutSpace('stall').channels, isEmpty);
+      expect(named.forSpace('stall').channels.keys, ['mpesa']);
+    });
+
+    test('what a message rule says is the channel wins; until then money a '
+        "person sent is sent to the owner's number", () {
+      expect(
+        receivedThrough(
+          isInflow: true,
+          kind: TransactionKind.received,
+          counterpartyKind: PayeeIdentifierKind.phone,
+        ),
+        number,
+      );
+      expect(
+        receivedThrough(
+          isInflow: true,
+          kind: TransactionKind.received,
+          channel: till,
+        ),
+        till,
+      );
+      expect(
+        receivedThrough(isInflow: true, kind: TransactionKind.bank),
+        unclear,
+      );
+      expect(
+        receivedThrough(isInflow: false, kind: TransactionKind.sent),
+        unclear,
+      );
+    });
+
+    test('a till or paybill is read from how the invoices say to pay', () {
+      expect(channelFromPayLine('Till 123456'), (ChannelKind.till, '123456'));
+      expect(channelFromPayLine('Paybill 400200 account 12'), (
+        ChannelKind.paybill,
+        '400200',
+      ));
+      expect(channelFromPayLine('Equity Bank'), isNull);
+    });
   });
 }

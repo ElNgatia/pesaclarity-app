@@ -38,6 +38,12 @@ enum LedgerRole {
   /// A balance correction the person recorded: it sets an account's balance
   /// right and is never income, spending or tax.
   correction,
+
+  /// Money between two spaces that is neither side's income or spending
+  /// (decision 0027): what a payment switched to another space leaves where
+  /// its account lives, or a correction of another space's part ("Set the
+  /// stall's part"). Counts in neither money in nor money out.
+  betweenSpaces,
 }
 
 /// Roles that never count as spending or income.
@@ -46,6 +52,7 @@ const neutralRoles = {
   LedgerRole.borrowing,
   LedgerRole.awaitingPayee,
   LedgerRole.correction,
+  LedgerRole.betweenSpaces,
 };
 
 /// Whether [entry] is money that arrived: income, or money from someone the
@@ -68,6 +75,10 @@ bool isMoneyArrived(LedgerEntry entry) {
 /// classified by the payee's category type; a payee with no category counts
 /// as income, shown as Uncategorised.
 LedgerRole roleOf(LedgerEntry entry) {
+  if (entry.isBalanceRecord) return LedgerRole.betweenSpaces;
+  if (entry.linkedSpaceId != null && entry.isCorrection) {
+    return LedgerRole.betweenSpaces;
+  }
   if (entry.kind == TransactionKind.correction) return LedgerRole.correction;
   if (entry.transferPairId != null ||
       entry.transferAccountId != null ||

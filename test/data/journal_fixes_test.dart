@@ -542,8 +542,8 @@ void main() {
       await business.becomeSpace(SpaceKind.business);
     });
 
-    test('reverses the entry here and posts one there: nothing posts across '
-        'spaces', () async {
+    test('a switched payment leaves a balance record here and posts there: '
+        'nothing posts across spaces', () async {
       final moves = DriftSpaceMoveRepository(
         db,
         (spaceId) async => (business, false),
@@ -566,12 +566,20 @@ void main() {
 
       await moves.move(id, 'shop1');
       await settled();
-      // Here: reversed, and the money is no longer counted.
-      expect(await of(BookAccount.money(mpesa)), kes(1000));
+      // Here: the transaction's entry reversed; its balance record keeps
+      // M-Pesa whole and holds the 650 for the shop (decision 0027).
+      expect(await of(BookAccount.money(mpesa)), kes(1650));
       expect(await of(BookAccount.notYetSorted), 0);
       final entries = await entriesFor(id);
       expect(entries, hasLength(2));
       expect(entries[1].reverses, entries[0].id);
+      final record = await db.select(db.balanceRecords).getSingle();
+      expect(await live(record.id, JournalSource.balanceRecord), hasLength(2));
+      final held =
+          await (db.select(db.accounts)
+                ..where((a) => a.type.equalsValue(AccountType.heldForSpace)))
+              .getSingle();
+      expect(await of(BookAccount.heldForSpace(held.id)), kes(650));
 
       // There: one new entry, in that space's own journal.
       await thereLog.check();
@@ -585,7 +593,7 @@ void main() {
       );
       expect(
         (await there.read()).balanceOf(
-          BookAccount.money(moved.accountId),
+          BookAccount.ownersAccount(moved.accountId),
           currency: 'KES',
         ),
         kes(650),
@@ -610,7 +618,8 @@ void main() {
       await log.check();
       await moves.move(got, 'shop1');
       await settled();
-      expect(await of(BookAccount.money(mpesa)), kes(1000));
+      // M-Pesa keeps the money its balance shows, held for the shop.
+      expect(await of(BookAccount.money(mpesa)), kes(3000));
       expect(await of(BookAccount.money(kcb)), kes(20000 - 2030));
       // KCB's side reads alone again: spending, nothing in transit.
       expect(await of(BookAccount.moneyInTransit), 0);

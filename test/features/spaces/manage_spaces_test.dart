@@ -493,6 +493,12 @@ class _Moves implements SpaceMoveRepository {
   }) async => moved.add((transactionId, spaceId, toCategoryId));
 
   @override
+  Future<void> forMe(int transactionId, {int? personalCategoryId}) async {}
+
+  @override
+  Future<void> forTheBusiness(int transactionId, {int? costCategoryId}) async {}
+
+  @override
   Future<List<({int id, String name})>> categoriesIn(String spaceId) async =>
       const [(id: 7, name: 'Stock bought')];
 }

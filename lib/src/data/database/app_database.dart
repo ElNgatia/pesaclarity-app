@@ -75,6 +75,7 @@ part 'app_database.g.dart';
     SavingsPockets,
     SavingsEntries,
     SavingsReadings,
+    BalanceRecords,
     FireflyOutbox,
     FireflySent,
     FireflyAccounts,
@@ -84,7 +85,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 43;
+  int get schemaVersion => 44;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -358,9 +359,11 @@ class AppDatabase extends _$AppDatabase {
       if (from < 41) await _addSavingsAccounts(m);
       // Sending to the person's own Firefly III (decision 0029).
       if (from < 42) await _addFirefly(m);
+      // Money on one account that belongs to another space (decision 0027).
+      if (from < 43) await addMoneyBetweenSpaces(m);
       // The other side's code a message prints, which pairs two sides of
       // one own transfer (decision 0030).
-      if (from < 43) {
+      if (from < 44) {
         await _addColumnIfMissing(
           m,
           transactions,
@@ -442,6 +445,24 @@ class AppDatabase extends _$AppDatabase {
     await _createIndexIfMissing(m, savingsReadingsPocket);
     await _addColumnIfMissing(m, goals, goals.savedInPocketId);
     await _createIndexIfMissing(m, goalsSavedInPocket);
+  }
+
+  /// Money between spaces (decision 0027): the links on accounts and
+  /// transactions, and the balance records a switched payment leaves where
+  /// its account lives, with the triggers that keep the journal in step.
+  /// Safe to run more than once, so it holds whichever version number it
+  /// ends up under when other migrations land beside it.
+  Future<void> addMoneyBetweenSpaces(Migrator m) async {
+    await _addColumnIfMissing(m, accounts, accounts.linkedSpaceId);
+    await _addColumnIfMissing(m, accounts, accounts.linkedAccountId);
+    await _addColumnIfMissing(m, transactions, transactions.linkId);
+    await _addColumnIfMissing(m, transactions, transactions.linkedSpaceId);
+    if (!await _exists('table', balanceRecords.actualTableName)) {
+      await m.createTable(balanceRecords);
+    }
+    await _createIndexIfMissing(m, balanceRecordsAccount);
+    await _createIndexIfMissing(m, balanceRecordsLink);
+    await createJournalTriggers(this);
   }
 
   /// The Firefly III outbox, what was sent and its accounts, and the

@@ -13,14 +13,16 @@ import 'savings_links.dart';
 const ownMoveAnswersKey = 'ledger.ownMoveAnswers';
 
 /// The person's own numbers and accounts, from [accounts] (decision 0030,
-/// rule 4).
+/// rule 4). The accounts money between spaces keeps (decision 0027) are no
+/// account a message can name: a payment on one is never an own transfer.
 OwnAccounts ownAccountsOf(Iterable<Account> accounts) => OwnAccounts([
   for (final a in accounts)
-    OwnAccount(
-      id: a.id,
-      reference: a.reference,
-      institutionId: a.institutionId,
-    ),
+    if (!a.type.isBetweenSpaces)
+      OwnAccount(
+        id: a.id,
+        reference: a.reference,
+        institutionId: a.institutionId,
+      ),
 ]);
 
 /// The answers the person gave, by sender.

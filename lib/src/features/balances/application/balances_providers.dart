@@ -8,6 +8,7 @@ import '../../../data/database/database_providers.dart';
 import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../data/repositories/balance_records_repository.dart';
 import '../../../data/repositories/balances_repair.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/ledger_history.dart';
@@ -63,7 +64,13 @@ class BalancesOverview {
     required this.accounts,
     required this.entries,
     required this.now,
+    this.records = const [],
   });
+
+  /// What payments switched to other spaces left on these accounts
+  /// (decision 0027): balances walk them with [entries], so each reported
+  /// balance still adds up, but no screen lists them.
+  final List<LedgerEntry> records;
 
   /// Day-to-day accounts first, then savings, each by name.
   final List<AccountBalance> accounts;
@@ -133,6 +140,9 @@ final balancesOverviewProvider = FutureProvider<BalancesOverview>((ref) async {
     from: from,
     to: now.add(const Duration(seconds: 1)),
   );
+  final records = await BalanceRecordsReader(ref.watch(appDatabaseProvider))
+      .ledgerEntries();
+  final walked = records.isEmpty ? entries : [...entries, ...records];
   final checkFrom = now.subtract(const Duration(days: balanceCheckDays));
   final journal = await readJournal(ref);
   final at = now.add(const Duration(seconds: 1));
@@ -141,7 +151,7 @@ final balancesOverviewProvider = FutureProvider<BalancesOverview>((ref) async {
   for (final row in rows) {
     final opening = openings[row.id];
     if (opening == null) continue;
-    final check = checkAccount(opening, entries);
+    final check = checkAccount(opening, walked);
     final gaps = [
       for (final g in check.gaps)
         if (g.to.occurredAt.isAfter(checkFrom)) g,
@@ -186,7 +196,12 @@ final balancesOverviewProvider = FutureProvider<BalancesOverview>((ref) async {
         ? bySavings
         : a.account.name.toLowerCase().compareTo(b.account.name.toLowerCase());
   });
-  return BalancesOverview(accounts: list, entries: entries, now: now);
+  return BalancesOverview(
+    accounts: list,
+    entries: entries,
+    now: now,
+    records: records,
+  );
 });
 
 /// What M-Pesa's balances show Fuliza did with no message of its own, by
@@ -196,10 +211,10 @@ final fulizaAutoProvider = FutureProvider<Map<int, FulizaAuto>>((ref) async {
   return {
     for (final a in overview.accounts)
       if (a.opening.canOweFuliza)
-        for (final auto in WalletWalk.of(
-          a.opening,
-          overview.entries,
-        ).fuliza.auto)
+        for (final auto in WalletWalk.of(a.opening, [
+          ...overview.entries,
+          ...overview.records,
+        ]).fuliza.auto)
           auto.entry.id: auto,
   };
 });

@@ -71,7 +71,8 @@ void main() {
         for (final k in await c.read(keptDataProvider.future))
           '${k.space.name} (${k.kind.name})',
       ],
-      'rules': (await c.read(routingRulesProvider.future)).toJson(),
+      'rules': {...(await c.read(routingRulesProvider.future)).toJson()}
+        ..remove('channels'),
       'locked copies': Directory(p.join(dir.path, 'kept'))
           .listSync()
           .whereType<File>()

@@ -92,7 +92,41 @@ List<JournalEntry> postJournal({
       out.add(entry);
     }
   }
-  return out;
+  return postedBetweenSpaces(out, accounts);
+}
+
+/// [entries] with each account kept for money between spaces (decision
+/// 0027) posted as what it is: Held for another space, the owner's account,
+/// or Paid by another space, rather than a money account of the space's
+/// own.
+List<JournalEntry> postedBetweenSpaces(
+  List<JournalEntry> entries,
+  Iterable<AccountOpening> accounts,
+) {
+  final kept = {
+    for (final a in accounts)
+      if (a.type.isBetweenSpaces)
+        BookAccount.money(a.id): BookAccount.forAccount(a.id, a.type),
+  };
+  if (kept.isEmpty) return entries;
+  return [
+    for (final e in entries)
+      if (!e.lines.any((l) => kept.containsKey(l.account)))
+        e
+      else
+        JournalEntry(
+          source: e.source,
+          sourceId: e.sourceId,
+          at: e.at,
+          currency: e.currency,
+          memo: e.memo,
+          accountId: e.accountId,
+          lines: [
+            for (final l in e.lines)
+              JournalLine(kept[l.account] ?? l.account, l.amountMinor),
+          ],
+        ),
+  ];
 }
 
 /// [e]'s currency's exchange entry, when [e] and [partner] are the two
@@ -326,8 +360,10 @@ JournalEntry _postOne(
     );
   }
   return JournalEntry(
-    source: JournalSource.transaction,
-    sourceId: e.id,
+    source: e.isBalanceRecord
+        ? JournalSource.balanceRecord
+        : JournalSource.transaction,
+    sourceId: e.balanceRecordId ?? e.id,
     at: e.occurredAt,
     currency: e.currency,
     accountId: e.accountId,

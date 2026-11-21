@@ -145,8 +145,11 @@ void main() {
     await received(mpesa, '254700000001', 'GRACE WAMBUI');
     final [q] = await router.pending(shop);
     await router.answer(q, businessId: shop, forBusiness: true, always: false);
-    final moved = await personal.select(personal.movedTransactions).get();
-    expect(moved.single.spaceId, shop);
+    // Where the account lives, a balance record keeps what the account
+    // needs, and stops the message coming back (decision 0027).
+    final kept = await personal.select(personal.balanceRecords).get();
+    expect(kept.single.spaceId, shop);
+    expect(await personal.select(personal.transactions).get(), isEmpty);
   });
 
   test('choosing where a line is read', () async {

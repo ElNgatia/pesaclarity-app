@@ -281,6 +281,8 @@ ReportDocument reportDocument({
             columns: const ['', 'Amount'],
             rows: [
               [words.money, b.moneyMinor],
+              if (b.withOwnerMinor > 0) ['With the owner', b.withOwnerMinor],
+              if (b.withOwnerMinor < 0) ['Owed to the owner', b.withOwnerMinor],
               [words.owedToYou, b.owedToYouMinor],
               if (b.stockMinor != 0) [words.stock, b.stockMinor],
               [words.owedToSuppliers, -b.owedToSuppliersMinor],
@@ -467,6 +469,8 @@ List<ReportBlock> _summary(
     ],
     if (sections.contains(ReportSection.balance)) ...[
       row(words.money, b.moneyMinor),
+      if (b.withOwnerMinor > 0) row('With the owner', b.withOwnerMinor),
+      if (b.withOwnerMinor < 0) row('Owed to the owner', b.withOwnerMinor),
       row(words.owedToYou, b.owedToYouMinor),
       if (b.stockMinor != 0) row(words.stock, b.stockMinor),
       row(words.owedToSuppliers, -b.owedToSuppliersMinor),
