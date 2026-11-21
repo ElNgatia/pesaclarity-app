@@ -102,6 +102,13 @@ void main() {
     SwitchListTile tile(String name) =>
         tester.widget(find.widgetWithText(SwitchListTile, name));
     expect(tile('M-Pesa').value, isTrue);
+    // More accounts than fit: bring I&M to the middle of the screen.
+    await tester.scrollUntilVisible(find.text('I&M Bank'), 200);
+    await Scrollable.ensureVisible(
+      tester.element(find.text('I&M Bank')),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
     expect(tile('I&M Bank').value, isFalse);
 
     await tester.tap(find.text('I&M Bank'));
@@ -109,8 +116,14 @@ void main() {
     expect(tile('I&M Bank').value, isTrue);
     expect(await tester.runAsync(repo.selectedIds), {'mpesa', 'im_bank'});
 
-    await tester.tap(find.text('M-Pesa'));
     await tester.tap(find.text('I&M Bank'));
+    await tester.pumpAndSettle();
+    await Scrollable.ensureVisible(
+      tester.element(find.text('M-Pesa')),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('M-Pesa'));
     await tester.pumpAndSettle();
     expect(await tester.runAsync(repo.selectedIds), isEmpty);
     await tester.scrollUntilVisible(
