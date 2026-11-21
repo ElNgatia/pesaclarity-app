@@ -106,6 +106,7 @@ class AskEngine {
       entities,
       shortcuts: await source.shortcuts(),
     );
+    final (period, periodUnread) = _periodOf(understanding, question, today);
     final named = <SlotKind, AskEntity>{};
     AskSpan? missing;
     for (final span in understanding.spans) {
@@ -124,11 +125,10 @@ class AskEngine {
         case Matched(:final entity):
           named.putIfAbsent(entity.kind, () => entity);
         case Ambiguous(:final candidates):
-          final period = understanding.span(SlotKind.period);
           final merged = context.merge(
             intent: intent,
             named: named,
-            period: period == null ? null : parsePeriod(period.text, today),
+            period: period,
             now: now,
           );
           return AskTurn(
@@ -154,11 +154,10 @@ class AskEngine {
       }
     }
 
-    final periodSpan = understanding.span(SlotKind.period);
     final merged = context.merge(
       intent: intent,
       named: named,
-      period: periodSpan == null ? null : parsePeriod(periodSpan.text, today),
+      period: period,
       now: now,
     );
     final asked = merged.intent ?? AskIntent.spent;
@@ -181,7 +180,51 @@ class AskEngine {
         _guard(ReplyKind.cantBySize, const {}, now, seed),
       );
     }
-    return AskTurn(understanding, merged, await run(merged, now, seed: seed));
+    final answer = await run(merged, now, seed: seed);
+    if (!periodUnread || _periodless.contains(asked)) {
+      return AskTurn(understanding, merged, answer);
+    }
+    // Words of time Ask could not read: say which period the answer is
+    // for, never answer for this month as if that was asked.
+    return AskTurn(
+      understanding,
+      merged,
+      answer.withNote(
+        'I read this as {period}; ask about “the last three months” or '
+        '“this year” for more.',
+        {
+          'period': (merged.period ?? _defaultPeriod(asked, today)).phrase(
+            today,
+          ),
+        },
+      ),
+    );
+  }
+
+  /// Answers that use no period when none is named: bills coming up,
+  /// balances, debts and the like.
+  static const _periodless = {
+    ..._nowOnly,
+    AskIntent.safeToSpend,
+    AskIntent.billsDue,
+  };
+
+  /// The period [understanding] names in [question], and whether the
+  /// question has words of time that name none Ask can read. The reader's
+  /// period words come first; when they read as no period (the trained
+  /// reader's "during the 3 months", say), the question's own words are
+  /// read with the period rules, so a period is never dropped silently.
+  static (AskPeriod?, bool) _periodOf(
+    Understanding understanding,
+    String question,
+    CalendarDate today,
+  ) {
+    final span = understanding.span(SlotKind.period);
+    final read = span == null ? null : parsePeriod(span.text, today);
+    if (read != null) return (read, false);
+    final whole = findPeriod(question, today)?.period;
+    if (whole != null) return (whole, false);
+    return (null, span != null || unreadPeriod(question) != null);
   }
 
   /// "I couldn't find payments to X this month": [span] named something
