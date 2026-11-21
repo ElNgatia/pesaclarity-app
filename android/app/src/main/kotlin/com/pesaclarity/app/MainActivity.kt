@@ -15,6 +15,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var deviceIntegrity: DeviceIntegrityChannel? = null
     private var googleSignIn: GoogleSignInChannel? = null
     private var printer: PrinterChannel? = null
+    private var battery: BatteryChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Blocks screenshots, screen recording and app-switcher previews of financial data.
@@ -39,6 +40,7 @@ class MainActivity : FlutterFragmentActivity() {
         // Per flavour: Credential Manager on play, a stand-in on foss.
         googleSignIn = GoogleSignInChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         printer = PrinterChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+        battery = BatteryChannel(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
@@ -54,6 +56,8 @@ class MainActivity : FlutterFragmentActivity() {
         googleSignIn = null
         printer?.dispose()
         printer = null
+        battery?.dispose()
+        battery = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

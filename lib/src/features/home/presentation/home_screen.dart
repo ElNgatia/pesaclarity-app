@@ -35,6 +35,7 @@ import '../../ask/presentation/ask_entry.dart';
 import '../../balances/presentation/balance_text.dart';
 import '../../balances/presentation/balance_warning.dart';
 import '../../balances/presentation/on_hand_sheet.dart';
+import '../../battery/presentation/battery_home_card.dart';
 import '../../business_insights/application/business_report_providers.dart';
 import '../../hours/application/hours_providers.dart';
 import '../../hours/presentation/log_hours_sheet.dart';
@@ -156,6 +157,7 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   const AppNoticeCards(),
+                  const BatteryHomeCard(),
                   if (isBusiness && !sellsProducts) ...[
                     const _QuickButtons(services: true),
                     const SizedBox(height: 12),
@@ -203,6 +205,7 @@ class HomeScreen extends ConsumerWidget {
                   const BalanceWarningLine(),
                   const SizedBox(height: 12),
                   const AppNoticeCards(),
+                  const BatteryHomeCard(),
                   const ReadAgainHomeCard(),
                   SupportHomeCard(
                     moneyTight: _moneyTight(safeToSpend, untilNext, forecast),

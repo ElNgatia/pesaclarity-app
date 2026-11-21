@@ -3,6 +3,7 @@
 // marketing screenshots, so tool/screenshots.sh skips them.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/time/clock.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
@@ -10,6 +11,8 @@ import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/domain/time/calendar.dart';
 import 'package:pesaclarity/src/features/activity/presentation/add_transaction_sheet.dart';
 import 'package:pesaclarity/src/features/app_status/presentation/update_check_sheet.dart';
+import 'package:pesaclarity/src/features/battery/application/battery_providers.dart';
+import 'package:pesaclarity/src/features/battery/presentation/battery_sheet.dart';
 import 'package:pesaclarity/src/features/crash_reports/domain/crash_report.dart';
 import 'package:pesaclarity/src/features/crash_reports/presentation/crash_choice_sheet.dart';
 import 'package:pesaclarity/src/features/crash_reports/presentation/crash_report_sheet.dart';
@@ -27,6 +30,7 @@ import 'package:pesaclarity/src/shared/adaptive/adaptive.dart';
 
 import '../domain/fixtures.dart';
 import '../helpers/fake_app_lock.dart';
+import '../helpers/fake_battery_source.dart';
 import '../helpers/test_app.dart';
 import 'harness.dart';
 
@@ -39,6 +43,7 @@ void _sheet(
   String name,
   void Function(BuildContext context) open, {
   Space space = Space.personal,
+  List<Override> overrides = const [],
 }) {
   if (!checkAccessibility) return;
   screenshot(name, (tester) async {
@@ -52,6 +57,7 @@ void _sheet(
           deviceRegionProvider.overrideWithValue('KE'),
           activeSpaceProvider.overrideWithValue(space),
           ...appLockOverrides(),
+          ...overrides,
         ],
         child: shotApp(
           Scaffold(
@@ -106,6 +112,20 @@ void main() {
         stack: ['#00 pc 0x2f4b3c', '#01 pc 0x2f49e0'],
       ),
     ]),
+  );
+  _sheet(
+    'battery-sheet',
+    showBatterySheet,
+    overrides: [batterySourceProvider.overrideWithValue(FakeBatterySource())],
+  );
+  _sheet(
+    'battery-sheet-done',
+    showBatterySheet,
+    overrides: [
+      batterySourceProvider.overrideWithValue(
+        FakeBatterySource(restricted: false),
+      ),
+    ],
   );
   _sheet('item-sheet', showItemSheet, space: _shop);
   _sheet('bought-sheet', showBoughtSheet, space: _shop);
