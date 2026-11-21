@@ -5,15 +5,19 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/reachability.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/database_providers.dart';
+import '../../../data/repositories/category_seeds.dart';
+import '../../../data/repositories/money_repair.dart';
 import '../../../domain/spaces/business_setup.dart';
 import '../../../domain/spaces/kept_data.dart';
 import '../../../domain/spaces/space.dart';
+import '../../../domain/spaces/space_categories.dart';
 import '../../../domain/time/business_day.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../routing/app_routes.dart';
 import '../../../shared/adaptive/adaptive.dart';
 import '../../../shared/format/date_labels.dart';
 import '../../../shared/offline_messages.dart';
+import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/app_sheet.dart';
 import '../../../shared/widgets/choice_menu.dart';
 import '../../../shared/widgets/form_fields.dart';
@@ -457,7 +461,16 @@ class _DeleteSpaceSheet extends ConsumerStatefulWidget {
   ConsumerState<_DeleteSpaceSheet> createState() => _DeleteSpaceSheetState();
 }
 
+/// What Personal holds for a space on the owner's accounts, by Held for
+/// account (decision 0027).
+final _heldForProvider = FutureProvider.autoDispose
+    .family<Map<int, int>, String>(
+      (ref, spaceId) =>
+          heldForSpaceIn(ref.watch(personalDatabaseProvider), spaceId),
+    );
+
 class _DeleteSpaceSheetState extends ConsumerState<_DeleteSpaceSheet> {
+  var _mine = true;
   var _keep = true;
   var _online = false;
   var _busy = false;
@@ -473,6 +486,8 @@ class _DeleteSpaceSheetState extends ConsumerState<_DeleteSpaceSheet> {
   Widget build(BuildContext context) {
     final space = widget.space;
     final typed = _name.text.trim().toLowerCase() == space.name.toLowerCase();
+    final held = ref.watch(_heldForProvider(space.id)).value ?? const {};
+    final heldTotal = held.values.fold(0, (sum, v) => sum + v);
     return SheetBody(
       title: 'Delete ${space.name}?',
       children: [
@@ -481,6 +496,15 @@ class _DeleteSpaceSheetState extends ConsumerState<_DeleteSpaceSheet> {
           'are untouched.',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
+        if (heldTotal != 0) ...[
+          const SizedBox(height: 16),
+          _HeldChoice(
+            space: space,
+            heldMinor: heldTotal,
+            mine: _mine,
+            onChanged: (v) => setState(() => _mine = v),
+          ),
+        ],
         const SizedBox(height: 16),
         _KeepOptions(
           keep: _keep,
@@ -506,6 +530,19 @@ class _DeleteSpaceSheetState extends ConsumerState<_DeleteSpaceSheet> {
                   setState(() => _busy = true);
                   final navigator = Navigator.of(context);
                   try {
+                    if (heldTotal != 0 && _mine) {
+                      final personal = ref.read(personalDatabaseProvider);
+                      await settleHeldFor(
+                        personal,
+                        spaceId: space.id,
+                        spaceName: space.name,
+                        payCategoryId: await ensureCategory(
+                          personal,
+                          payFromBusinessSeed,
+                        ),
+                        at: ref.read(clockProvider)(),
+                      );
+                    }
                     final later = await ref
                         .read(spaceManagerProvider)
                         .delete(space, keep: _keep, deleteOnline: _online);
@@ -523,6 +560,73 @@ class _DeleteSpaceSheetState extends ConsumerState<_DeleteSpaceSheet> {
           child: const Text('Back up first'),
         ),
       ],
+    );
+  }
+}
+
+/// Deleting or clearing a business that still has money on the owner's
+/// accounts (decision 0027, owner's decision 9): "It is mine now" files it
+/// as pay from the business; "Keep it apart" leaves it held for the
+/// business, on Personal's Home, until the owner settles it.
+class _HeldChoice extends StatelessWidget {
+  const _HeldChoice({
+    required this.space,
+    required this.heldMinor,
+    required this.mine,
+    required this.onChanged,
+  });
+
+  final Space space;
+  final int heldMinor;
+  final bool mine;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = PesaColors.of(context);
+    final amount = shownMoney(context, heldMinor.abs(), withCurrency: true);
+    return Card(
+      key: const Key('space-delete-held'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              heldMinor > 0
+                  ? "$amount of your M-Pesa is ${space.name}'s"
+                  : '${space.name} owes you $amount',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            ChoiceMenu<bool>(
+              key: const Key('space-delete-held-choice'),
+              name: 'What happens to it',
+              expand: true,
+              value: mine,
+              options: const [
+                (true, 'It is mine now'),
+                (false, 'Keep it apart'),
+              ],
+              itemKey: (v) => Key('space-delete-held-${v ? 'mine' : 'apart'}'),
+              onChanged: onChanged,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              mine
+                  ? heldMinor > 0
+                        ? 'It is filed as pay from ${space.name}.'
+                        : 'It is let go: ${space.name} no longer owes you.'
+                  : 'It stays held for ${space.name}, on your Home, until '
+                        'you settle it.',
+              style: theme.textTheme.bodySmall!.copyWith(
+                color: colors.textMuted,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
