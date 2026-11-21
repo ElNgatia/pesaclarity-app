@@ -16,6 +16,7 @@ class LedgerTotals {
     this.borrowingMinor = 0,
     this.ownTransferMinor = 0,
     this.awaitingPayeeMinor = 0,
+    this.moneyInMinor = 0,
   });
 
   /// Totals for entries in [currency] whose time is in `[from, to)`.
@@ -47,12 +48,14 @@ class LedgerTotals {
     var borrowing = 0;
     var transfers = 0;
     var awaiting = 0;
+    var arrived = 0;
     for (final entry in all) {
       if (entry.occurredAt.isBefore(from) || !entry.occurredAt.isBefore(to)) {
         continue;
       }
       final amount = entry.amountMinor;
       fees += entry.feeMinor + (entry.exchangeCostMinor ?? 0);
+      if (isMoneyArrived(entry)) arrived += amount;
       switch (roleOf(entry)) {
         case LedgerRole.income:
           income += amount;
@@ -98,6 +101,7 @@ class LedgerTotals {
       borrowingMinor: borrowing,
       ownTransferMinor: transfers,
       awaitingPayeeMinor: awaiting,
+      moneyInMinor: arrived,
     );
   }
 
@@ -121,4 +125,10 @@ class LedgerTotals {
 
   /// Received from people not yet named; neutral until they are.
   final int awaitingPayeeMinor;
+
+  /// Money in: all the money that arrived ([isMoneyArrived]), income and
+  /// money from people not named yet. What every "money in" figure shows
+  /// (Home, Activity, Insights, week by week, Ask); [incomeMinor] stays the
+  /// income that ratios, tax and profit use.
+  final int moneyInMinor;
 }

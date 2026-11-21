@@ -67,6 +67,10 @@ class FirstInsight {
 
   int get incomeMinor => totals.incomeMinor;
 
+  /// Money in, as every "money in" figure shows it
+  /// ([LedgerTotals.moneyInMinor]).
+  int get moneyInMinor => totals.moneyInMinor;
+
   /// Spending plus fees.
   int get spendingMinor => totals.spendingMinor + totals.feesMinor;
 

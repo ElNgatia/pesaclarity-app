@@ -139,7 +139,7 @@ List<Finding> findingsFor(
     from: from.startInstant,
     to: to.startInstant,
     currency: currency,
-  ).incomeMinor;
+  ).moneyInMinor;
   final incomeNow = income(start, end);
   final incomeBefore = income(lastStart, lastEnd);
   if (incomeNow > 0 || incomeBefore > 0) {
