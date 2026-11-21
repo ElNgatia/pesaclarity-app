@@ -13,6 +13,7 @@ import '../../../domain/time/date_labels.dart';
 import '../../../shared/adaptive/adaptive.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/app_sheet.dart';
+import '../../../shared/widgets/beside_or_under.dart';
 import '../../../shared/widgets/figures.dart';
 import '../../../shared/widgets/form_fields.dart';
 import '../../../shared/widgets/marks.dart';
@@ -585,25 +586,29 @@ class _RecentRow extends StatelessWidget {
             IconBadge(icon),
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RowName(title, style: theme.textTheme.titleMedium),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodySmall!.copyWith(
-                      color: colors.textMuted,
+              // At large text the amount moves under the name rather than
+              // breaking it.
+              child: BesideOrUnder(
+                gap: 12,
+                lead: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RowName(title, style: theme.textTheme.titleMedium),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall!.copyWith(
+                        color: colors.textMuted,
+                      ),
                     ),
+                  ],
+                ),
+                end: readAsAmount(
+                  amount,
+                  Text(
+                    amount,
+                    style: AppTypography.rowAmount(theme.colorScheme.onSurface),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            readAsAmount(
-              amount,
-              Text(
-                amount,
-                style: AppTypography.rowAmount(theme.colorScheme.onSurface),
+                ),
               ),
             ),
           ],
