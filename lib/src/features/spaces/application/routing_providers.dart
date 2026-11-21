@@ -9,6 +9,7 @@ import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/institutions_repository.dart';
 import '../../../data/repositories/space_move_repository.dart';
+import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/kept_data.dart';
 import '../../../domain/spaces/line_routing.dart';
 import '../../../domain/spaces/space.dart';
@@ -135,6 +136,14 @@ class RoutingRulesController extends AsyncNotifier<RoutingRules> {
     return true;
   }
 
+  /// Shares [line] (an institution, or one M-Pesa line by its
+  /// `lineSelectionId`) with [businessId], or stops sharing it with null.
+  Future<void> shareLine(String line, String? businessId) async {
+    final current = await _current();
+    if (current.sharedLines[line] == businessId) return;
+    await _save(current.withLine(line, businessId));
+  }
+
   /// Sets the business's own channels on [line] (decision 0027, section 4).
   Future<void> setChannels(String line, LineChannels channels) async =>
       _save((await _current()).withChannels(line, channels));
@@ -175,7 +184,13 @@ class SharedLineQuestion {
     this.onOwnAccount = false,
     this.through = const ReceivedThrough(ChannelKind.unclear),
     this.asksNumber = false,
-  });
+    String? line,
+  }) : line = line ?? institutionId;
+
+  /// The shared line it is on, as the rules key it: [institutionId], or an
+  /// M-Pesa line's `lineSelectionId` once lines are told apart. Its
+  /// channels are this line's.
+  final String line;
 
   /// The channel it came in through (decision 0027, section 4).
   final ReceivedThrough through;
@@ -195,6 +210,7 @@ class SharedLineQuestion {
     personKey: personKey,
     through: through,
     asksNumber: true,
+    line: line,
   );
 
   /// The transaction's id: in Personal, or for a payment on the business's
@@ -271,43 +287,63 @@ class SharedLineRouter {
     final t = _personal.transactions;
     final a = _personal.accounts;
     final since = now().subtract(sharedLineLookback);
+    // A shared M-Pesa line is its own account.
+    final lines = [
+      for (final key in rules.sharedLines.keys)
+        if (lineOfSelection(key) case final id?) lineReference(id),
+    ];
+    final shared =
+        a.institutionId.isIn(rules.sharedLines.keys) |
+        (a.institutionId.equals(mpesaInstitutionId) & a.reference.isIn(lines));
     final rows =
         await (_personal.select(t).join([
                 innerJoin(a, a.id.equalsExp(t.accountId)),
               ])
               ..where(
-                a.institutionId.isIn(rules.sharedLines.keys) &
+                shared &
                     t.occurredAt.isBiggerOrEqualValue(since) &
                     t.transferPairId.isNull(),
               )
               ..orderBy([OrderingTerm.desc(t.occurredAt)]))
             .get();
+    String? ruleOf(Account account) {
+      final line = lineOfReference(account.reference);
+      final key = line == null ? null : lineSelectionId(line);
+      return rules.sharedLines.containsKey(key)
+          ? key
+          : rules.sharedLines.containsKey(account.institutionId)
+          ? account.institutionId
+          : null;
+    }
+
     final kept = (await _keptIds()).toSet();
     return [
       for (final row in rows)
         if (row.readTable(t) case final tx when !kept.contains(tx.id))
-          (
-            SharedLineQuestion(
-              transactionId: tx.id,
-              institutionId: row.readTable(a).institutionId!,
-              amountMinor: tx.amountMinor,
-              currency: tx.currency,
-              isInflow: tx.direction.name == 'inflow',
-              at: tx.occurredAt,
-              name: tx.counterpartyName,
-              personKey: personKey(
-                kind: tx.counterpartyKind,
-                value: tx.counterpartyValue,
-                name: tx.counterpartyName,
-              ),
-              through: receivedThrough(
+          if (ruleOf(row.readTable(a)) case final rule?)
+            (
+              SharedLineQuestion(
+                transactionId: tx.id,
+                institutionId: row.readTable(a).institutionId!,
+                amountMinor: tx.amountMinor,
+                currency: tx.currency,
                 isInflow: tx.direction.name == 'inflow',
-                kind: tx.kind ?? TransactionKind.bank,
-                counterpartyKind: tx.counterpartyKind,
+                at: tx.occurredAt,
+                name: tx.counterpartyName,
+                personKey: personKey(
+                  kind: tx.counterpartyKind,
+                  value: tx.counterpartyValue,
+                  name: tx.counterpartyName,
+                ),
+                line: rule,
+                through: receivedThrough(
+                  isInflow: tx.direction.name == 'inflow',
+                  kind: tx.kind ?? TransactionKind.bank,
+                  counterpartyKind: tx.counterpartyKind,
+                ),
               ),
+              rules.sharedLines[rule]!,
             ),
-            rules.sharedLines[row.readTable(a).institutionId!]!,
-          ),
     ];
   }
 
@@ -318,7 +354,7 @@ class SharedLineRouter {
     var sorted = 0;
     for (final (q, business) in await _recent(current)) {
       // The channel decides first (decision 0027, section 4).
-      final route = current.routeOf(q.institutionId, q.through);
+      final route = current.routeOf(q.line, q.through);
       if (route.spaceId case final to?) {
         if (to == personalSpaceId) {
           await _keep(q.transactionId);
@@ -350,7 +386,7 @@ class SharedLineRouter {
     return [
       for (final (q, business) in await _recent(current))
         if (business == businessId)
-          if (current.routeOf(q.institutionId, q.through).asksNumber)
+          if (current.routeOf(q.line, q.through).asksNumber)
             q.asNumber()
           else if (q.personKey == null ||
               !current.people.containsKey(q.personKey))
@@ -370,9 +406,9 @@ class SharedLineRouter {
     final kind = question.through.kind;
     final number = question.through.number;
     if (number == null) return;
-    final line = (await rules()).channelsOn(question.institutionId);
+    final line = (await rules()).channelsOn(question.line);
     await saveChannels?.call(
-      question.institutionId,
+      question.line,
       ours
           ? line.withNumber(kind, number, businessId)
           : line.withNotOurs(kind, number),

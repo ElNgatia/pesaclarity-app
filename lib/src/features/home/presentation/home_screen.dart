@@ -31,6 +31,7 @@ import '../../../shared/widgets/value_tile.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../accounts/presentation/line_questions.dart';
 import '../../app_status/presentation/app_notice_cards.dart';
 import '../../ask/presentation/ask_entry.dart';
 import '../../balances/presentation/balance_text.dart';
@@ -243,6 +244,7 @@ class HomeScreen extends ConsumerWidget {
                   SupportHomeCard(
                     moneyTight: _moneyTight(safeToSpend, untilNext, forecast),
                   ),
+                  const LineQuestionRows(),
                   const NotYetSortedCard(),
                   const _WhatWasThisCard(),
                   if (untilNext != null) _MoneyInCard(untilNext, today: today),

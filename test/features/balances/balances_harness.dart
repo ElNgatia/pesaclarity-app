@@ -76,6 +76,7 @@ Future<ScenarioAccounts> seedScenario(AppDatabase db) async {
     String? name,
     TransactionSource source = TransactionSource.sms,
     int? owed,
+    String? receipt,
   }) => TransactionsCompanion.insert(
     accountId: accountId,
     occurredAt: at,
@@ -86,7 +87,7 @@ Future<ScenarioAccounts> seedScenario(AppDatabase db) async {
     counterpartyName: Value(name),
     source: source,
     dedupeKey: Value('seed-${n++}'),
-    receiptNo: Value('TST000000$n'),
+    receiptNo: Value(receipt ?? 'TST000000$n'),
     balanceAfterMinor: Value(balance),
     owedAfterMinor: Value(owed),
   );
@@ -116,7 +117,8 @@ Future<ScenarioAccounts> seedScenario(AppDatabase db) async {
       name: 'Example Power',
       balance: kes(3420),
     ),
-    // KCB sends M-Pesa 3,920; the two messages pair as one transfer.
+    // KCB sends M-Pesa 3,920; the two messages print one code, so they
+    // pair as one transfer.
     tx(
       kcb,
       eat(2026, 11, 13, 9),
@@ -124,6 +126,7 @@ Future<ScenarioAccounts> seedScenario(AppDatabase db) async {
       kind: TransactionKind.bank,
       fee: kes(30),
       balance: kes(50),
+      receipt: 'TJA0000913',
     ),
     tx(
       mpesa,
@@ -133,6 +136,7 @@ Future<ScenarioAccounts> seedScenario(AppDatabase db) async {
       kind: TransactionKind.received,
       name: 'KCB',
       balance: kes(7340),
+      receipt: 'TJA0000913',
     ),
     // Paying 8,627.13 with 7,340 in M-Pesa: Fuliza covers the rest.
     tx(

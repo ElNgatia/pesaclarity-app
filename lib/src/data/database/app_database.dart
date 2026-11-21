@@ -85,7 +85,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 43;
+  int get schemaVersion => 44;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -361,6 +361,15 @@ class AppDatabase extends _$AppDatabase {
       if (from < 42) await _addFirefly(m);
       // Money on one account that belongs to another space (decision 0027).
       if (from < 43) await addMoneyBetweenSpaces(m);
+      // The other side's code a message prints, which pairs two sides of
+      // one own transfer (decision 0030).
+      if (from < 44) {
+        await _addColumnIfMissing(
+          m,
+          transactions,
+          transactions.linkedReceiptNo,
+        );
+      }
       // Plain English names: the seeded giving category, unless renamed.
       if (from < 17) {
         await customStatement(

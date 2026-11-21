@@ -346,6 +346,12 @@ class Transactions extends Table {
   IntColumn get goalId => integer().nullable().references(Goals, #id)();
   IntColumn get debtId => integer().nullable().references(Debts, #id)();
   TextColumn get receiptNo => text().nullable()();
+
+  /// The other side's code as this message prints it, when it prints one
+  /// besides its own receipt: Airtel Money's "Sender TID", the M-Pesa ref
+  /// in a bank's send to a mobile wallet. The other side's message prints
+  /// it as its receipt, so the two pair as one own transfer (decision 0030).
+  TextColumn get linkedReceiptNo => text().nullable()();
   TextColumn get source => textEnum<TransactionSource>()();
 
   /// Hash of the source SMS for dedupe; the message text itself is never kept.

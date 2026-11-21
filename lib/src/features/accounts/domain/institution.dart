@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ujumbe/ujumbe.dart';
 
+import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/enums.dart';
 
 /// A bank or mobile money provider whose SMS the app can read, backed by
@@ -48,3 +49,19 @@ List<Institution> catalogueFromPacks(Iterable<ParserPack> packs) {
 final institutionCatalogueProvider = Provider<List<Institution>>(
   (ref) => institutionCatalogue,
 );
+
+/// The institutions of [catalogue] a space reads with [selected] switched
+/// on, in catalogue order: those switched on, and M-Pesa when the space
+/// reads only a line of it (see [lineSelectionId]).
+List<Institution> institutionsReadWith(
+  List<Institution> catalogue,
+  Set<String> selected,
+) {
+  final line = selected.any((id) => lineOfSelection(id) != null);
+  return [
+    for (final institution in catalogue)
+      if (selected.contains(institution.id) ||
+          (line && institution.id == mpesaInstitutionId))
+        institution,
+  ];
+}

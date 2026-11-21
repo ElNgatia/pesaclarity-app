@@ -281,10 +281,10 @@ class ReadAgainController extends Notifier<ReadAgainState> {
     state = const ReadAgainState(ReadAgainStage.reading);
     try {
       final ids = await ref.read(institutionsRepositoryProvider).selectedIds();
-      final selected = [
-        for (final i in ref.read(institutionCatalogueProvider))
-          if (ids.contains(i.id)) i,
-      ];
+      final selected = institutionsReadWith(
+        ref.read(institutionCatalogueProvider),
+        ids,
+      );
       final source = ref.read(smsSourceProvider);
       // Asked for and not started: say why, never just go back to idle.
       final stopped = selected.isEmpty

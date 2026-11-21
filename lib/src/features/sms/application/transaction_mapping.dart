@@ -39,7 +39,8 @@ TransactionDirection transactionDirectionFor(Direction direction) =>
 /// phone number.
 PayeeIdentifier? counterpartyIdentifier(ParsedTransaction parsed) {
   final name = parsed.counterparty;
-  final account = parsed.account;
+  // The other side's code, such as Airtel's "Sender TID", names no party.
+  final account = linkedReceiptOf(parsed) == null ? parsed.account : null;
   return switch (parsed.type) {
     TransactionType.sent || TransactionType.received =>
       account == null
@@ -61,6 +62,34 @@ PayeeIdentifier? counterpartyIdentifier(ParsedTransaction parsed) {
   };
 }
 
+/// The other side's code [parsed] prints besides its own receipt, kept in
+/// `account` by the rules that read one: Airtel Money's "Sender TID", the
+/// M-Pesa ref in Equity's or KCB's send to a mobile wallet. M-Pesa's own
+/// message for the same money prints it as its receipt, so the two sides
+/// pair as one own transfer (decision 0030). Null when `account` is a
+/// number (a phone, an account or a paybill account) rather than a code.
+String? linkedReceiptOf(ParsedTransaction parsed) {
+  final account = parsed.account?.trim().toUpperCase();
+  if (account == null || account == parsed.receipt?.trim().toUpperCase()) {
+    return null;
+  }
+  return switch (parsed.type) {
+    TransactionType.received ||
+    TransactionType.bank ||
+    TransactionType.sent when isTransactionCode(account) => account,
+    _ => null,
+  };
+}
+
+/// Whether [text] is shaped as a transaction code: eight to twenty letters,
+/// digits and dots, with at least one letter and one digit, such as
+/// `TJA0000001` or `MP251114.1500.A00001`. Account and phone numbers are
+/// digits, masked with `*`.
+bool isTransactionCode(String text) =>
+    RegExp(r'^[A-Z0-9.]{8,20}$').hasMatch(text) &&
+    RegExp('[A-Z]').hasMatch(text) &&
+    RegExp(r'\d').hasMatch(text);
+
 /// [parsed] as a row for [accountId]. Keeps the parsed fields and the hash of
 /// the message; the message text is not part of the row.
 TransactionsCompanion transactionFromParsed(
@@ -80,6 +109,7 @@ TransactionsCompanion transactionFromParsed(
     counterpartyValue: Value(counterparty?.value),
     counterpartyName: Value(parsed.counterparty),
     receiptNo: Value(parsed.receipt),
+    linkedReceiptNo: Value(linkedReceiptOf(parsed)),
     source: TransactionSource.sms,
     messageHash: Value(parsed.rawHash),
     dedupeKey: Value(parsed.dedupeKey),
