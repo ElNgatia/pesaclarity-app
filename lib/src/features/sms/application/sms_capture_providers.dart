@@ -7,6 +7,7 @@ import 'package:ujumbe/ujumbe.dart' show SmsMessage;
 import '../../../core/lifecycle/app_resumed.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/database_providers.dart';
+import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/balances_repository.dart';
 import '../../../data/repositories/institutions_repository.dart';
@@ -49,6 +50,7 @@ final smsIngestorProvider = Provider<SmsIngestor>(
     parse: ref.watch(smsParseBatchProvider),
     lines: ref.watch(spaceMessageLinesProvider),
     moveToAccount: ref.watch(balancesRepositoryProvider).moveToAccount,
+    heldElsewhere: ref.watch(spaceDatabasesProvider).heldElsewhere,
   ),
 );
 

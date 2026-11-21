@@ -27,6 +27,7 @@ import '../features/currency/presentation/converter_screen.dart';
 import '../features/currency/presentation/setup_currency_screen.dart';
 import '../features/debts/presentation/debts_screen.dart';
 import '../features/documents/presentation/document_settings_screen.dart';
+import '../features/firefly/presentation/firefly_screen.dart';
 import '../features/goals/presentation/goals_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/hours/presentation/hours_screen.dart';
@@ -265,6 +266,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                                 const BackupSetupScreen(),
                           ),
                         ],
+                      ),
+                      GoRoute(
+                        path: 'firefly',
+                        builder: (context, state) => const FireflyScreen(),
                       ),
                       GoRoute(
                         path: 'privacy',

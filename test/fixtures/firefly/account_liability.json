@@ -1,0 +1,63 @@
+{
+  "data": {
+    "type": "accounts",
+    "id": "7",
+    "attributes": {
+      "created_at": "2026-11-21T17:53:08+03:00",
+      "updated_at": "2026-11-21T17:53:08+03:00",
+      "active": true,
+      "order": 0,
+      "name": "Fuliza",
+      "type": "liabilities",
+      "account_role": null,
+      "object_group_id": null,
+      "object_group_order": null,
+      "object_group_title": null,
+      "object_has_currency_setting": true,
+      "currency_id": "42",
+      "currency_name": "Kenyan shilling",
+      "currency_code": "KES",
+      "currency_symbol": "KSh",
+      "currency_decimal_places": 2,
+      "primary_currency_id": "1",
+      "primary_currency_name": "Euro",
+      "primary_currency_code": "EUR",
+      "primary_currency_symbol": "\u20ac",
+      "primary_currency_decimal_places": 2,
+      "current_balance": "-450.00",
+      "pc_current_balance": null,
+      "opening_balance": "-350",
+      "pc_opening_balance": null,
+      "virtual_balance": "0",
+      "pc_virtual_balance": null,
+      "debt_amount": "450.000000000000",
+      "pc_debt_amount": null,
+      "balance_difference": null,
+      "pc_balance_difference": null,
+      "current_balance_date": "2026-11-21T17:55:59+03:00",
+      "notes": null,
+      "monthly_payment_date": null,
+      "credit_card_type": null,
+      "account_number": null,
+      "iban": null,
+      "bic": null,
+      "opening_balance_date": "2026-01-01T17:55:13+03:00",
+      "liability_type": "loan",
+      "liability_direction": "debit",
+      "interest": "0",
+      "interest_period": "monthly",
+      "include_net_worth": true,
+      "longitude": null,
+      "latitude": null,
+      "zoom_level": null,
+      "last_activity": "2026-11-05T10:00:00+03:00"
+    },
+    "links": {
+      "self": "https://firefly.example.home/api/v1/accounts/7",
+      "0": {
+        "rel": "self",
+        "uri": "/accounts/7"
+      }
+    }
+  }
+}

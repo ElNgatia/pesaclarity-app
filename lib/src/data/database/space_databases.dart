@@ -1,3 +1,5 @@
+import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/spaces/space.dart';
@@ -96,6 +98,83 @@ class SpaceDatabases {
     }
     return null;
   }
+
+  /// Each institution another space on the list reads, with the first
+  /// space that reads it, Personal first. Empty when only the open space
+  /// reads anything.
+  Future<Map<String, Space>> readers() async {
+    final open = _ref.read(activeSpaceIdProvider);
+    final found = <String, Space>{};
+    for (final space in await listed()) {
+      if (space.id == open) continue;
+      final (db, close) = await this.open(space.id);
+      try {
+        for (final row in await db.select(db.selectedInstitutions).get()) {
+          found.putIfAbsent(row.institutionId, () => space);
+        }
+      } finally {
+        if (close) await db.close();
+      }
+    }
+    return found;
+  }
+
+  /// Which of [hashes] another space on the list already holds as a
+  /// transaction, the message's own or as its twin. Each message lands in
+  /// one space only: the one that read it first, or the one the person
+  /// moved it to. A space that cannot be opened is skipped, so reading
+  /// never stops for it.
+  Future<Set<String>> heldElsewhere(Set<String> hashes) async {
+    if (hashes.isEmpty) return const {};
+    final open = _ref.read(activeSpaceIdProvider);
+    final others = [
+      for (final space in await listed())
+        if (space.id != open) space.id,
+    ];
+    final found = <String>{};
+    for (final id in others) {
+      try {
+        final (db, close) = await this.open(id);
+        try {
+          found.addAll(await heldIn(db, hashes));
+        } finally {
+          if (close) await db.close();
+        }
+      } on Object catch (error) {
+        if (kDebugMode) debugPrint('Could not look in $id: $error');
+      }
+    }
+    return found;
+  }
+}
+
+/// Which of [hashes] [db] holds as a transaction's message or its twin.
+Future<Set<String>> heldIn(AppDatabase db, Set<String> hashes) async {
+  final t = db.transactions;
+  final list = hashes.toList();
+  final found = <String>{};
+  for (var i = 0; i < list.length; i += 400) {
+    final chunk = list.sublist(
+      i,
+      i + 400 > list.length ? list.length : i + 400,
+    );
+    final rows =
+        await (db.selectOnly(t)
+              ..addColumns([t.messageHash, t.twinMessageHash])
+              ..where(
+                t.messageHash.isIn(chunk) | t.twinMessageHash.isIn(chunk),
+              ))
+            .get();
+    for (final row in rows) {
+      for (final hash in [
+        row.read(t.messageHash),
+        row.read(t.twinMessageHash),
+      ]) {
+        if (hash != null && hashes.contains(hash)) found.add(hash);
+      }
+    }
+  }
+  return found;
 }
 
 final spaceDatabasesProvider = Provider<SpaceDatabases>(SpaceDatabases.new);

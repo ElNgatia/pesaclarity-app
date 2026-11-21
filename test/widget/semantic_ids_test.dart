@@ -160,6 +160,17 @@ void main() {
 
     await scrollTo(
       tester,
+      find.bySemanticsIdentifier(SemanticIds.profileFirefly),
+    );
+    await tester.tap(find.bySemanticsIdentifier(SemanticIds.profileFirefly));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expectId(SemanticIds.titleFirefly);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await scrollTo(
+      tester,
       find.bySemanticsIdentifier(SemanticIds.profilePrivacy),
     );
     await tapId(tester, SemanticIds.profilePrivacy);

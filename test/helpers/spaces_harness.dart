@@ -11,6 +11,7 @@ import 'package:pesaclarity/src/core/time/clock.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/database/database_key_store.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
+import 'package:pesaclarity/src/data/database/space_databases.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/features/sms/application/sms_capture_providers.dart';
 import 'package:pesaclarity/src/features/sms/application/sms_ingestor.dart';
@@ -27,6 +28,24 @@ class NoActiveSpaceStore implements ActiveSpaceStore {
 
   @override
   Future<void> writeOpenChoice(String choice) async {}
+}
+
+/// [SpaceDatabases] over the two in-memory databases of [twoSpaces]: every
+/// space on the list that is not Personal is [other].
+class TwoSpaceDatabases extends SpaceDatabases {
+  TwoSpaceDatabases(super.ref, this.personal, this.other);
+
+  final AppDatabase personal;
+  final AppDatabase other;
+
+  @override
+  Future<(AppDatabase, bool)> open(String spaceId) async {
+    if (spaceId == personalSpaceId) return (personal, false);
+    if (!(await listed()).any((space) => space.id == spaceId)) {
+      throw SpaceNotOnPhone(spaceId);
+    }
+    return (other, false);
+  }
 }
 
 /// The app's own providers over two in-memory databases: [personal] and one
@@ -52,6 +71,9 @@ ProviderContainer twoSpaces({
         (ref) => ref.watch(activeSpaceIdProvider) == personalSpaceId
             ? personal
             : other,
+      ),
+      spaceDatabasesProvider.overrideWith(
+        (ref) => TwoSpaceDatabases(ref, personal, other),
       ),
       smsSourceProvider.overrideWithValue(sms ?? FakeSmsSource()),
       smsParseBatchProvider.overrideWithValue(

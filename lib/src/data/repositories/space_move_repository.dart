@@ -5,6 +5,7 @@ import '../../domain/accounts/mpesa_lines.dart';
 import '../database/app_database.dart';
 import '../database/database_providers.dart';
 import '../database/space_databases.dart';
+import 'firefly_triggers.dart';
 import 'message_links.dart';
 import 'message_reads_repository.dart';
 import 'savings_links.dart';
@@ -92,6 +93,10 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
           )..where((c) => c.id.equals(categoryId))).getSingleOrNull();
 
     final sourceReads = await _reads(_source, account);
+    final sent = await (_source.select(
+      _source.fireflySent,
+    )..where((s) => s.transactionId.equals(transactionId))).getSingleOrNull();
+    var keptInFirefly = false;
 
     final (target, close) = await _openTarget(spaceId);
     try {
@@ -120,7 +125,7 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
                 null) {
           return;
         }
-        await target
+        final movedId = await target
             .into(target.transactions)
             .insert(
               tx
@@ -156,6 +161,17 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
                         : const Value(null),
                   ),
             );
+        // What was sent to Firefly III goes with it, to be retagged there,
+        // when the space it moves to is sent too (decision 0029). Otherwise
+        // it is deleted there from the space it leaves.
+        if (sent != null && await _sendsToFirefly(target)) {
+          await target
+              .into(target.fireflySent)
+              .insertOnConflictUpdate(
+                sent.copyWith(transactionId: movedId).toCompanion(true),
+              );
+          keptInFirefly = true;
+        }
         // Moving back undoes an earlier move away, for each message
         // behind it.
         final hashes = [?tx.messageHash, ?tx.twinMessageHash];
@@ -194,11 +210,24 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
       await (_source.update(_source.transactions)
             ..where((t) => t.transferPairId.equals(transactionId)))
           .write(const TransactionsCompanion(transferPairId: Value(null)));
+      if (keptInFirefly) {
+        await (_source.delete(
+          _source.fireflySent,
+        )..where((s) => s.transactionId.equals(transactionId))).go();
+      }
       await (_source.delete(
         _source.transactions,
       )..where((t) => t.id.equals(transactionId))).go();
     });
   }
+
+  /// Whether [db]'s space is being sent to Firefly III.
+  Future<bool> _sendsToFirefly(AppDatabase db) async =>
+      (await (db.select(
+            db.appSettings,
+          )..where((s) => s.key.equals(fireflySendingKey))).getSingleOrNull())
+          ?.value ==
+      'true';
 
   /// Whether [db]'s space reads [account]: has its institution switched on
   /// (each account is read in one space only), or, for an M-Pesa line's

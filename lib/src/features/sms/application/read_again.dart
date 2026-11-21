@@ -5,10 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ujumbe/ujumbe.dart';
 
 import '../../../core/time/clock.dart';
+import '../../../data/database/database_providers.dart';
+import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/institutions_repository.dart';
 import '../../../data/repositories/message_reads_repository.dart';
+import '../../../domain/spaces/space.dart';
 import '../../../domain/time/calendar.dart';
+import '../../accounts/application/my_accounts_providers.dart';
 import '../../accounts/domain/institution.dart';
 import '../../categoriser/application/auto_categoriser.dart';
 import '../../categoriser/application/categoriser_providers.dart';
@@ -177,7 +181,10 @@ class ReadAgainNotice {
   };
 }
 
-enum ReadAgainStage { idle, reading, finished, failed }
+/// Where reading again is. [noAccounts] and [noAccess] are a read the
+/// person asked for that could not start: no account is on in this space,
+/// or the app may not read messages.
+enum ReadAgainStage { idle, reading, finished, failed, noAccounts, noAccess }
 
 /// Where reading messages again has got to.
 @immutable
@@ -220,7 +227,8 @@ class ReadAgainController extends Notifier<ReadAgainState> {
   ReadAgainState build() => ReadAgainState.idle;
 
   /// Reads every message again, as the person asked. Does nothing while a
-  /// read is going.
+  /// read is going. With no account on, or no access to messages, the
+  /// state says so ([ReadAgainStage.noAccounts], [ReadAgainStage.noAccess]).
   Future<void> readAgain() async {
     await _run(automatic: false);
   }
@@ -278,8 +286,16 @@ class ReadAgainController extends Notifier<ReadAgainState> {
         ids,
       );
       final source = ref.read(smsSourceProvider);
-      if (selected.isEmpty || await source.access() != SmsAccess.granted) {
-        state = ReadAgainState.idle;
+      // Asked for and not started: say why, never just go back to idle.
+      final stopped = selected.isEmpty
+          ? ReadAgainStage.noAccounts
+          : await source.access() != SmsAccess.granted
+          ? ReadAgainStage.noAccess
+          : null;
+      if (stopped != null) {
+        if (ref.mounted) {
+          state = automatic ? ReadAgainState.idle : ReadAgainState(stopped);
+        }
         return false;
       }
       final at = ref.read(clockProvider)();
@@ -392,6 +408,34 @@ final readAgainControllerProvider =
     NotifierProvider<ReadAgainController, ReadAgainState>(
       ReadAgainController.new,
     );
+
+/// Accounts another space reads while none is on in this one: what the
+/// read-again card names when there is nothing to read here. The first
+/// reader, Personal first, with the accounts it reads; null when no other
+/// space reads one. Only for showing: capture keeps to
+/// [selectedInstitutionsProvider].
+final readElsewhereProvider = FutureProvider<ReadElsewhere?>((ref) async {
+  ref.watch(activeSpaceIdProvider);
+  ref.watch(selectedInstitutionIdsProvider);
+  final readers = await ref.watch(spaceDatabasesProvider).readers();
+  if (readers.isEmpty) return null;
+  final catalogue = ref.watch(institutionCatalogueProvider);
+  final first = [for (final i in catalogue) ?readers[i.id]].firstOrNull;
+  if (first == null) return null;
+  return ReadElsewhere(first, [
+    for (final i in catalogue)
+      if (readers[i.id]?.id == first.id) i,
+  ]);
+});
+
+/// [institutions] are read in [space], not in the open one.
+@immutable
+class ReadElsewhere {
+  const ReadElsewhere(this.space, this.institutions);
+
+  final Space space;
+  final List<Institution> institutions;
+}
 
 /// The last time every message was read, if ever.
 final lastReadProvider = FutureProvider<LastRead?>(

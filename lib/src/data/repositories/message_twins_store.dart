@@ -48,33 +48,44 @@ Future<({TransactionRecord record, TwinMatch match})?> findTwin(
         : null,
     readBy: row.readBy.present ? row.readBy.value : null,
   );
-  ({TransactionRecord record, TwinMatch match, Duration gap})? best;
+  ({TransactionRecord record, TwinMatch match, bool named, Duration gap})? best;
   for (final record in nearby) {
-    final match = twinMatch(
-      _facts(
-        at: record.occurredAt,
-        amountMinor: record.amountMinor,
-        direction: record.direction,
-        currency: record.currency,
-        kind: record.kind,
-        receipt: record.receiptNo,
-        messageHash: record.messageHash,
-        twinHash: record.twinMessageHash,
-        counterpartyName: record.counterpartyName,
-        readBy: record.readBy,
-      ),
-      incoming,
-    );
+    final facts = twinFactsOf(record);
+    final match = twinMatch(facts, incoming);
     if (match == null) continue;
     final gap = record.occurredAt.difference(at).abs();
+    // Of two M-Pesa messages of the same amount near a bank's notice, the
+    // one naming the same sender (or the bank) is its twin.
+    final named =
+        match == TwinMatch.walletCredit &&
+        switch (walletCreditSide(facts, incoming)) {
+          true => walletCreditNamesAgree(facts, incoming),
+          false => walletCreditNamesAgree(incoming, facts),
+          null => false,
+        };
     if (best == null ||
         match.index < best.match.index ||
-        (match == best.match && gap < best.gap)) {
-      best = (record: record, match: match, gap: gap);
+        (match == best.match && named && !best.named) ||
+        (match == best.match && named == best.named && gap < best.gap)) {
+      best = (record: record, match: match, named: named, gap: gap);
     }
   }
   return best == null ? null : (record: best.record, match: best.match);
 }
+
+/// What [twinMatch] compares about the stored row [record].
+TwinFacts twinFactsOf(TransactionRecord record) => _facts(
+  at: record.occurredAt,
+  amountMinor: record.amountMinor,
+  direction: record.direction,
+  currency: record.currency,
+  kind: record.kind,
+  receipt: record.receiptNo,
+  messageHash: record.messageHash,
+  twinHash: record.twinMessageHash,
+  counterpartyName: record.counterpartyName,
+  readBy: record.readBy,
+);
 
 TwinFacts _facts({
   required DateTime at,
@@ -186,6 +197,7 @@ Future<void> _mergeWalletCredit(
           direction: stored.direction,
           currency: stored.currency,
           kind: stored.kind ?? TransactionKind.bank,
+          receipt: stored.receiptNo,
           counterpartyName: stored.counterpartyName,
           readBy: stored.readBy,
         ),
@@ -195,6 +207,7 @@ Future<void> _mergeWalletCredit(
           direction: incoming.direction.value,
           currency: v(incoming.currency) ?? stored.currency,
           kind: v(incoming.kind) ?? TransactionKind.bank,
+          receipt: v(incoming.receiptNo),
           counterpartyName: v(incoming.counterpartyName),
           readBy: v(incoming.readBy),
         ),

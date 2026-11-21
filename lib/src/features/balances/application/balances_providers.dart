@@ -2,8 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
+import '../../../data/database/database_providers.dart';
+import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../data/repositories/balances_repair.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/ledger_history.dart';
 import '../../../data/repositories/transactions_repository.dart';
@@ -229,9 +232,21 @@ final onHandProvider = FutureProvider<OnHand?>((ref) async {
 /// Pairs own transfers over the whole history once after each update that
 /// changed how they pair: version 1 started pairing them, version 2 pairs
 /// them across currencies. Safe to run again: only unpaired entries pair.
+///
+/// First, once per space, puts right what earlier versions counted twice,
+/// within the space and with the other spaces (see [repairBalancesOnce]).
 final pairHistoryOnceProvider = FutureProvider<void>((ref) async {
   const key = 'ledger.ownTransfersPaired';
   const version = 2;
+  final spaces = ref.watch(spaceDatabasesProvider);
+  await repairBalancesOnce(
+    ref.watch(appDatabaseProvider),
+    spaces: (
+      here: ref.watch(activeSpaceIdProvider),
+      ids: [for (final space in await spaces.listed()) space.id],
+      open: spaces.open,
+    ),
+  );
   final settings = ref.watch(appSettingsRepositoryProvider);
   final done = (await settings.readJson(key))?['version'];
   if (done is int && done >= version) return;

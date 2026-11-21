@@ -126,6 +126,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                     ],
                     value: _kind,
                     highlight: _kind != null,
+                    highlightAs: ChoiceHighlight.text,
                     itemKey: (kind) => Key('stock-kind-${kind?.name ?? 'all'}'),
                     onChanged: (kind) => setState(() => _kind = kind),
                   ),
