@@ -74,13 +74,14 @@ part 'app_database.g.dart';
     SavingsPockets,
     SavingsEntries,
     SavingsReadings,
+    BalanceRecords,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 41;
+  int get schemaVersion => 42;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -351,6 +352,8 @@ class AppDatabase extends _$AppDatabase {
       }
       // Savings accounts the app keeps from the payments into them.
       if (from < 41) await _addSavingsAccounts(m);
+      // Money on one account that belongs to another space (decision 0027).
+      if (from < 42) await addMoneyBetweenSpaces(m);
       // Plain English names: the seeded giving category, unless renamed.
       if (from < 17) {
         await customStatement(
@@ -426,6 +429,24 @@ class AppDatabase extends _$AppDatabase {
     await _createIndexIfMissing(m, savingsReadingsPocket);
     await _addColumnIfMissing(m, goals, goals.savedInPocketId);
     await _createIndexIfMissing(m, goalsSavedInPocket);
+  }
+
+  /// Money between spaces (decision 0027): the links on accounts and
+  /// transactions, and the balance records a switched payment leaves where
+  /// its account lives, with the triggers that keep the journal in step.
+  /// Safe to run more than once, so it holds whichever version number it
+  /// ends up under when other migrations land beside it.
+  Future<void> addMoneyBetweenSpaces(Migrator m) async {
+    await _addColumnIfMissing(m, accounts, accounts.linkedSpaceId);
+    await _addColumnIfMissing(m, accounts, accounts.linkedAccountId);
+    await _addColumnIfMissing(m, transactions, transactions.linkId);
+    await _addColumnIfMissing(m, transactions, transactions.linkedSpaceId);
+    if (!await _exists('table', balanceRecords.actualTableName)) {
+      await m.createTable(balanceRecords);
+    }
+    await _createIndexIfMissing(m, balanceRecordsAccount);
+    await _createIndexIfMissing(m, balanceRecordsLink);
+    await createJournalTriggers(this);
   }
 
   /// Tables only Ask uses. They stay on this phone: backups leave them

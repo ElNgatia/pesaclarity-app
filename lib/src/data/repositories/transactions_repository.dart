@@ -286,13 +286,23 @@ class DriftTransactionsRepository implements TransactionsRepository {
       await _wasMoved(transaction.accountId.value, key) ||
       await _isStored(transaction, key);
 
-  /// Moved to another space: it lives there now.
+  /// Switched to another space: it lives there now, and its balance record
+  /// here keeps what the account needs (decision 0027). Moves from before
+  /// that are remembered apart until the repair.
   Future<bool> _wasMoved(int accountId, String key) async =>
       await (_db.select(_db.movedTransactions)..where(
-            (m) => m.accountId.equals(accountId) & m.dedupeKey.equals(key),
-          ))
-          .getSingleOrNull() !=
-      null;
+                (m) => m.accountId.equals(accountId) & m.dedupeKey.equals(key),
+              ))
+              .getSingleOrNull() !=
+          null ||
+      await (_db.select(_db.balanceRecords)
+                ..where(
+                  (r) =>
+                      r.accountId.equals(accountId) & r.dedupeKey.equals(key),
+                )
+                ..limit(1))
+              .getSingleOrNull() !=
+          null;
 
   Future<bool> _isStored(TransactionsCompanion transaction, String key) =>
       (_db.selectOnly(_db.transactions)
@@ -562,9 +572,18 @@ class DriftTransactionsRepository implements TransactionsRepository {
           for (final r in await query.get())
             _toLedgerEntry(r, payees[r.payeeId], categories, const {}, null),
         ];
-        var entries = await read();
-        if (await _unmatchReversed(entries)) entries = await read();
         final accounts = await _db.select(_db.accounts).get();
+        // Money between spaces is never half of an own transfer.
+        final between = {
+          for (final a in accounts)
+            if (a.type.isBetweenSpaces) a.id,
+        };
+        Future<List<LedgerEntry>> own() async => [
+          for (final e in await read())
+            if (!between.contains(e.accountId)) e,
+        ];
+        var entries = await own();
+        if (await _unmatchReversed(entries)) entries = await own();
         final declined = await declinedTransfers();
         final pairs = findOwnTransfers(
           entries,
@@ -800,6 +819,8 @@ class _RowReader {
         d['auto_category_confidence'],
       ),
       readBy: d['read_by'] as String?,
+      linkId: d['link_id'] as String?,
+      linkedSpaceId: d['linked_space_id'] as String?,
     );
   }
 
@@ -925,6 +946,7 @@ LedgerEntry _toLedgerEntry(
     owedDueAt: record.owedDueAt,
     originalAmountMinor: converted ? record.amountMinor : null,
     originalCurrency: converted ? record.currency : null,
+    linkedSpaceId: record.linkedSpaceId,
   );
 }
 
@@ -969,6 +991,7 @@ Stream<void> ledgerTableUpdates(AppDatabase db) => db.tableUpdates(
     db.savingsPockets,
     db.savingsEntries,
     db.savingsReadings,
+    db.balanceRecords,
   ]),
 );
 

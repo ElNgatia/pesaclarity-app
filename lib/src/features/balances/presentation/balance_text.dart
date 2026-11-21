@@ -223,6 +223,9 @@ abstract final class BalanceText {
     AccountType.sacco => 'SACCO',
     AccountType.moneyMarket => 'Money market',
     AccountType.other => 'Other',
+    AccountType.heldForSpace => 'Held for another space',
+    AccountType.ownersAccount => "Owner's account",
+    AccountType.paidBySpace => 'Paid by another space',
   };
 
   // On hand.

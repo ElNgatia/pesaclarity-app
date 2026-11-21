@@ -69,8 +69,15 @@ SalePaymentMethod? _wayOf(
         AccountType.other ||
         AccountType.sacco ||
         AccountType.moneyMarket => SalePaymentMethod.bank,
+        AccountType.heldForSpace ||
+        AccountType.ownersAccount ||
+        AccountType.paidBySpace ||
         null => null,
       };
+    }
+    // A sale on the owner's line (decision 0027) came in by M-Pesa.
+    if (l.account.kind == BookAccountKind.ownersAccount) {
+      return SalePaymentMethod.mpesa;
     }
   }
   return null;

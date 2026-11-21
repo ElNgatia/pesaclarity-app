@@ -4,6 +4,7 @@
 // tested against.
 import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/repositories/accounts_repository.dart';
+import 'package:pesaclarity/src/data/repositories/balance_records_repository.dart';
 import 'package:pesaclarity/src/data/repositories/journal_repository.dart';
 import 'package:pesaclarity/src/data/repositories/transactions_repository.dart';
 import 'package:pesaclarity/src/domain/books/book_account.dart';
@@ -116,8 +117,12 @@ Future<List<String>> reconcileWithOracle(
   required DateTime at,
 }) async {
   final accounts = await DriftAccountsRepository(db).openings();
-  final history = await DriftTransactionsRepository(db)
-      .ledgerEntries(from: DateTime.utc(1970), to: DateTime.utc(9999));
+  final history = [
+    ...await DriftTransactionsRepository(db)
+        .ledgerEntries(from: DateTime.utc(1970), to: DateTime.utc(9999)),
+    // What payments switched to another space left here (decision 0027).
+    ...await BalanceRecordsReader(db).ledgerEntries(),
+  ];
   final stored = await JournalRepository(db).balances(at: at);
   final off = <String>[];
   for (final a in accounts) {

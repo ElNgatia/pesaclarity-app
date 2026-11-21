@@ -24,6 +24,10 @@ CashColumn? cashColumnOf(AccountType type) => switch (type) {
   AccountType.mpesa => CashColumn.mpesa,
   AccountType.bank || AccountType.other => CashColumn.bank,
   AccountType.sacco || AccountType.moneyMarket => null,
+  // Money between spaces is not the space's own money (decision 0027).
+  AccountType.heldForSpace ||
+  AccountType.ownersAccount ||
+  AccountType.paidBySpace => null,
 };
 
 /// One day of the cash book.
