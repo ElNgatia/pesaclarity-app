@@ -583,6 +583,7 @@ class _TilesSellState extends ConsumerState<_TilesSell> {
                   options: [(null, 'All'), for (final g in groups) (g, g)],
                   value: groups.contains(_group) ? _group : null,
                   highlight: groups.contains(_group),
+                  highlightAs: ChoiceHighlight.text,
                   itemKey: (g) => Key('sell-group-${g ?? 'all'}'),
                   onChanged: (g) => setState(() => _group = g),
                 ),

@@ -16,6 +16,7 @@ import 'package:pesaclarity/src/features/books/application/books_providers.dart'
 import 'package:pesaclarity/src/features/sales/application/sales_providers.dart';
 import 'package:pesaclarity/src/features/sales/presentation/sell_screen.dart';
 import 'package:pesaclarity/src/routing/app_routes.dart';
+import 'package:pesaclarity/src/shared/widgets/choice_menu.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
 
 import '../../domain/fixtures.dart';
@@ -448,6 +449,13 @@ void main() {
       expect(find.text('Delivery'), findsNothing);
       await show('Services');
       expect(find.text('Delivery'), findsOneWidget);
+      // Narrowing shows as red text on the plain pill, never a red fill.
+      expect(
+        tester
+            .widget<ChoiceMenu<Object?>>(find.byKey(const Key('sell-groups')))
+            .highlightAs,
+        ChoiceHighlight.text,
+      );
       expect(find.text('Onions'), findsNothing);
       await show('all');
       for (final name in ['Tomatoes', 'Onions', 'Delivery']) {
