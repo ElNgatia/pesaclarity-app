@@ -162,7 +162,7 @@ void main() {
           'income this month',
           'how much did I get',
         ]) {
-          test('"$q" is money in as Insights counts it: none', () async {
+          test('"$q" is the money that arrived: none', () async {
             final a = await ask(q);
             expect(a.context.intent, AskIntent.received);
             // The only money in is KCB topping up M-Pesa, an own transfer,
@@ -173,8 +173,9 @@ void main() {
             expect(a.kind, ReplyKind.nothingIn);
             expect(
               filled(a),
-              'Nothing came in this month. The 3,920 that moved between your '
-              "own accounts isn't counted as money in.",
+              'No money came to you this month. The 3,920 that moved between '
+              "your own accounts isn't counted as money in. The 1,287.13 you "
+              "borrowed, such as Fuliza, isn't counted as money in.",
             );
           });
         }

@@ -48,6 +48,20 @@ const neutralRoles = {
   LedgerRole.correction,
 };
 
+/// Whether [entry] is money that arrived: income, or money from someone the
+/// person has not named yet (it arrived, though it is not yet income, a
+/// gift or a loan). Never own transfers (money moved between the person's
+/// own accounts, savings included), borrowing (a Fuliza draw or a loan:
+/// owed back, not earned), reversals and refunds (the person's own money
+/// coming back, which lowers spending) or balance corrections. Money in as
+/// Ask, Home's week by week and the income pattern count it; Activity's
+/// Money in also lists borrowing and refunds.
+bool isMoneyArrived(LedgerEntry entry) {
+  if (!entry.isInflow) return false;
+  final role = roleOf(entry);
+  return role == LedgerRole.income || role == LedgerRole.awaitingPayee;
+}
+
 /// Applies the spec's "rules that keep the numbers honest" to one entry.
 ///
 /// Own transfers win over everything else. Inflows with a named payee are

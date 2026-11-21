@@ -453,7 +453,7 @@ class AskEngine {
     final amount = _sum(now);
     final headline = _headline(q.context, period, q.today, flow);
     final named = _named(q.context);
-    final leftOut = _moneyInNote(q, all, period, flow);
+    final leftOut = _moneyInNote(q, all, now, period, flow);
     if (now.isEmpty) {
       return _withNote(
         await _answer(
@@ -507,10 +507,13 @@ class AskEngine {
     return _withNote(answer, leftOut);
   }
 
-  /// For money in with no sender named, what came in but is not counted.
+  /// For money in with no sender named: how much of [counted] is from
+  /// people not named yet, and what arrived in [entries] but is not money
+  /// in.
   (String, Map<String, Object>)? _moneyInNote(
     _Query q,
     List<LedgerEntry> entries,
+    List<LedgerEntry> counted,
     AskPeriod period,
     _Flow flow,
   ) {
@@ -519,10 +522,14 @@ class AskEngine {
       return null;
     }
     final account = q.context.entities[SlotKind.account]?.key;
-    return _leftOut([
-      for (final e in entries)
-        if (account == null || _isKey(account, 'a', e.accountId)) e,
-    ], period);
+    return _leftOut(
+      [
+        for (final e in entries)
+          if (account == null || _isKey(account, 'a', e.accountId)) e,
+      ],
+      counted,
+      period,
+    );
   }
 
   /// [answer] with [note]'s sentence after its own.
@@ -660,7 +667,7 @@ class AskEngine {
       link: AskLink.activity,
       suggestions: _followUps(q, period),
     );
-    return _withNote(answer, _moneyInNote(q, all, period, flow));
+    return _withNote(answer, _moneyInNote(q, all, entries, period, flow));
   }
 
   Future<AskAnswer> _biggest(_Query q) async {
@@ -1837,7 +1844,7 @@ class AskEngine {
       for (final e in entries)
         if (e.currency == BaseCurrency.code &&
             period.contains(e.date) &&
-            _flows(e, flow, named: payee != null) &&
+            _flows(e, flow) &&
             (category == null || _isKey(category, 'c', e.categoryId)) &&
             (payee == null || _isPayee(e, payee)) &&
             (account == null || _isKey(account, 'a', e.accountId)))
@@ -1845,31 +1852,31 @@ class AskEngine {
     ];
   }
 
-  /// Whether [e] moved the way [flow] asks. Money in is income as Home and
-  /// Insights count it (LedgerTotals): never own transfers, borrowing or
-  /// money waiting for its sender to be named. Money from someone [named]
-  /// counts what they sent before they were named too.
-  static bool _flows(LedgerEntry e, _Flow flow, {bool named = false}) {
+  /// Whether [e] moved the way [flow] asks.
+  ///
+  /// Money in is all the money that arrived ([isMoneyArrived]): income, and
+  /// money from people not named yet, which arrived though it is not yet
+  /// income or a loan. Home's week by week, Activity's Money in and the
+  /// income pattern count it the same way.
+  static bool _flows(LedgerEntry e, _Flow flow) {
     final role = roleOf(e);
     return switch (flow) {
       _Flow.spent => e.isOutflow && role == LedgerRole.spending,
       _Flow.sent => e.isOutflow && role != LedgerRole.ownTransfer,
-      _Flow.received =>
-        e.isInflow &&
-            (role == LedgerRole.income ||
-                (named && role == LedgerRole.awaitingPayee)),
+      _Flow.received => isMoneyArrived(e),
     };
   }
 
-  /// What came in during [period] that is not counted as money in, said
-  /// beside a money-in answer: own transfers, and money from people not
-  /// named yet.
+  /// Said beside a money-in answer: how much of [counted] is from people
+  /// not named yet, and what arrived in [entries] during [period] but is
+  /// not money in: own transfers and borrowing.
   static (String, Map<String, Object>)? _leftOut(
     List<LedgerEntry> entries,
+    List<LedgerEntry> counted,
     AskPeriod period,
   ) {
     var own = 0;
-    var unnamed = 0;
+    var borrowed = 0;
     for (final e in entries) {
       if (e.currency != BaseCurrency.code ||
           !e.isInflow ||
@@ -1879,25 +1886,31 @@ class AskEngine {
       switch (roleOf(e)) {
         case LedgerRole.ownTransfer:
           own += e.amountMinor;
-        case LedgerRole.awaitingPayee:
-          unnamed += e.amountMinor;
+        case LedgerRole.borrowing:
+          borrowed += e.amountMinor;
         default:
           break;
       }
     }
-    if (own == 0 && unnamed == 0) return null;
+    final unnamed = _sum(
+      counted.where((e) => roleOf(e) == LedgerRole.awaitingPayee),
+    );
+    if (own == 0 && borrowed == 0 && unnamed == 0) return null;
     return (
       [
+        if (unnamed > 0)
+          "{unnamed_amount} of it is from people you haven't named yet.",
         if (own > 0)
           "The {own_amount} that moved between your own accounts isn't "
               'counted as money in.',
-        if (unnamed > 0)
-          "The {unnamed_amount} from people you haven't named yet isn't "
-              'counted until you name them.',
+        if (borrowed > 0)
+          "The {borrowed_amount} you borrowed, such as Fuliza, isn't counted "
+              'as money in.',
       ].join(' '),
       {
-        'own_amount': ?(own > 0 ? own : null),
         'unnamed_amount': ?(unnamed > 0 ? unnamed : null),
+        'own_amount': ?(own > 0 ? own : null),
+        'borrowed_amount': ?(borrowed > 0 ? borrowed : null),
       },
     );
   }

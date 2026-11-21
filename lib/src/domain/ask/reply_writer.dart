@@ -23,9 +23,11 @@ const replyPlaceholders = {
   'number',
   // The biggest sorted category's amount, beside what is not sorted yet.
   'top_amount',
-  // Beside money in: what came in but is not counted as money in.
+  // Beside money in: the part from people not named yet, and what came in
+  // but is not counted as money in.
   'own_amount',
   'unnamed_amount',
+  'borrowed_amount',
   // What an answer is about, such as "your debts".
   'what',
 };
@@ -39,6 +41,7 @@ const moneyPlaceholders = {
   'top_amount',
   'own_amount',
   'unnamed_amount',
+  'borrowed_amount',
 };
 
 final _placeholder = RegExp(r'\{([a-z_]+)\}');
@@ -331,7 +334,8 @@ class TemplateReplyWriter implements ReplyWriter {
       'Nothing is running low.',
       'Stock looks good: nothing is low.',
     ],
-    ReplyKind.nothingIn: ['Nothing came in {period}.'],
+    // Not "Nothing came in {period}": "came in in October".
+    ReplyKind.nothingIn: ['No money came to you {period}.'],
     ReplyKind.noPaymentsTo: ["I couldn't find payments to {payee} {period}."],
     ReplyKind.nothingFrom: ["I couldn't find money from {payee} {period}."],
     ReplyKind.noAccount: ["I couldn't find an account called {account}."],
