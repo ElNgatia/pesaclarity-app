@@ -173,7 +173,11 @@ class RuleQuestionReader implements QuestionReader {
       RegExp(
         r'\breceived?\b|\bcame in\b|\bcome in\b|\b(?:got|get) paid\b|'
         r'\bearn(?:ed)?\b|\bhow much (?:did|have|do) i (?:get|got)\b|'
-        r'\bincome\b|\bnimepokea\b|\bmoney in\b|\bpaid in\b|\bsalary\b|\bmshahara\b',
+        // "money got in", "how much is coming in".
+        r'\b(?:got|gotten|gets?|getting|comes|coming) in\b|'
+        r'\bincome\b|\bnimepokea\b|\bmoney in\b|\bpaid in\b|\bsalary\b|\bmshahara\b|'
+        // Swahili: "pesa iliyoingia", "zilizoingia", "imeingia", "nilipokea".
+        r'\b(?:iliyo|zilizo|ime|zime|ili|zili)ingia\b|\bnilipokea\b|\bmapato\b',
       ),
       AskIntent.received,
     ),
@@ -226,6 +230,11 @@ class RuleQuestionReader implements QuestionReader {
     return read.intent == AskIntent.countPayments ||
         read.intent == AskIntent.received;
   }
+
+  /// Words that take "in" to mean money in: "came", "got".
+  static final _endsInMoneyIn = RegExp(
+    r'\b(?:came|come|comes|coming|got|gotten|get|gets|getting|money|paid) $',
+  );
 
   static final _refineStart = RegExp(
     r'^(?:and|but|what about|how about|only|just|na|then|also|ok and|same for)\b',
@@ -407,11 +416,13 @@ class RuleQuestionReader implements QuestionReader {
       spans.add(
         AskSpan(SlotKind.period, period.text.trim(), period.start, period.end),
       );
-      text = text.replaceRange(
-        period.start,
-        period.end,
-        ' ' * (period.end - period.start),
-      );
+      // "came in the last 3 months": the "in" is the question's too.
+      final start =
+          period.text.startsWith('in ') &&
+              _endsInMoneyIn.hasMatch(raw.substring(0, period.start))
+          ? period.start + 3
+          : period.start;
+      text = text.replaceRange(start, period.end, ' ' * (period.end - start));
     }
     final amount = _amount.firstMatch(text);
     if (amount != null) {

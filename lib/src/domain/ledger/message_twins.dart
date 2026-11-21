@@ -57,11 +57,17 @@ String? packOf(String? readBy) {
   return pack.isEmpty ? null : pack;
 }
 
-/// Banks that send their own message when money from an account with them
-/// reaches an M-Pesa wallet, by the pack that reads it, with the name
-/// M-Pesa's message gives the bank ("You have received Ksh2,500.00 from
-/// KCB 1 522522").
-const _walletCreditBanks = {'kcb': 'KCB'};
+/// Banks whose packs read a message about money reaching an M-Pesa wallet
+/// from an account with them, and put it on M-Pesa (the pack's
+/// `institution: mpesa` rules): KCB's "... received from MARY WAMBUI DOE -
+/// 987****654 ... via KCB". Such a message is only a notice; M-Pesa's own
+/// message for the same money is the wallet's record.
+const walletNoticeBanks = {'kcb'};
+
+/// Whether [receipt] is shaped as an M-Pesa receipt: ten letters and digits,
+/// such as `TJA0000001`. Banks print longer references.
+bool isMpesaReceipt(String? receipt) =>
+    RegExp(r'^[A-Z0-9]{10}$').hasMatch(receipt?.trim().toUpperCase() ?? '');
 
 /// Why two messages on one account are taken to be the same money.
 enum TwinMatch {
@@ -71,10 +77,11 @@ enum TwinMatch {
   /// One prints a reference and the other, a plain account alert, does not.
   alert,
 
-  /// Money from a bank account into M-Pesa, told by both: the bank's own
-  /// message ("... received from JANE DOE - 123****890 via KCB") and
-  /// M-Pesa's ("... You have received Ksh2,500.00 from KCB 1 522522"). Each
-  /// prints its own reference, so they never share one.
+  /// Money from a bank account into M-Pesa, told by both: the bank's
+  /// notice ("... received from JANE DOE - 123****890 via KCB") and
+  /// M-Pesa's own message, which names the bank ("... You have received
+  /// Ksh2,500.00 from KCB 1 522522") or the person who sent it. Each prints
+  /// its own reference, so they never share one.
   walletCredit,
 }
 
@@ -87,10 +94,10 @@ enum TwinMatch {
 /// * both print a reference: the same money only when it is the same
 ///   reference, within [sameReceiptWindow]. Different references are
 ///   different payments, except for [TwinMatch.walletCredit]: money in
-///   that a bank's pack read (KCB's "received from ... via KCB") and money
-///   in that the M-Pesa pack read from that bank by name ("received ...
-///   from KCB 1 522522"), both received, within [twinWindow], and [stored]
-///   not already merged with another message;
+///   that a bank's pack read as a notice on M-Pesa (KCB's "received from
+///   ... via KCB") and money M-Pesa's own message says was received from
+///   the bank or the same sender ([walletCreditNamesAgree]), within
+///   [twinWindow], and [stored] not already merged with another message;
 /// * one prints a reference: the same money when they are within
 ///   [twinWindow], the one without is a plain alert (or the same kind), and
 ///   [stored] has not already taken a twin, so a second alert for the same
@@ -116,7 +123,15 @@ TwinMatch? twinMatch(TwinFacts stored, TwinFacts incoming) {
     if (stored.twinHash != null && stored.twinHash != incomingHash) {
       return null;
     }
-    return walletCreditSide(stored, incoming) != null
+    final walletFirst = walletCreditSide(stored, incoming);
+    if (walletFirst == null) return null;
+    final (wallet, notice) = walletFirst
+        ? (stored, incoming)
+        : (incoming, stored);
+    // M-Pesa names the bank or the same sender: one who is not the
+    // notice's sender sent other money.
+    return wallet.counterpartyName == null ||
+            walletCreditNamesAgree(wallet, notice)
         ? TwinMatch.walletCredit
         : null;
   }
@@ -133,25 +148,51 @@ TwinMatch? twinMatch(TwinFacts stored, TwinFacts incoming) {
 
 /// For two messages about money into M-Pesa from a bank account (see
 /// [TwinMatch.walletCredit]): true when [first] is M-Pesa's own message
-/// and [second] the bank's, false the other way, null when they are not
-/// such a pair.
+/// and [second] the bank's notice, false the other way, null when they are
+/// not such a pair.
+///
+/// M-Pesa's message is money received that the M-Pesa pack read (or, read
+/// before readers were recorded, that prints an M-Pesa receipt); the
+/// notice is money in that a pack in [walletNoticeBanks] read. M-Pesa's
+/// message names the bank ("from KCB 1 522522") or the sender; [twinMatch]
+/// checks that name.
 bool? walletCreditSide(TwinFacts first, TwinFacts second) {
   if (first.direction != TransactionDirection.inflow ||
-      first.kind != TransactionKind.received ||
-      second.kind != TransactionKind.received) {
+      second.direction != TransactionDirection.inflow) {
     return null;
   }
-  bool fromBank(TwinFacts wallet, TwinFacts bank) {
-    if (packOf(wallet.readBy) != 'mpesa') return false;
-    final name = _walletCreditBanks[packOf(bank.readBy)];
-    if (name == null) return false;
-    final printed = wallet.counterpartyName?.trim().toUpperCase() ?? '';
-    return printed.split(RegExp(r'\s+')).first == name;
-  }
+  bool isWallet(TwinFacts f) =>
+      f.kind == TransactionKind.received &&
+      switch (packOf(f.readBy)) {
+        'mpesa' => true,
+        null => f.readBy == null && isMpesaReceipt(f.receipt),
+        _ => false,
+      };
+  bool isNotice(TwinFacts f) =>
+      walletNoticeBanks.contains(packOf(f.readBy)) &&
+      (f.kind == TransactionKind.received || f.kind == TransactionKind.bank);
 
-  if (fromBank(first, second)) return true;
-  if (fromBank(second, first)) return false;
+  if (isWallet(first) && isNotice(second)) return true;
+  if (isWallet(second) && isNotice(first)) return false;
   return null;
+}
+
+/// Whether M-Pesa's message [wallet] and the bank's notice [notice] about
+/// money into M-Pesa name the same sender, or M-Pesa names the bank: the
+/// better pair when two M-Pesa messages of the same amount are near one
+/// notice.
+bool walletCreditNamesAgree(TwinFacts wallet, TwinFacts notice) {
+  List<String> words(String? name) => [
+    for (final w in (name ?? '').toUpperCase().split(RegExp(r'[^A-Z0-9*]+')))
+      if (w.length > 1 && !w.contains('*') && !RegExp(r'^\d+$').hasMatch(w)) w,
+  ];
+  final printed = words(wallet.counterpartyName);
+  if (printed.isEmpty) return false;
+  if (printed.first == 'KCB') return true;
+  return printed
+      .toSet()
+      .intersection(words(notice.counterpartyName).toSet())
+      .isNotEmpty;
 }
 
 String? _reference(String? receipt) {

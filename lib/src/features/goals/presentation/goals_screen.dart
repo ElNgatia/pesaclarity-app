@@ -23,7 +23,9 @@ import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../debts/presentation/debt_row.dart';
+import '../../debts/presentation/due_line.dart' show IconLine;
 import '../../lending/application/lending_providers.dart';
+import '../../savings/presentation/savings_text.dart';
 import '../application/goals_overview_provider.dart';
 import 'goal_sheet.dart';
 
@@ -361,6 +363,24 @@ class _GoalCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(pace, style: theme.textTheme.bodySmall),
               ],
+              if (goal.backing case final backing?) ...[
+                const SizedBox(height: 10),
+                SavedInChip(backing.accountName),
+                if (backing.lockedUntil case final until?
+                    when backing.isLockedOn(today)) ...[
+                  const SizedBox(height: 8),
+                  IconLine(
+                    icon: Icons.lock_outline,
+                    text: TextSpan(
+                      text: SavingsText.lockedUntilDay(until, today.year),
+                    ),
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      color: colors.textMuted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
             ],
           ),
         ),
@@ -493,4 +513,20 @@ class _LinkCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "Saved in Chumz", on a goal whose money a savings app keeps: plain
+/// muted text after the savings icon, as the lock line under it is.
+class SavedInChip extends StatelessWidget {
+  const SavedInChip(this.accountName, {super.key});
+
+  final String accountName;
+
+  @override
+  Widget build(BuildContext context) => IconLine(
+    icon: Icons.account_balance_outlined,
+    text: TextSpan(text: SavingsText.savedIn(accountName)),
+    style: Theme.of(context).textTheme.bodySmall!
+        .copyWith(color: PesaColors.of(context).textMuted, fontSize: 12),
+  );
 }

@@ -15,6 +15,7 @@ import '../../../domain/ledger/fuliza_debt.dart';
 import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/ledger/ledger_role.dart';
 import '../../../domain/payees/payee_identifier.dart';
+import '../../../domain/savings/savings_prompt.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../routing/app_routes.dart';
 import '../../../shared/format/date_labels.dart';
@@ -43,6 +44,8 @@ import '../../export/presentation/export_sheet.dart';
 import '../../payees/application/tag_filter.dart';
 import '../../payees/presentation/payee_sheet.dart';
 import '../../payees/presentation/transaction_sheet.dart';
+import '../../savings/application/savings_providers.dart';
+import '../../savings/presentation/savings_prompt_card.dart';
 import '../../security/application/balance_visibility.dart';
 import '../../sms/application/message_recheck.dart';
 import '../application/activity_providers.dart';
@@ -93,6 +96,10 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
 
   /// Transactions chosen with a long press, to move to another space.
   final _chosen = <int>{};
+
+  /// The line that confirms a savings account was added. It shows once:
+  /// kept here while the screen is open, after it is marked seen.
+  SavingsAddedNotice? _added;
 
   void _toggle(int id) => setState(
     () => _chosen.contains(id) ? _chosen.remove(id) : _chosen.add(id),
@@ -198,18 +205,43 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
               : 'Nothing matches these filters.',
         ),
     ];
+    // A savings app's question under the payment it is about, and the
+    // line that confirms it was added, under the same payment.
+    final prompt = ref.watch(savingsPromptProvider).value;
+    _added ??= ref.watch(savingsAddedNoticeProvider).value;
+    final added = _added;
+    bool asked(ActivityLine line) =>
+        prompt != null &&
+        line is EntryLine &&
+        line.entry.id == prompt.transactionId;
+    bool confirmed(ActivityLine line) =>
+        added != null &&
+        switch (line) {
+          EntryLine(:final entry) => entry.id == added.transactionId,
+          OwnTransferLine(:final outflow, :final inflow) =>
+            outflow?.id == added.transactionId ||
+                inflow?.id == added.transactionId,
+          _ => false,
+        };
+
     // Each day's heading, then its lines. Only the rows on screen are
     // built: months of history are thousands of rows.
-    final feed = <(ActivityDay, ActivityLine?)>[
+    final feed = <Object>[
       if (!(loaded.isLoading && !loaded.hasValue))
         for (final day in days) ...[
           (day, null),
-          for (final line in day.lines) (day, line),
+          for (final line in day.lines) ...[
+            (day, line),
+            if (asked(line)) prompt!,
+            if (confirmed(line)) added!,
+          ],
         ],
     ];
-    Widget feedItem((ActivityDay, ActivityLine?) item) => switch (item) {
-      (final day, null) => SectionLabel(dayHeading(day.date, today: today)),
-      (_, final line?) => _Choosable(
+    Widget feedItem(Object item) => switch (item) {
+      (final ActivityDay day, null) => SectionLabel(
+        dayHeading(day.date, today: today),
+      ),
+      (_, final ActivityLine line) => _Choosable(
         id: line is EntryLine ? line.entry.id : null,
         chosen: _chosen,
         onToggle: _toggle,
@@ -223,8 +255,16 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           base: base,
           code: code,
           fulizaAuto: fulizaAuto,
+          asked: asked(line),
         ),
       ),
+      // Outside the rows, so a long press never chooses them.
+      final SavingsPrompt p => SavingsPromptCard(p),
+      final SavingsAddedNotice n => SavingsAddedLine(
+        n,
+        name: accounts[n.accountId]?.name ?? 'Savings',
+      ),
+      _ => const SizedBox.shrink(),
     };
     final tail = <Widget>[
       if (_filter.from == null && entries.isNotEmpty) ...[
@@ -456,9 +496,14 @@ class _ActivityRow extends StatelessWidget {
     required this.base,
     this.code,
     this.fulizaAuto = const {},
+    this.asked = false,
   });
 
   final ActivityLine line;
+
+  /// Whether a savings app's question shows under this row: the row is
+  /// then the top of the question's card.
+  final bool asked;
 
   /// Fuliza worked out from M-Pesa's balances, by entry id.
   final Map<int, FulizaAuto> fulizaAuto;
@@ -481,7 +526,8 @@ class _ActivityRow extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = PesaColors.of(context);
     final muted = theme.textTheme.bodyMedium!.copyWith(color: colors.textMuted);
-    final row = _line(context, theme, colors, muted);
+    final drawn = _line(context, theme, colors, muted);
+    final row = asked ? SavingsPromptRow(child: drawn) : drawn;
     final auto = line is EntryLine
         ? fulizaAuto[(line as EntryLine).entry.id]
         : null;

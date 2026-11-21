@@ -79,3 +79,20 @@ final savingsEntryProvider = FutureProvider.family<SavingsEntryLink?, int>((
   ref.watch(savingsChangesProvider);
   return ref.watch(savingsRepositoryProvider).entryOf(transactionId);
 });
+
+/// The savings products the person could add here: those the records show
+/// payments into, or that they said are not theirs, and not added yet.
+final savingsToAddProvider = FutureProvider<List<SavingsProduct>>((ref) async {
+  ref.watch(savingsChangesProvider);
+  if (!ref.watch(savingsOfferedProvider)) return const [];
+  final repository = ref.watch(savingsRepositoryProvider);
+  final added = {for (final a in await repository.accounts()) a.productId};
+  final declined = await repository.declined();
+  return [
+    for (final product in savingsProducts)
+      if (!added.contains(product.id) &&
+          (declined.contains(product.id) ||
+              (await repository.discover(product)).found))
+        product,
+  ];
+});

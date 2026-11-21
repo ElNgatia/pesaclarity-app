@@ -80,8 +80,10 @@ class _ConverterScreenState extends ConsumerState<ConverterScreen> {
       );
     }
     final base = settings.base;
-    // The person's other currencies: their accounts', then their own rates'.
+    // The person's other currencies: their second currency, their
+    // accounts', then their own rates'.
     final theirs = <String>{
+      ?settings.secondary,
       for (final a in accounts.values) a.currency,
       ...settings.ownRates.keys,
     }..remove(base);

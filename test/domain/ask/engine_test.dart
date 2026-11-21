@@ -595,7 +595,7 @@ void main() {
     });
   });
 
-  group('money in, as Home and Insights count it', () {
+  group('money in: all the money that arrived', () {
     Future<AskAnswer> ask(String q) async =>
         (await engine.ask(q, context: AskContext.empty, now: now)).answer;
 
@@ -627,7 +627,7 @@ void main() {
       },
     );
 
-    test('money waiting for a name is not income until it is named', () async {
+    test('money from people not named yet came in: counted, said', () async {
       source.all.add(
         LedgerEntry(
           id: _id++,
@@ -641,9 +641,12 @@ void main() {
         ),
       );
       final a = await ask('How much came in this month?');
-      expect(a.figureMinor, kes(2500));
-      expect(text(a), contains("The 700 from people you haven't named yet"));
-      // Asked about by name, all they sent is counted.
+      expect(a.figureMinor, kes(3200));
+      expect(
+        text(a),
+        endsWith("700 of it is from people you haven't named yet."),
+      );
+      // Asked about by name, all they sent is counted too.
       final from = await ask('How much did Acme send me?');
       expect(from.figureMinor, kes(3200));
     });
@@ -657,15 +660,15 @@ void main() {
         expect(a.figureMinor, 0, reason: q);
         expect(
           text(a),
-          'Nothing came in this month. The 3920 that moved between your own '
-          "accounts isn't counted as money in.",
+          'No money came to you this month. The 3920 that moved between your '
+          "own accounts isn't counted as money in.",
           reason: q,
         );
       }
       source.all.removeWhere((e) => e.isInflow);
       expect(
         text(await ask('How much came in this month?')),
-        'Nothing came in this month.',
+        'No money came to you this month.',
       );
     });
   });

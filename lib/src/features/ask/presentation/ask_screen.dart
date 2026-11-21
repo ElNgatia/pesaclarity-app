@@ -115,6 +115,14 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     final route = switch (answer.link) {
       AskLink.activity => AppRoutes.activityWith(
         ActivityFilter(
+          // Money in opens on money in, where a sender not named yet is
+          // named.
+          type: switch (context.intent) {
+            AskIntent.received ||
+            AskIntent.receivedFrom ||
+            AskIntent.incomeSources => ActivityType.moneyIn,
+            _ => ActivityType.all,
+          },
           from: period?.from,
           to: period?.lastDay,
           categoryId: category != null && !category.contains('|')

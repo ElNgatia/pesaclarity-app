@@ -64,6 +64,7 @@ void main() {
     expectId(SemanticIds.titleWelcome);
     await tapId(tester, SemanticIds.onboardingGetStarted);
     expectId(SemanticIds.titleCurrency);
+    expectId(SemanticIds.onboardingSecondCurrency);
     // As the flows do: search for KES, then tap its row by id.
     await tester.enterText(find.byKey(const Key('currency-search')), 'KES');
     await tester.pumpAndSettle();

@@ -12,7 +12,7 @@ import '../../../theme/pesa_colors.dart';
 import '../../insights/application/insights_providers.dart';
 import '../../sms/application/scan_range_provider.dart';
 import '../../sms/domain/scan_range.dart';
-import '../application/onboarding_controller.dart';
+import 'setup_parts.dart';
 
 /// Onboarding, after the first scan: what the messages read show,
 /// before any setup.
@@ -22,7 +22,7 @@ class FirstInsightScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final insight = ref.watch(firstInsightProvider);
-    void finish() => ref.read(onboardingControllerProvider.notifier).complete();
+    void finish() => finishSetup(context, ref);
 
     return Scaffold(
       appBar: AppBar(
@@ -76,13 +76,13 @@ class FirstInsightScreen extends ConsumerWidget {
             : 'From $count transactions in your messages.',
       ),
       const SizedBox(height: 20),
-      _Figure(label: 'Money in', value: amount(insight.incomeMinor)),
+      _Figure(label: 'Money in', value: amount(insight.moneyInMinor)),
       const SizedBox(height: 12),
       _Figure(
         label: 'Spent, with fees',
         value: amount(insight.spendingMinor),
-        note: insight.incomeMinor > 0
-            ? _vsIncome(insight.spendingMinor, insight.incomeMinor, amount)
+        note: insight.moneyInMinor > 0
+            ? _vsIncome(insight.spendingMinor, insight.moneyInMinor, amount)
             : null,
       ),
       const SizedBox(height: 12),

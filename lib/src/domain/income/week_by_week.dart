@@ -126,7 +126,7 @@ class WeekByWeek {
       weeks.add(
         WeekFlow(
           start: start,
-          inMinor: totals.incomeMinor + totals.awaitingPayeeMinor,
+          inMinor: totals.moneyInMinor,
           outMinor:
               totals.spendingMinor +
               totals.feesMinor +

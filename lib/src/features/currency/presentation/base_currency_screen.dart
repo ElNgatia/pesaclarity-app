@@ -146,6 +146,28 @@ class _RatesCardState extends ConsumerState<_RatesCard> {
     }
   }
 
+  Future<void> _pickSecond() async {
+    final settings = widget.settings;
+    final picked = await pickSecondCurrency(
+      context,
+      selected: settings.secondary,
+      main: settings.base,
+    );
+    if (picked == null) return;
+    try {
+      await ref
+          .read(currencyControllerProvider.notifier)
+          .setSecondary(picked.code);
+    } on Object {
+      if (mounted) {
+        showNote(
+          context,
+          'Your second currency could not be saved. Try again.',
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -224,6 +246,25 @@ class _RatesCardState extends ConsumerState<_RatesCard> {
         const SizedBox(height: Layout.cardGap),
         GroupedSection(
           children: [
+            ListTile(
+              key: const Key('second-currency'),
+              leading: const Icon(Icons.looks_two_outlined),
+              title: const Text('Second currency'),
+              subtitle: const Text('Shown beside it on Home'),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    settings.secondary ?? 'None',
+                    style: theme.textTheme.bodyLarge!.copyWith(
+                      color: colors.textMuted,
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+              onTap: _pickSecond,
+            ),
             if (widget.configured)
               ListTile(
                 leading: const Icon(Icons.refresh),

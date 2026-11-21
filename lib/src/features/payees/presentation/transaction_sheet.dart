@@ -23,6 +23,7 @@ import '../../balances/presentation/own_transfer_sheets.dart';
 import '../../currency/presentation/payment_rate_card.dart';
 import '../../documents/presentation/receipt_sheet.dart';
 import '../../income/presentation/what_was_this_sheet.dart';
+import '../../savings/application/savings_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../application/payee_providers.dart';
 import 'category_picker.dart';
@@ -304,7 +305,9 @@ class _MoveToSpace extends ConsumerWidget {
       for (final s in spaces)
         if (s.id != activeId) s,
     ];
-    if (others.isEmpty) return const SizedBox.shrink();
+    // A savings app's entries stay with it (its page can remove it).
+    final savings = ref.watch(savingsEntryProvider(transactionId)).value;
+    if (others.isEmpty || savings != null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: OutlinedButton.icon(

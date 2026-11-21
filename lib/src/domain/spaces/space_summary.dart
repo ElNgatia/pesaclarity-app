@@ -44,7 +44,9 @@ class SpaceSummary {
 
   /// Sums [history] from the start of the period to [today].
   ///
-  /// Money in is income; money out is spending, fees and tax, so own
+  /// Money in is all the money that arrived for a space that shows it as
+  /// "In" ([LedgerTotals.moneyInMinor]), and income for one that shows it
+  /// as Sales or Rent; money out is spending, fees and tax, so own
   /// transfers, savings, borrowing and paying yourself are left out.
   factory SpaceSummary.of(
     SpaceKind kind,
@@ -102,7 +104,17 @@ class SpaceSummary {
     return SpaceSummary(
       kind: kind,
       from: from,
-      inMinor: totals.incomeMinor,
+      inMinor: switch (kind) {
+        // Shown as "In": money in, as every "money in" figure counts it.
+        SpaceKind.personal ||
+        SpaceKind.household ||
+        SpaceKind.other => totals.moneyInMinor,
+        // Shown as Sales or Rent, or not shown: what was earned.
+        SpaceKind.business ||
+        SpaceKind.farm ||
+        SpaceKind.rentalProperty ||
+        SpaceKind.savingsGroup => totals.incomeMinor,
+      },
       outMinor: totals.spendingMinor + totals.feesMinor + totals.taxMinor,
       balanceMinor: balanceMinor,
       rows: rows.take(summaryRows).toList(),

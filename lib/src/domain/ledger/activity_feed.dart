@@ -244,7 +244,8 @@ class WeekInOut {
   /// The Monday the week starts on.
   final CalendarDate start;
 
-  /// Income; own transfers, borrowing and unnamed money stay out.
+  /// Money in ([LedgerTotals.moneyInMinor]): income and money from people
+  /// not named yet; own transfers and borrowing stay out.
   final int inMinor;
 
   /// Spending and fees.
@@ -269,7 +270,7 @@ WeekInOut weekInOut(
   );
   return WeekInOut(
     start: start,
-    inMinor: totals.incomeMinor,
+    inMinor: totals.moneyInMinor,
     outMinor: totals.spendingMinor + totals.feesMinor,
   );
 }
