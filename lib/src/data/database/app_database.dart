@@ -80,7 +80,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 41;
+  int get schemaVersion => 42;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -351,6 +351,15 @@ class AppDatabase extends _$AppDatabase {
       }
       // Savings accounts the app keeps from the payments into them.
       if (from < 41) await _addSavingsAccounts(m);
+      // The other side's code a message prints, which pairs two sides of
+      // one own transfer (decision 0030).
+      if (from < 42) {
+        await _addColumnIfMissing(
+          m,
+          transactions,
+          transactions.linkedReceiptNo,
+        );
+      }
       // Plain English names: the seeded giving category, unless renamed.
       if (from < 17) {
         await customStatement(

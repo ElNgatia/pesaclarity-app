@@ -901,7 +901,7 @@ void main() {
       final db = AppDatabase(NativeDatabase(file));
       addTearDown(db.close);
       expect(await userVersion(db), db.schemaVersion);
-      expect(db.schemaVersion, 41);
+      expect(db.schemaVersion, 42);
       expect((await columns(db, 'accounts'))['product'], isFalse);
       expect((await columns(db, 'goals'))['saved_in_pocket_id'], isFalse);
       expect(
@@ -1036,6 +1036,28 @@ void main() {
       expect(await columns(db, 'accounts'), contains('product'));
       expect(await columns(db, 'goals'), contains('saved_in_pocket_id'));
       expect(await db.select(db.savingsPockets).get(), isEmpty);
+    });
+
+    test('migrates a version 41 database: the other side\'s code, and is '
+        'safe to run twice', () async {
+      final old = AppDatabase(NativeDatabase(file));
+      await old.customStatement(
+        'ALTER TABLE transactions DROP COLUMN linked_receipt_no',
+      );
+      await old.customStatement('PRAGMA user_version = 41');
+      await old.close();
+      final db = AppDatabase(NativeDatabase(file));
+      expect(await userVersion(db), db.schemaVersion);
+      expect(await columns(db, 'transactions'), contains('linked_receipt_no'));
+      await db.customStatement('PRAGMA user_version = 41');
+      await db.close();
+      final again = AppDatabase(NativeDatabase(file));
+      addTearDown(again.close);
+      expect(await userVersion(again), again.schemaVersion);
+      expect(
+        await columns(again, 'transactions'),
+        contains('linked_receipt_no'),
+      );
     });
 
     test('migrates a version 17 database: moved transactions', () async {

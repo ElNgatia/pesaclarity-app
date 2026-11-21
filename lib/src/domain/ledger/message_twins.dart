@@ -57,12 +57,29 @@ String? packOf(String? readBy) {
   return pack.isEmpty ? null : pack;
 }
 
-/// Banks whose packs read a message about money reaching an M-Pesa wallet
-/// from an account with them, and put it on M-Pesa (the pack's
-/// `institution: mpesa` rules): KCB's "... received from MARY WAMBUI DOE -
+/// A bank whose pack reads a message about money reaching an M-Pesa wallet
+/// from an account with it, and puts it on M-Pesa (the pack's `institution:
+/// mpesa` rules for money in): KCB's "... received from MARY WAMBUI DOE -
 /// 987****654 ... via KCB". Such a message is only a notice; M-Pesa's own
 /// message for the same money is the wallet's record.
-const walletNoticeBanks = {'kcb'};
+class WalletNotice {
+  const WalletNotice({required this.mpesaNames});
+
+  /// The first word M-Pesa's own message prints for the bank as the sender
+  /// ("You have received Ksh2,500.00 from KCB 1 522522"), upper case.
+  final Set<String> mpesaNames;
+}
+
+/// Every pack that sends such notices, by pack id (decision 0030): one
+/// entry per pack with an `institution: mpesa` rule for money in. A test
+/// checks this table against the bundled packs, so a pack that gains a
+/// notice rule gains an entry here.
+const walletNotices = <String, WalletNotice>{
+  'kcb': WalletNotice(mpesaNames: {'KCB'}),
+};
+
+/// The packs in [walletNotices].
+Set<String> get walletNoticeBanks => walletNotices.keys.toSet();
 
 /// Whether [receipt] is shaped as an M-Pesa receipt: ten letters and digits,
 /// such as `TJA0000001`. Banks print longer references.
@@ -188,7 +205,8 @@ bool walletCreditNamesAgree(TwinFacts wallet, TwinFacts notice) {
   ];
   final printed = words(wallet.counterpartyName);
   if (printed.isEmpty) return false;
-  if (printed.first == 'KCB') return true;
+  final names = walletNotices[packOf(notice.readBy)]?.mpesaNames ?? const {};
+  if (names.contains(printed.first)) return true;
   return printed
       .toSet()
       .intersection(words(notice.counterpartyName).toSet())

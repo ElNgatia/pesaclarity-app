@@ -228,7 +228,8 @@ void main() {
       expect(await wallet(), 820000, reason: 'the doubled balance');
 
       final repaired = await repairBalancesOnce(db);
-      expect(repaired, (walletCredits: 1, copies: 1));
+      expect(repaired?.walletCredits, 1);
+      expect(repaired?.copies, 1);
       final now = await rows();
       expect(now, hasLength(2));
       expect(now.last.receiptNo, 'TJC0000041');

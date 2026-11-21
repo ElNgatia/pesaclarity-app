@@ -121,6 +121,7 @@ bool readsDifferently(TransactionRecord row, TransactionsCompanion fresh) =>
     row.counterpartyValue != fresh.counterpartyValue.value ||
     row.counterpartyName != fresh.counterpartyName.value ||
     row.receiptNo != fresh.receiptNo.value ||
+    row.linkedReceiptNo != fresh.linkedReceiptNo.value ||
     row.dedupeKey != fresh.dedupeKey.value ||
     row.balanceAfterMinor != fresh.balanceAfterMinor.value ||
     row.owedAfterMinor != fresh.owedAfterMinor.value ||

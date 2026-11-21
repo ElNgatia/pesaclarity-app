@@ -1,4 +1,6 @@
+import 'package:drift/drift.dart' show TableUpdateQuery;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ujumbe/ujumbe.dart' show engineVersion;
 
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
@@ -8,6 +10,7 @@ import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/balances_repair.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/ledger_history.dart';
+import '../../../data/repositories/own_moves.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/ledger/balance_check.dart';
 import '../../../domain/ledger/balances.dart';
@@ -17,6 +20,7 @@ import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/ledger/on_hand.dart';
 import '../../../domain/ledger/own_transfers.dart';
 import '../../../domain/time/calendar.dart';
+import '../../accounts/domain/institution.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../income/application/income_providers.dart';
 
@@ -232,17 +236,50 @@ final onHandProvider = FutureProvider<OnHand?>((ref) async {
 /// changed how they pair: version 1 started pairing them, version 2 pairs
 /// them across currencies. Safe to run again: only unpaired entries pair.
 ///
-/// First, once per space, puts right what earlier versions counted twice
-/// (see [repairBalancesOnce]).
+/// First, once per space and again whenever the message readers change,
+/// puts right what earlier versions counted twice and matches own transfers
+/// over the whole history (see [repairBalancesOnce]; decision 0030).
 final pairHistoryOnceProvider = FutureProvider<void>((ref) async {
   const key = 'ledger.ownTransfersPaired';
   const version = 2;
-  await repairBalancesOnce(ref.watch(appDatabaseProvider));
+  await repairBalancesOnce(
+    ref.watch(appDatabaseProvider),
+    readers: ref.watch(readersVersionProvider),
+  );
   final settings = ref.watch(appSettingsRepositoryProvider);
   final done = (await settings.readJson(key))?['version'];
   if (done is int && done >= version) return;
   await ref.watch(transactionsRepositoryProvider).pairOwnTransfers();
   await settings.writeJson(key, {'version': version});
+});
+
+/// The bundled readers' versions (see [readersVersion]): when they change,
+/// own transfers are matched again over the whole history.
+final readersVersionProvider = Provider<String>(
+  (ref) => readersVersion(engineVersion, {
+    for (final i in ref.watch(institutionCatalogueProvider))
+      i.pack.id: i.pack.version,
+  }),
+);
+
+/// Own transfers paired by amount and time alone that the person has not
+/// answered for, by each side's id: their line asks "Was this a move
+/// between your accounts?" (decision 0030, rule 5).
+final ownMoveQuestionsProvider = StreamProvider<Map<int, OwnMoveQuestion>>((
+  ref,
+) async* {
+  final db = ref.watch(appDatabaseProvider);
+  yield await ownMoveQuestions(db);
+  // Answers are kept in the settings.
+  await for (final _ in db.tableUpdates(
+    TableUpdateQuery.onAllTables([
+      db.transactions,
+      db.accounts,
+      db.appSettings,
+    ]),
+  )) {
+    yield await ownMoveQuestions(db);
+  }
 });
 
 /// Entries that may be the other side of transaction `id`, which happened

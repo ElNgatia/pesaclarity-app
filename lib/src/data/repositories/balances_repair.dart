@@ -5,56 +5,92 @@ import '../database/app_database.dart';
 import 'app_settings_repository.dart';
 import 'journal_repository.dart';
 import 'message_twins_store.dart';
+import 'own_moves.dart';
 import 'savings_links.dart';
 import 'transactions_repository.dart';
 
-/// What one [repairBalances] run changed.
-typedef BalancesRepair = ({int walletCredits, int copies});
+/// What one [repairBalances] run changed: notices merged into M-Pesa's
+/// own messages, copies removed, own transfers the rules now rule out
+/// unmatched, and own transfers paired.
+typedef BalancesRepair = ({
+  int walletCredits,
+  int copies,
+  int unpaired,
+  int paired,
+});
 
-/// Where a space's settings keep the version of [repairBalances] it ran.
+/// Where a space's settings keep the version of [repairBalances] it ran,
+/// and the readers it ran for.
 const balancesRepairKey = 'ledger.balancesRepaired';
 
 /// The version of [repairBalances]: raised when it learns something new to
-/// put right.
-const balancesRepairVersion = 1;
+/// put right. Version 2 matches own transfers by decision 0030's rules.
+const balancesRepairVersion = 2;
 
-/// Puts right, once per [balancesRepairVersion], the money counted twice by
-/// earlier versions, keeping every message:
+/// The readers' versions as one text, such as `0.4.0 kcb@0.4.2,mpesa@0.5.0`:
+/// the engine's [engine] and each pack's in [packs], by pack id, in order.
+String readersVersion(String engine, Map<String, String> packs) {
+  final ids = packs.keys.toList()..sort();
+  return '$engine ${[for (final id in ids) '$id@${packs[id]}'].join(',')}';
+}
+
+/// Puts right, once per [balancesRepairVersion] and again whenever the
+/// message readers change ([readers], see [readersVersion]; decision 0030,
+/// rule 6), the money counted twice by earlier versions, keeping every
+/// message:
 ///
 /// * a bank's notice on M-Pesa and M-Pesa's own message for the same money
 ///   in ([TwinMatch.walletCredit]) kept as two transactions, which doubled
 ///   the wallet: merged as new messages now merge ([mergeStoredWalletCredits]);
-/// * rows made twice from one message ([removeMessageCopies]).
+/// * rows made twice from one message ([removeMessageCopies]);
+/// * own transfers paired by amount and time that what the messages print
+///   now rules out ([unpairRuledOutMoves]).
 ///
-/// Then pairs own transfers again and reposts the whole journal from the
-/// records, which reverses any entry the records no longer hold. Returns
-/// null when it had already run.
-Future<BalancesRepair?> repairBalancesOnce(AppDatabase db) async {
+/// Then matches own transfers again over the whole history, with what the
+/// readers now read, and reposts the whole journal from the records, which
+/// reverses any entry the records no longer hold. Returns null when it had
+/// already run for these readers.
+Future<BalancesRepair?> repairBalancesOnce(
+  AppDatabase db, {
+  String? readers,
+}) async {
   final settings = DriftAppSettingsRepository(db);
-  final done = (await settings.readJson(balancesRepairKey))?['version'];
-  if (done is int && done >= balancesRepairVersion) return null;
+  final done = await settings.readJson(balancesRepairKey);
+  final version = done?['version'];
+  if (version is int &&
+      version >= balancesRepairVersion &&
+      (readers == null || done?['readers'] == readers)) {
+    return null;
+  }
   final repaired = await repairBalances(db);
   await settings.writeJson(balancesRepairKey, {
     'version': balancesRepairVersion,
+    'readers': ?readers ?? done?['readers'],
   });
   return repaired;
 }
 
 /// The work of [repairBalancesOnce], safe to run again.
 Future<BalancesRepair> repairBalances(AppDatabase db) async {
-  final repaired = await db.transaction(
+  final fixed = await db.transaction(
     () async => (
       copies: await removeMessageCopies(db),
       walletCredits: await mergeStoredWalletCredits(db),
+      unpaired: await unpairRuledOutMoves(db),
     ),
   );
-  if (repaired.copies > 0 || repaired.walletCredits > 0) {
+  if (fixed.copies > 0 || fixed.walletCredits > 0) {
     await syncSavingsAccounts(db);
-    await DriftTransactionsRepository(db).pairOwnTransfers();
   }
+  final paired = await DriftTransactionsRepository(db).pairOwnTransfers();
   await JournalRepository.markForRebuild(db);
   await JournalRepository(db).sync();
-  return repaired;
+  return (
+    copies: fixed.copies,
+    walletCredits: fixed.walletCredits,
+    unpaired: fixed.unpaired,
+    paired: paired,
+  );
 }
 
 /// Merges each bank notice on M-Pesa into M-Pesa's own message for the
