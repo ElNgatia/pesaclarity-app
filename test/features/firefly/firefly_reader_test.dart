@@ -50,17 +50,34 @@ void main() {
 
   test('after an edit, a delete and a move it still adds up', () async {
     await month.changes();
-    // The sale switched to the business (decision 0027) leaves a balance
-    // record on Personal's M-Pesa. It is never sent as a transaction, so
-    // it is not sent twice, but Personal's M-Pesa there is short of the
-    // journal by it until Held for is sent (a follow-up to decision 0029).
-    expect(_mismatches(await read()), {
-      'money:${month.mpesa}': (731300, 731300 + 65000),
-    });
     final home = await read();
-    expect(home.parts.keys.where((id) => id < 0), isEmpty);
+    final shop = await read(business: true);
+    expect(_mismatches(home), isEmpty);
+    expect(_mismatches(shop), isEmpty);
+
+    // The sale switched to the business (decision 0027) leaves a balance
+    // record on Personal's M-Pesa: sent once, from Held for the business
+    // into M-Pesa, never as income. The business sends the sale, on the
+    // owner's account there.
     expect(home.parts.containsKey(month.sale), isFalse);
-    expect(_mismatches(await read(business: true)), isEmpty);
+    final [record] = [
+      for (final MapEntry(:key, :value) in home.parts.entries)
+        if (key < 0) ...value,
+    ];
+    expect(record.type, FireflyPartType.deposit);
+    expect(record.amountMinor, 65000);
+    expect(record.source.kind, FireflyAccountKind.liability);
+    expect(record.source.liabilityType, 'debt');
+    expect(record.destination.key, 'money:${month.mpesa}');
+    final held = home.balances[record.source.key];
+    expect(held, 65000, reason: 'Personal holds the sale for the business');
+
+    final switched = [for (final p in shop.parts.values) ...p].where(
+      (p) => p.destination.bookKey?.startsWith('ownersAccount:') ?? false,
+    );
+    expect(switched.single.type, FireflyPartType.deposit);
+    expect(switched.single.amountMinor, 65000);
+    expect(shop.balances[switched.single.destination.key], 65000);
   });
 
   test('fees, Fuliza and transfers become the expected parts', () async {

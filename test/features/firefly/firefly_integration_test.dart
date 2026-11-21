@@ -89,12 +89,23 @@ void main() {
       expect(await store.waitingCount(), greaterThan(0));
       await sendBoth();
       await expectBalancesMatch();
-      // The deleted payment is gone there; the moved sale kept its external
-      // id and now carries the business's tag.
+      // The deleted payment is gone there. The sale on the shared line is
+      // switched to the business (decision 0027): Personal's goes, the
+      // business sends it on the owner's account, and Personal sends what
+      // it holds for the business against Held for it.
       final lunchId = 'pesaclarity:${month.personal.id}:${month.lunch}';
       expect(await client.findByExternalId(lunchId), isNull);
       final saleId = 'pesaclarity:${month.personal.id}:${month.sale}';
-      expect(await client.findByExternalId(saleId), isNotNull);
+      expect(await client.findByExternalId(saleId), isNull);
+      final [record] = await month.personalDb
+          .select(month.personalDb.balanceRecords)
+          .get();
+      expect(
+        await client.findByExternalId(
+          'pesaclarity:${month.personal.id}:${-record.id}',
+        ),
+        isNotNull,
+      );
 
       // Sending again changes nothing.
       for (final (space, db) in [
