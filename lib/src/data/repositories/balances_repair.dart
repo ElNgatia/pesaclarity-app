@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../domain/ledger/message_twins.dart';
 import '../database/app_database.dart';
@@ -6,6 +7,7 @@ import 'app_settings_repository.dart';
 import 'journal_repository.dart';
 import 'message_twins_store.dart';
 import 'savings_links.dart';
+import 'space_leak_repair.dart';
 import 'transactions_repository.dart';
 
 /// What one [repairBalances] run changed.
@@ -29,13 +31,52 @@ const balancesRepairVersion = 1;
 /// Then pairs own transfers again and reposts the whole journal from the
 /// records, which reverses any entry the records no longer hold. Returns
 /// null when it had already run.
-Future<BalancesRepair?> repairBalancesOnce(AppDatabase db) async {
+///
+/// With [spaces], first, once per [spaceLeakRepairVersion], takes out of
+/// the space the copies of messages that the space reading their account
+/// holds too ([removeLeakedCopies]).
+Future<BalancesRepair?> repairBalancesOnce(
+  AppDatabase db, {
+  SpacesOnPhone? spaces,
+}) async {
   final settings = DriftAppSettingsRepository(db);
+  if (spaces != null) {
+    try {
+      await repairSpaceLeakOnce(db, spaces);
+    } on Object catch (error) {
+      // Another space could not be opened: the repair runs again next
+      // time, and the rest goes ahead now.
+      if (kDebugMode) debugPrint('Repairing copies across spaces: $error');
+    }
+  }
   final done = (await settings.readJson(balancesRepairKey))?['version'];
   if (done is int && done >= balancesRepairVersion) return null;
   final repaired = await repairBalances(db);
   await settings.writeJson(balancesRepairKey, {
     'version': balancesRepairVersion,
+  });
+  return repaired;
+}
+
+/// Where a space's settings keep the version of [removeLeakedCopies] it
+/// ran.
+const spaceLeakRepairKey = 'spaces.leakRepaired';
+
+/// The version of the repair of messages stored in two spaces.
+const spaceLeakRepairVersion = 1;
+
+/// Runs [removeLeakedCopies] for [db] once per [spaceLeakRepairVersion].
+/// Returns null when it had already run.
+Future<LeakRepair?> repairSpaceLeakOnce(
+  AppDatabase db,
+  SpacesOnPhone spaces,
+) async {
+  final settings = DriftAppSettingsRepository(db);
+  final done = (await settings.readJson(spaceLeakRepairKey))?['version'];
+  if (done is int && done >= spaceLeakRepairVersion) return null;
+  final repaired = await removeLeakedCopies(db, spaces);
+  await settings.writeJson(spaceLeakRepairKey, {
+    'version': spaceLeakRepairVersion,
   });
   return repaired;
 }

@@ -4,7 +4,9 @@
 
 Pesa Clarity works out your budget on your phone. Your transactions,
 messages, statements and the questions you ask about them stay on it. Our server does five narrow jobs
-and never sees a transaction.
+and never sees a transaction. If you turn on Firefly III sync, your
+transactions are sent from your phone to the Firefly III server you
+choose, and never to ours.
 
 ## What stays on your phone
 
@@ -121,6 +123,20 @@ Some of them store data outside Kenya. We use them under their data
 processing terms, as the Kenya Data Protection Act 2019 requires for
 transfers abroad.
 
+## Firefly III
+
+Firefly III is a free personal finance manager that people run on their
+own server. Pesa Clarity can send your transactions to it, so you do not
+have to type them in again.
+
+- It is off until you turn it on in Profile. You choose the server, which spaces to send and from which date.
+- For each transaction the app sends the amount, date, payee, category, account names and notes, such as the M-Pesa code. It also sends each account's balance on the start date and the space's name as a tag. It never sends message text.
+- It sends them from your phone straight to the server address you type. Nothing goes through our server, and we never see what is sent.
+- Changes and deletes in the app are sent too. Nothing is read back from your server.
+- Your Firefly III token stays in your phone's secure storage. It is sent only to your server, and never put in a backup, a log or a crash report.
+- Turning it off stops sending and removes the token from your phone. What was already sent stays on your server. Deleting a space stops sending it; what was sent stays too.
+- We cannot see or delete anything on your server. You look after it and who can reach it.
+
 ## Exchange rates
 
 To count money in other currencies, the app downloads today's exchange
@@ -147,13 +163,16 @@ The app asks on first run, and you can change these any time:
 - Contribute to licensed models: off unless you opt in.
 - Count this phone in monthly totals: on by default; off by default in the F-Droid build.
 - Crash reports: the app asks each time, unless you choose Always send or Never send.
+- Firefly III sync: off unless you turn it on.
 
 Pesa Clarity has no ads and no third-party trackers, and no analytics beyond the monthly count above.
 
 ## Keeping it safe
 
 Data on your phone is encrypted, and everything sent to our server
-travels over an encrypted connection. Deleting your account removes
+travels over an encrypted connection. Firefly III sync uses an encrypted
+connection too, unless you choose a plain one to a server on your home
+network. Deleting your account removes
 your account, sign-in records and vault backups from our server.
 
 ## Your rights

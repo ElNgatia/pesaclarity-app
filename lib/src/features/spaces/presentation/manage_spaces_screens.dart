@@ -28,6 +28,7 @@ import '../../backup/application/backup_labels.dart';
 import '../../backup/application/backup_providers.dart';
 import '../../backup/application/backup_service.dart';
 import '../../close/application/business_day_providers.dart';
+import '../../firefly/application/firefly_controller.dart';
 import '../../security/application/app_lock_controller.dart';
 import '../application/business_setup_providers.dart';
 import '../application/space_manager.dart';
@@ -478,7 +479,8 @@ class _DeleteSpaceSheetState extends ConsumerState<_DeleteSpaceSheet> {
       children: [
         Text(
           'The space and every record in it leave this phone. Other spaces '
-          'are untouched.',
+          'are untouched.'
+          '${(ref.watch(fireflySettingsProvider).value?.on ?? false) ? ' What was sent to Firefly III stays on your server.' : ''}',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         const SizedBox(height: 16),

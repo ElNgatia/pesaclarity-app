@@ -4,6 +4,16 @@ import '../../theme/layout.dart';
 import '../../theme/pesa_colors.dart';
 import 'value_tile.dart';
 
+/// How a [ChoiceMenu] shows that its filter is narrowing what shows.
+enum ChoiceHighlight {
+  /// A solid brand-red pill with light text.
+  fill,
+
+  /// The plain pill, unchanged, with its label and arrow in the link red,
+  /// as the chosen side of a switch is.
+  text,
+}
+
 /// One choice of more than two, as a drop-down: a pill showing the current
 /// choice that opens a menu of all of them. Used in place of a row of chip
 /// buttons, which grows with every option.
@@ -14,6 +24,7 @@ class ChoiceMenu<T> extends StatelessWidget {
     required this.onChanged,
     this.name,
     this.highlight = false,
+    this.highlightAs = ChoiceHighlight.fill,
     this.expand = false,
     this.itemKey,
     super.key,
@@ -27,8 +38,12 @@ class ChoiceMenu<T> extends StatelessWidget {
   /// What is being chosen, such as `Account`, for screen readers.
   final String? name;
 
-  /// Fills the pill, for a filter that is narrowing what shows.
+  /// Marks the pill, for a filter that is narrowing what shows, in the way
+  /// [highlightAs] says.
   final bool highlight;
+
+  /// How [highlight] shows: a red fill, or red text with no fill.
+  final ChoiceHighlight highlightAs;
 
   /// Takes the full width, for a form field.
   final bool expand;
@@ -46,9 +61,16 @@ class ChoiceMenu<T> extends StatelessWidget {
         .map((o) => o.$2)
         .firstOrNull;
     final text = current ?? '';
-    // A choice that narrows the list is filled with the brand red.
-    final fill = highlight ? scheme.primary : colors.field;
-    final ink = highlight ? scheme.onPrimary : scheme.onSurface;
+    // A choice that narrows the list is filled with the brand red, or, as
+    // the chosen side of a switch is, keeps the plain pill with its label
+    // in the link red.
+    final filled = highlight && highlightAs == ChoiceHighlight.fill;
+    final fill = filled ? scheme.primary : colors.field;
+    final ink = filled
+        ? scheme.onPrimary
+        : highlight
+        ? colors.link
+        : scheme.onSurface;
     return MenuAnchor(
       alignmentOffset: const Offset(0, 4),
       menuChildren: [
@@ -71,7 +93,7 @@ class ChoiceMenu<T> extends StatelessWidget {
         child: Material(
           color: fill,
           shape: StadiumBorder(
-            side: BorderSide(color: highlight ? fill : colors.border),
+            side: BorderSide(color: filled ? fill : colors.border),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
