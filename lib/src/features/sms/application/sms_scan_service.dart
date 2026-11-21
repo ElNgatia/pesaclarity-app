@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:ujumbe/ujumbe.dart';
+
 import '../../../data/repositories/sms_scan_marks_repository.dart';
 import '../../accounts/domain/institution.dart';
 import '../data/sms_source.dart';
@@ -38,19 +40,14 @@ class SmsScanService {
   /// With [again], every message from [from] is read again, whatever was
   /// read before, and transactions the readers now read better are updated
   /// (see [SmsIngestor.ingest]).
-  ///
-  /// Afterwards the source lets go of what it keeps of messages received
-  /// before the scan started ([SmsSource.release]), unless [release] is
-  /// false.
   Future<SmsIngestSummary> scan(
     List<Institution> selected, {
     DateTime? from,
     SmsScanProgress? onProgress,
     bool again = false,
-    bool release = true,
   }) {
     final run = _previous.then(
-      (_) => _scan(selected, from, onProgress, again: again, release: release),
+      (_) => _scan(selected, from, onProgress, again: again),
     );
     _previous = run.then((_) {}, onError: (_) {});
     return run;
@@ -61,28 +58,29 @@ class SmsScanService {
     DateTime? from,
     SmsScanProgress? onProgress, {
     required bool again,
-    required bool release,
   }) async {
     final startedAt = _clock().toUtc();
-    final inboxes = [
-      for (final institution in selected)
-        (
-          institution,
-          await _source.readInbox(
-            senders: institution.senderIds.toSet(),
-            since:
-                (again ? null : await _marks.scannedUntil(institution.id)) ??
-                from ??
-                _beginning,
-          ),
+    final inboxes = <(Institution, DateTime, List<SmsMessage>)>[];
+    for (final institution in selected) {
+      final since =
+          (again ? null : await _marks.scannedUntil(institution.id)) ??
+          from ??
+          _beginning;
+      inboxes.add((
+        institution,
+        since,
+        await _source.readInbox(
+          senders: institution.senderIds.toSet(),
+          since: since,
         ),
-    ];
+      ));
+    }
 
-    final total = inboxes.fold(0, (sum, inbox) => sum + inbox.$2.length);
+    final total = inboxes.fold(0, (sum, inbox) => sum + inbox.$3.length);
     var done = 0;
     onProgress?.call(done, total);
     var summary = const SmsIngestSummary();
-    for (final (institution, messages) in inboxes) {
+    for (final (institution, since, messages) in inboxes) {
       for (var i = 0; i < messages.length; i += batchSize) {
         final batch = messages.sublist(i, min(i + batchSize, messages.length));
         summary += await _ingestor.ingest(batch, [institution], again: again);
@@ -90,9 +88,15 @@ class SmsScanService {
         onProgress?.call(done, total);
       }
       await _marks.markScanned(institution.id, startedAt);
+      // Only what this scan read: this institution's messages from where it
+      // started up to the scan's start. Messages of accounts this space
+      // does not read wait for the space that does.
+      await _source.release(
+        senders: institution.senderIds.toSet(),
+        since: since,
+        before: startedAt,
+      );
     }
-    // Everything before the start has now been read for every institution.
-    if (release && selected.isNotEmpty) await _source.release(startedAt);
     return summary;
   }
 }

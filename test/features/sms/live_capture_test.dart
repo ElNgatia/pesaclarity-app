@@ -220,9 +220,12 @@ void main() {
       expect(await receipts(), ['TJA0000001', 'TJA0000004']);
       // Only what arrived since the first scan.
       expect(source.reads.last.since, opened);
-      // Only the first scan lets go of what it read: on iPhone the queue
-      // also holds messages for other spaces' accounts.
-      expect(source.releases, [opened]);
+      // What it read is let go of, and only that: on iPhone, M-Pesa's
+      // queued messages from the first scan's start up to this one's.
+      final release = source.releases.last;
+      expect(release.senders, {'MPESA'});
+      expect(release.since, opened);
+      expect(release.before, now);
 
       source.receive(mpesaSent(receipt: 'TJA0000012', receivedAt: now));
       await until(() async => (await receipts()).length == 3);

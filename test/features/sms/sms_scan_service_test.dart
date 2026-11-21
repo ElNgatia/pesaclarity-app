@@ -75,7 +75,12 @@ void main() {
       expect(progress, [(0, 3), (2, 3), (3, 3)]);
       expect(await marks.scannedUntil('mpesa'), today);
       expect(await marks.scannedUntil('kcb'), isNull);
-      expect(source.releases, [today]);
+      // Only what was read: M-Pesa's messages from the start up to the
+      // scan's start.
+      final release = source.releases.single;
+      expect(release.senders, {'MPESA'});
+      expect(release.since, today.subtract(const Duration(days: 90)));
+      expect(release.before, today);
     },
   );
 
@@ -149,15 +154,6 @@ void main() {
     expect(await marks.scannedUntil('mpesa'), isNull);
     expect(source.releases, isEmpty);
     expect((await service().scan([_institution('mpesa')])).added, 3);
-  });
-
-  test('can leave the source holding what it read', () async {
-    final summary = await service().scan([
-      _institution('mpesa'),
-    ], release: false);
-    expect(summary.added, 3);
-    expect(await marks.scannedUntil('mpesa'), today);
-    expect(source.releases, isEmpty);
   });
 
   test('an empty selection lets go of nothing', () async {

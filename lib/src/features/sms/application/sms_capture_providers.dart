@@ -8,6 +8,7 @@ import '../../../core/lifecycle/app_resumed.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/database_providers.dart';
 import '../../../data/repositories/accounts_repository.dart';
+import '../../../data/repositories/institutions_repository.dart';
 import '../../../data/repositories/message_reads_repository.dart';
 import '../../../data/repositories/reader_templates_repository.dart';
 import '../../../data/repositories/review_inbox_repository.dart';
@@ -20,6 +21,7 @@ import '../../accounts/domain/institution.dart';
 import '../../categoriser/application/auto_categoriser.dart';
 import '../../categoriser/application/categoriser_providers.dart';
 import '../../spaces/application/routing_providers.dart';
+import '../../spaces/application/spaces_providers.dart';
 import '../data/sms_source.dart';
 import '../domain/scan_range.dart';
 import 'message_recheck.dart';
@@ -55,7 +57,12 @@ final smsScanServiceProvider = Provider<SmsScanService>(
 
 /// The institutions switched on in My accounts, in catalogue order.
 final selectedInstitutionsProvider = Provider<List<Institution>>((ref) {
-  final selected = ref.watch(selectedInstitutionIdsProvider).value ?? const {};
+  final ids = ref.watch(selectedInstitutionIdsProvider);
+  // While another space's database opens, the ids still loading are the
+  // last space's: reading them would read that space's accounts into this
+  // one.
+  if (ids.isLoading) return const [];
+  final selected = ids.value ?? const {};
   return [
     for (final institution in ref.watch(institutionCatalogueProvider))
       if (selected.contains(institution.id)) institution,
@@ -69,20 +76,17 @@ final selectedInstitutionsProvider = Provider<List<Institution>>((ref) {
 ///
 /// [scan] reads into its own space's ledger and keeps that space's marks,
 /// so another space is caught up by passing its scan service, institutions
-/// and range.
-///
-/// With [release] false, a source that keeps its own copy of messages (the
-/// iPhone's Shortcuts queue) keeps what was read (see [SmsScanService.scan]).
+/// and range. A source that keeps its own copy (the iPhone's Shortcuts
+/// queue) lets go of only what this read: [selected]'s senders, over the
+/// window read (see [SmsScanService.scan]).
 Future<SmsIngestSummary> catchUpOnInbox(
   SmsScanService scan,
   List<Institution> selected, {
   required ScanRange range,
   required DateTime now,
-  bool release = true,
 }) => scan.scan(
   selected,
   from: range.firstDay(CalendarDate.local(now))?.startInstant,
-  release: release,
 );
 
 /// Keeps the ledger current while the app runs. When the app opens, and
@@ -130,7 +134,32 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
     while (await source.access() != SmsAccess.granted) {
       if (!await next.moveNext()) return;
     }
+    // The space may have changed while access was asked: this capture is
+    // then over.
     if (!ref.mounted) return;
+    // Each account is read in one space: one this space has on while
+    // Personal reads it too is left to Personal. The selection then changes
+    // and the capture starts again with it.
+    final spaceId = ref.read(activeSpaceIdProvider);
+    if (spaceId != personalSpaceId) {
+      final space = (await ref.read(spacesProvider.future))
+          .where((s) => s.id == spaceId)
+          .firstOrNull;
+      if (!ref.mounted) return;
+      if (space != null &&
+          await ref
+              .read(routingRulesProvider.notifier)
+              .readOnce(
+                space,
+                here: ref.read(institutionsRepositoryProvider),
+                personal: DriftInstitutionsRepository(
+                  ref.read(personalDatabaseProvider),
+                ),
+              )) {
+        return;
+      }
+      if (!ref.mounted) return;
+    }
     // Listening starts before the first scan, so a message that lands
     // during it is not missed. One the scan also read is skipped as already
     // stored.
@@ -148,19 +177,15 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
     final range = await ref.watch(scanRangeProvider.future);
     if (!ref.mounted) return;
     // The same catch-up when the app opens and each time it comes back.
-    // On iPhone the queue holds the messages of every space's accounts, and
-    // this reads only the open space's: coming back leaves the queue as it
-    // is, so a message for another space is still there when that space
-    // opens. Only the scan as capture starts lets go of what it read.
-    Future<SmsIngestSummary> catchUp({required bool release}) => catchUpOnInbox(
+    Future<SmsIngestSummary> catchUp() => catchUpOnInbox(
       scan,
       selected,
       range: range,
       now: ref.read(clockProvider)(),
-      release: release,
     );
-    final initial = await catchUp(release: true);
-    // Capture started afresh meanwhile: the rest is that run's to do.
+    final initial = await catchUp();
+    // Another space opened, or capture started afresh, meanwhile: the rest
+    // is that run's to do.
     if (!ref.mounted) return;
     if (initial.added > 0) triggerAutoCategorise();
     // Amounts read before a pack knew an account's currency or number move
@@ -206,7 +231,7 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
           final access = await source.access();
           if (!ref.mounted) return;
           if (access != SmsAccess.granted) continue;
-          summary = await catchUp(release: false);
+          summary = await catchUp();
         } on Object catch (error) {
           // Messages still come in as they land, and the next return reads
           // from the same mark again.
@@ -214,6 +239,7 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
           continue;
         }
       }
+      // Another space opened meanwhile: its own capture takes over.
       if (!ref.mounted) return;
       if (summary.added > 0) {
         triggerAutoCategorise();
