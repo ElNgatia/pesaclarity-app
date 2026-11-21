@@ -9,7 +9,9 @@ import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
 import 'package:pesaclarity/src/data/database/space_databases.dart';
 import 'package:pesaclarity/src/data/repositories/accounts_repository.dart';
+import 'package:pesaclarity/src/data/repositories/app_settings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/balance_records_repository.dart';
+import 'package:pesaclarity/src/data/repositories/balances_repair.dart';
 import 'package:pesaclarity/src/data/repositories/journal_repository.dart';
 import 'package:pesaclarity/src/data/repositories/money_repair.dart';
 import 'package:pesaclarity/src/domain/spaces/kept_data.dart';
@@ -43,6 +45,7 @@ Future<int> _held(AppDatabase db) async =>
     );
 
 void main() {
+  _leakThenSwitch();
   late AppDatabase personal;
   late AppDatabase business;
   late int wallet;
@@ -375,5 +378,120 @@ void main() {
     final again = await c.read(spaceManagerProvider).repairMoneyBetweenSpaces();
     expect(again.result!.switched, {shopId: 1});
     expect(await c.read(keptDataProvider.future), hasLength(2));
+  });
+}
+
+void _leakThenSwitch() {
+  test('on the phone: the copies of messages stored in two spaces go '
+      'first, and what the person kept becomes a switch, once', () async {
+    final (c, _) = await spacesOnFiles(clock: () => DateTime.utc(2026, 11, 21));
+    final shopId = await c
+        .read(spacesProvider.notifier)
+        .add('Vegetable stall', SpaceKind.business);
+    final personal = c.read(personalDatabaseProvider);
+    final (shop, close) = await c.read(spaceDatabasesProvider).open(shopId);
+    try {
+      await personal
+          .into(personal.selectedInstitutions)
+          .insert(
+            SelectedInstitutionsCompanion.insert(
+              institutionId: 'mpesa',
+              selectedAt: DateTime.utc(2026),
+            ),
+          );
+      Future<int> mpesa(AppDatabase db) => db
+          .into(db.accounts)
+          .insert(
+            AccountsCompanion.insert(
+              name: 'M-Pesa',
+              type: AccountType.mpesa,
+              openingDate: DateTime.utc(2026, 11),
+              institutionId: const Value('mpesa'),
+            ),
+          );
+      final line = await mpesa(personal);
+      final copied = await mpesa(shop);
+      final stock = await shop
+          .into(shop.categories)
+          .insert(
+            CategoriesCompanion.insert(
+              name: 'Test sales',
+              type: CategoryType.income,
+            ),
+          );
+      // Both spaces stored the same two messages before each was read in
+      // one space; the shop filed the first as its own.
+      for (final (db, account) in [(personal, line), (shop, copied)]) {
+        for (final (key, day) in [('K1', 18), ('K2', 19)]) {
+          await db
+              .into(db.transactions)
+              .insert(
+                TransactionsCompanion.insert(
+                  accountId: account,
+                  occurredAt: DateTime.utc(2026, 11, day, 7),
+                  amountMinor: _kes(650),
+                  direction: TransactionDirection.inflow,
+                  source: TransactionSource.sms,
+                  dedupeKey: Value(key),
+                  messageHash: Value('hash-$key'),
+                  balanceAfterMinor: Value(_kes(38469 + day)),
+                  categoryOverrideId: Value(
+                    db == shop && key == 'K1' ? stock : null,
+                  ),
+                ),
+              );
+        }
+      }
+    } finally {
+      if (close) await shop.close();
+    }
+
+    final state = await c.read(spaceManagerProvider).repairMoneyBetweenSpaces();
+    // The leak repair took the plain copy out of the shop and Personal's
+    // copy of the one the shop made its own, as a move; this repair then
+    // switched that one: on the owner's account there, a balance record
+    // here.
+    expect(state.result!.switched, {shopId: 1});
+    final [record] = await personal.select(personal.balanceRecords).get();
+    expect(record.dedupeKey, 'K1');
+    expect(record.spaceId, shopId);
+    expect(await personal.select(personal.movedTransactions).get(), isEmpty);
+    expect(
+      [
+        for (final t in await personal.select(personal.transactions).get())
+          t.dedupeKey,
+      ],
+      ['K2'],
+    );
+    final (again, closeAgain) = await c
+        .read(spaceDatabasesProvider)
+        .open(shopId);
+    try {
+      final [switched] = await again.select(again.transactions).get();
+      expect(switched.dedupeKey, 'K1');
+      expect(switched.linkId, isNotNull);
+      expect(switched.messageHash, isNull);
+      // Each repair ran once in each space.
+      for (final db in [personal, again]) {
+        expect(
+          await DriftAppSettingsRepository(db).readJson(spaceLeakRepairKey),
+          {'version': spaceLeakRepairVersion},
+        );
+      }
+      // The message stays held where its account lives, so a space that
+      // reads M-Pesa later never stores it again.
+      expect(await heldIn(personal, {'hash-K1', 'hash-K2'}), {
+        'hash-K1',
+        'hash-K2',
+      });
+      expect(await heldIn(again, {'hash-K1'}), isEmpty);
+    } finally {
+      if (closeAgain) await again.close();
+    }
+    final second = await c
+        .read(spaceManagerProvider)
+        .repairMoneyBetweenSpaces();
+    expect(second.result!.switched, {shopId: 1});
+    expect(await personal.select(personal.balanceRecords).get(), hasLength(1));
   });
 }

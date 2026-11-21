@@ -197,6 +197,10 @@ class DriftTransactionsRepository implements TransactionsRepository {
         // Stored transactions a second message changed.
         final changed = <int>[];
         for (final transaction in transactions) {
+          // The same message read again (a catch-up and the live stream,
+          // Read messages again, a recheck) is the row it already made,
+          // whatever its time or account read as this time.
+          if (await _messageStored(transaction)) continue;
           final key = transaction.dedupeKey.present
               ? transaction.dedupeKey.value
               : null;
@@ -277,6 +281,23 @@ class DriftTransactionsRepository implements TransactionsRepository {
       return null;
     }
     return row;
+  }
+
+  /// Whether [transaction]'s message already made a row: one whose own
+  /// message it is.
+  Future<bool> _messageStored(TransactionsCompanion transaction) async {
+    final hash = transaction.messageHash.present
+        ? transaction.messageHash.value
+        : null;
+    if (hash == null) return false;
+    final t = _db.transactions;
+    final row =
+        await (_db.selectOnly(t)
+              ..addColumns([t.id])
+              ..where(t.messageHash.equals(hash))
+              ..limit(1))
+            .getSingleOrNull();
+    return row != null;
   }
 
   Future<bool> _hasDedupeKey(
@@ -567,11 +588,20 @@ class DriftTransactionsRepository implements TransactionsRepository {
         final payees = {
           for (final p in await _db.select(_db.payees).get()) p.id: p,
         };
-        // Amounts as stored, each in the currency it moved in.
-        Future<List<LedgerEntry>> read() async => [
-          for (final r in await query.get())
-            _toLedgerEntry(r, payees[r.payeeId], categories, const {}, null),
-        ];
+        // Amounts as stored, each in the currency it moved in, and each
+        // transaction's code, which pairs two sides that print it.
+        final receipts = <int, String?>{};
+        Future<List<LedgerEntry>> read() async {
+          final rows = await query.get();
+          receipts
+            ..clear()
+            ..addAll({for (final r in rows) r.id: r.receiptNo});
+          return [
+            for (final r in rows)
+              _toLedgerEntry(r, payees[r.payeeId], categories, const {}, null),
+          ];
+        }
+
         final accounts = await _db.select(_db.accounts).get();
         // Money between spaces is never half of an own transfer.
         final between = {
@@ -589,6 +619,7 @@ class DriftTransactionsRepository implements TransactionsRepository {
           entries,
           declined: declined,
           references: {for (final a in accounts) a.id: a.reference},
+          receipts: receipts,
         );
         // Then between currencies, among what one currency left unpaired, at
         // the rates the app converts with.

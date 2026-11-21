@@ -191,6 +191,21 @@ bool paidIntoAccount(
   return paid != null && own != null && paid.sameAs(own);
 }
 
+/// How far apart two sides printing the same transaction code may be.
+const sameCodeTransferWindow = Duration(days: 1);
+
+/// Whether [a] and [b] are the same transaction code: both printed, at
+/// least six letters and digits, equal ignoring case and spaces.
+bool sameTransactionCode(String? a, String? b) {
+  final x = _code(a);
+  return x != null && x == _code(b);
+}
+
+String? _code(String? receipt) {
+  final c = receipt?.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+  return c == null || c.length < 6 ? null : c;
+}
+
 /// Finds own-account transfers (bank to M-Pesa, M-Pesa to bank, money market
 /// and savings moves) among entries not already paired.
 ///
@@ -211,8 +226,13 @@ bool paidIntoAccount(
 /// that names the bank account it came from never pairs with money out of
 /// an account with another number, and the same the other way.
 ///
-/// When several candidates fit, pairs confirmed by account number come
-/// first, then equal amounts before ones with a fee,
+/// Two sides that print the same transaction code ([receipts], by id, and
+/// [sameTransactionCode]) are one movement whatever either names, such as
+/// a fund's payment out with its "Transaction ref" and M-Pesa's message for
+/// the money arriving: equal amounts, within [sameCodeTransferWindow].
+///
+/// When several candidates fit, pairs by one code come first, then pairs
+/// confirmed by account number, then equal amounts before ones with a fee,
 /// then the closest in time, so each entry is used at most once and the
 /// result does not depend on input order.
 List<TransferPair> findOwnTransfers(
@@ -220,6 +240,7 @@ List<TransferPair> findOwnTransfers(
   Duration window = defaultTransferWindow,
   Set<TransferPair> declined = const {},
   Map<int, String?> references = const {},
+  Map<int, String?> receipts = const {},
 }) {
   final outflows = <String, List<LedgerEntry>>{};
   final inflows = <String, List<LedgerEntry>>{};
@@ -236,6 +257,33 @@ List<TransferPair> findOwnTransfers(
   }
 
   final candidates = <(int, int, Duration, LedgerEntry, LedgerEntry)>[];
+  // One transaction code on both sides: the same movement, such as a fund's
+  // "Transaction ref: QAB1CD2EF3" and M-Pesa's QAB1CD2EF3, whatever either
+  // names or however it was read. It wins over everything else.
+  final byCode = <String, List<LedgerEntry>>{};
+  for (final entry in entries) {
+    if (entry.transferPairId != null || entry.isCorrection) continue;
+    final type = entry.categoryType;
+    if (type != null && type != CategoryType.transfer) continue;
+    final code = _code(receipts[entry.id]);
+    if (code != null) (byCode[code] ??= []).add(entry);
+  }
+  for (final sides in byCode.values) {
+    for (final out in sides.where((e) => e.isOutflow)) {
+      for (final into in sides.where((e) => e.isInflow)) {
+        if (out.accountId == into.accountId ||
+            out.currency != into.currency ||
+            out.amountMinor != into.amountMinor ||
+            declined.contains(TransferPair(out.id, into.id))) {
+          continue;
+        }
+        final gap = out.occurredAt.difference(into.occurredAt).abs();
+        if (gap <= sameCodeTransferWindow) {
+          candidates.add((-1, 0, gap, out, into));
+        }
+      }
+    }
+  }
   for (final MapEntry(key: currency, value: outs) in outflows.entries) {
     final ins = inflows[currency];
     if (ins == null) continue;

@@ -1,7 +1,15 @@
 {
-  "version": "2.4",
-  "updated": "2026-11-19",
+  "version": "2.5",
+  "updated": "2026-11-21",
   "changes": [
+    {
+      "version": "2.5",
+      "date": "2026-11-21",
+      "items": [
+        "If you turn on Firefly III sync, the app sends your transactions from your phone to the Firefly III server you choose, never to ours. It is off until you turn it on.",
+        "Your Firefly III token stays in your phone's secure storage and is never put in a backup. Turning sync off stops sending; what was sent stays on your server."
+      ]
+    },
     {
       "version": "2.4",
       "date": "2026-11-19",

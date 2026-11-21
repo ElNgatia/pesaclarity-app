@@ -19,8 +19,18 @@ import '../application/spaces_providers.dart';
 
 /// The one-time repair of money between spaces (decision 0027, section 8),
 /// run once when Personal opens after the update. Null in other spaces.
+///
+/// It waits for the repairs that run on opening ([pairHistoryOnceProvider]),
+/// so Personal's copies of messages stored in two spaces are taken out
+/// first and never at the same time; the repair itself does the other
+/// spaces before it turns moves into the owner's account.
 final moneyRepairProvider = FutureProvider<MoneyRepairState?>((ref) async {
   if (ref.watch(activeSpaceProvider).kind != SpaceKind.personal) return null;
+  try {
+    await ref.read(pairHistoryOnceProvider.future);
+  } on Object {
+    // The repair runs what it needs of it itself.
+  }
   return ref.read(spaceManagerProvider).repairMoneyBetweenSpaces();
 });
 

@@ -7,6 +7,7 @@ import '../database/app_database.dart';
 import '../database/database_providers.dart';
 import '../database/space_databases.dart';
 import 'category_seeds.dart';
+import 'firefly_triggers.dart';
 import 'message_links.dart';
 import 'message_reads_repository.dart';
 import 'savings_links.dart';
@@ -302,15 +303,57 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
     });
   }
 
+  /// What this space sent to Firefly III for [transactionId], if anything.
+  Future<FireflySentRow?> _sentToFirefly(int transactionId) => (_source.select(
+    _source.fireflySent,
+  )..where((s) => s.transactionId.equals(transactionId))).getSingleOrNull();
+
+  /// Carries [sent] over to [movedId] in [target], to be retagged in
+  /// Firefly III, when [target]'s space is sent too (decision 0029), and
+  /// says whether it did; otherwise it is deleted there from the space it
+  /// leaves. Only a transaction that moves whole keeps its record: one
+  /// switched onto the owner's account, or back, is on another account
+  /// there, so it is deleted from the one space and sent from the other.
+  static Future<bool> _keepInFirefly(
+    AppDatabase target,
+    FireflySentRow? sent,
+    int movedId,
+  ) async {
+    if (sent == null || !await _sendsToFirefly(target)) return false;
+    await target
+        .into(target.fireflySent)
+        .insertOnConflictUpdate(
+          sent.copyWith(transactionId: movedId).toCompanion(true),
+        );
+    return true;
+  }
+
+  /// Whether [db]'s space is being sent to Firefly III.
+  static Future<bool> _sendsToFirefly(AppDatabase db) async =>
+      (await (db.select(
+            db.appSettings,
+          )..where((s) => s.key.equals(fireflySendingKey))).getSingleOrNull())
+          ?.value ==
+      'true';
+
   /// Removes [tx] from the open space, its messages set aside so reading
-  /// them again does not bring it back.
-  Future<void> _remove(TransactionRecord tx) async {
+  /// them again does not bring it back. When [keptInFirefly], what was sent
+  /// for it went with it, so its going leaves no delete for Firefly III.
+  Future<void> _remove(
+    TransactionRecord tx, {
+    bool keptInFirefly = false,
+  }) async {
     await setAsideMessagesOf(_source, [tx.id]);
     await unlinkLoanRepayment(_source, tx);
     // An own transfer's other half stays here, now on its own.
     await (_source.update(_source.transactions)
           ..where((t) => t.transferPairId.equals(tx.id)))
         .write(const TransactionsCompanion(transferPairId: Value(null)));
+    if (keptInFirefly) {
+      await (_source.delete(
+        _source.fireflySent,
+      )..where((s) => s.transactionId.equals(tx.id))).go();
+    }
     await (_source.delete(
       _source.transactions,
     )..where((t) => t.id.equals(tx.id))).go();
@@ -425,6 +468,8 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
     String spaceId, {
     int? toCategoryId,
   }) async {
+    final sent = await _sentToFirefly(tx.id);
+    var keptInFirefly = false;
     await _with(spaceId, (target) async {
       await target.transaction(() async {
         final match =
@@ -464,7 +509,7 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
                 null) {
           return;
         }
-        await target
+        final movedId = await target
             .into(target.transactions)
             .insert(
               tx
@@ -485,6 +530,7 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
                     autoCategoryConfidence: const Value(null),
                   ),
             );
+        keptInFirefly = await _keepInFirefly(target, sent, movedId);
         final hashes = [?tx.messageHash, ?tx.twinMessageHash];
         if (hashes.isNotEmpty) {
           await (target.delete(
@@ -499,7 +545,7 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
         }
       });
     });
-    await _source.transaction(() => _remove(tx));
+    await _source.transaction(() => _remove(tx, keptInFirefly: keptInFirefly));
   }
 
   /// One typed by hand on an account no messages are read into: it moves
@@ -511,6 +557,8 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
     String spaceId, {
     int? toCategoryId,
   }) async {
+    final sent = await _sentToFirefly(tx.id);
+    var keptInFirefly = false;
     await _with(spaceId, (target) async {
       await target.transaction(() async {
         final existing =
@@ -532,7 +580,7 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
                       openingDate: tx.occurredAt,
                     ),
                   );
-        await target
+        final movedId = await target
             .into(target.transactions)
             .insert(
               tx
@@ -556,9 +604,10 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
                     linkedSpaceId: const Value(null),
                   ),
             );
+        keptInFirefly = await _keepInFirefly(target, sent, movedId);
       });
     });
-    await _source.transaction(() => _remove(tx));
+    await _source.transaction(() => _remove(tx, keptInFirefly: keptInFirefly));
   }
 
   @override

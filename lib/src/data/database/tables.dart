@@ -1227,3 +1227,66 @@ class AskShortcuts extends Table {
   TextColumn get entityKey => text()();
   DateTimeColumn get createdAt => dateTime()();
 }
+
+/// Transactions waiting to be sent to the person's own Firefly III
+/// (decision 0029): one row per transaction, the latest change kept. The
+/// database's triggers write it in the same write as the change, while the
+/// space is being sent (see `createFireflyTriggers`).
+@DataClassName('FireflyOutboxRow')
+class FireflyOutbox extends Table {
+  IntColumn get transactionId => integer()();
+
+  /// `send` (make or change it there) or `delete`.
+  TextColumn get action => text()();
+  DateTimeColumn get queuedAt => dateTime()();
+  IntColumn get attempts => integer().withDefault(const Constant(0))();
+
+  /// Why Firefly III refused it, or why the last try failed.
+  TextColumn get lastError => text().nullable()();
+
+  /// Firefly III refused it: it waits for the next change to it.
+  BoolColumn get refused => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get nextTryAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {transactionId};
+}
+
+/// What was sent to Firefly III for each transaction: its external id, the
+/// Firefly III transaction group of each part, and a hash of what was sent.
+/// In backups, so a restored phone sends nothing twice.
+@DataClassName('FireflySentRow')
+class FireflySent extends Table {
+  IntColumn get transactionId => integer()();
+
+  /// `pesaclarity:<space id>:<transaction id>`; kept when the transaction
+  /// moves to another space.
+  TextColumn get externalId => text()();
+
+  /// The group id of each part, by its suffix, as JSON.
+  TextColumn get groups => text()();
+  TextColumn get hash => text()();
+
+  /// The person deleted it in Firefly III: it is not sent again unless
+  /// they choose Send everything again.
+  BoolColumn get removedThere => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get sentAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {transactionId};
+}
+
+/// The Firefly III account each of the space's accounts, payees and
+/// lenders was sent to, by its key (see `FireflyAccountSpec.key`).
+@DataClassName('FireflyAccountRow')
+class FireflyAccounts extends Table {
+  TextColumn get key => text()();
+  TextColumn get fireflyId => text()();
+  TextColumn get name => text()();
+
+  /// The opening balance and date it was made or last changed with.
+  TextColumn get opening => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
