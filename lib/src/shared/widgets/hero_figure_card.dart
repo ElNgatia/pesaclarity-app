@@ -17,6 +17,7 @@ class HeroFigureCard extends StatelessWidget {
   const HeroFigureCard({
     required this.label,
     this.figure,
+    this.secondFigure,
     this.caption,
     this.footer,
     this.onTap,
@@ -30,6 +31,10 @@ class HeroFigureCard extends StatelessWidget {
   /// The one number; null while there is nothing to count yet, and then
   /// [caption] says what will show and when, in its place.
   final String? figure;
+
+  /// The figure in a second currency, such as `≈ USD 12.40`, on its
+  /// own line under [figure].
+  final String? secondFigure;
 
   /// A line under the figure; line breaks in the text show as " · ".
   final String? caption;
@@ -124,6 +129,14 @@ class HeroFigureCard extends StatelessWidget {
                         if (shown != null) ...[
                           const SizedBox(height: 4),
                           FigureText(shown, style: figureStyle),
+                          if (secondFigure != null)
+                            Text(
+                              maskAmountsIf(hidden, secondFigure!),
+                              key: const Key('hero-second-figure'),
+                              style: textTheme.bodyLarge!.copyWith(
+                                color: onCard,
+                              ),
+                            ),
                         ],
                         if (caption != null) ...[
                           SizedBox(height: figure == null ? 6 : 8),

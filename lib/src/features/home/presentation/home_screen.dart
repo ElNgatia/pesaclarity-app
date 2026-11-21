@@ -37,6 +37,7 @@ import '../../balances/presentation/balance_text.dart';
 import '../../balances/presentation/balance_warning.dart';
 import '../../balances/presentation/on_hand_sheet.dart';
 import '../../business_insights/application/business_report_providers.dart';
+import '../../currency/application/currency_controller.dart';
 import '../../hours/application/hours_providers.dart';
 import '../../hours/presentation/log_hours_sheet.dart';
 import '../../income/application/income_providers.dart';
@@ -113,6 +114,21 @@ class HomeScreen extends ConsumerWidget {
     final health = ref.watch(healthIndexProvider).value;
     final forecast = ref.watch(cashFlowForecastProvider).value;
     final bills = ref.watch(upcomingBillsProvider).value ?? const [];
+    final currency = ref.watch(currencyControllerProvider).value;
+    final now = ref.watch(clockProvider)();
+    // The second currency under the main figure, when there is a rate.
+    String? second(int minor) {
+      final money = currency?.inSecondary(minor, now);
+      if (money == null) return null;
+      final shown = shownMoney(
+        context,
+        money.minorUnits,
+        currency: money.currency,
+        withCurrency: true,
+      );
+      return '≈ $shown';
+    }
+
     _markShown(ref);
     final space = ref.watch(activeSpaceProvider);
     final isBusiness = space.kind == SpaceKind.business;
@@ -174,6 +190,7 @@ class HomeScreen extends ConsumerWidget {
                   if (safeToSpend == null && untilNext != null)
                     _UntilNextMoneyCard(
                       untilNext,
+                      secondFigure: second(untilNext.leftTodayMinor),
                       rainyDayMinor:
                           ref.watch(rainyDayFundProvider).value?.balanceMinor ??
                           0,
@@ -196,6 +213,7 @@ class HomeScreen extends ConsumerWidget {
                   else
                     _SafeToSpendCard(
                       safeToSpend,
+                      secondFigure: second(safeToSpend.leftTodayMinor),
                       nextIncome: forecast?.nextIncome,
                       onTap: () => openActivity(
                         thisMonth.copyWith(type: ActivityType.dayToDay),
@@ -219,6 +237,7 @@ class HomeScreen extends ConsumerWidget {
                           key: const Key('home-on-hand'),
                           label: 'On hand',
                           value: _plain(context, untilNext.onHandMinor),
+                          note: second(untilNext.onHandMinor),
                           belowZero: untilNext.onHandMinor < 0,
                           onTap: () => showOnHandSheet(context),
                         )
@@ -376,9 +395,15 @@ class _Header extends ConsumerWidget {
 }
 
 class _SafeToSpendCard extends StatelessWidget {
-  const _SafeToSpendCard(this.result, {required this.onTap, this.nextIncome});
+  const _SafeToSpendCard(
+    this.result, {
+    required this.onTap,
+    this.nextIncome,
+    this.secondFigure,
+  });
 
   final SafeToSpend result;
+  final String? secondFigure;
   final ScheduledFlow? nextIncome;
   final VoidCallback onTap;
 
@@ -410,6 +435,7 @@ class _SafeToSpendCard extends StatelessWidget {
     return HeroFigureCard(
       label: 'Safe to spend today · ${today.isWeekend ? 'Weekend' : 'Weekday'}',
       figure: _kes(context, result.leftTodayMinor),
+      secondFigure: secondFigure,
       caption: '$detail$payday',
       footer: HeroProgress(
         value: used,
@@ -431,9 +457,11 @@ class _UntilNextMoneyCard extends StatelessWidget {
     this.result, {
     required this.onTap,
     this.rainyDayMinor = 0,
+    this.secondFigure,
   });
 
   final UntilNextMoney result;
+  final String? secondFigure;
 
   /// Set aside in the fund, already out of [UntilNextMoney.onHandMinor].
   final int rainyDayMinor;
@@ -477,6 +505,7 @@ class _UntilNextMoneyCard extends StatelessWidget {
       key: const Key('until-next-money'),
       label: result.pinned ? 'Your plan for today' : 'Safe to spend today',
       figure: _kes(context, result.leftTodayMinor),
+      secondFigure: secondFigure,
       caption: '$when\n$onHand$setAside',
       showEye: true,
       belowZero: result.belowZero,

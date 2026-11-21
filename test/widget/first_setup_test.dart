@@ -147,7 +147,7 @@ Future<void> _welcome(WidgetTester tester) async {
 }
 
 /// Currency: the suggested KES, Continue working at once.
-Future<void> _currency(WidgetTester tester) async {
+Future<void> _currency(WidgetTester tester, {String? second}) async {
   expect(find.text('Which currency do you count in?'), findsOneWidget);
   expect(
     tester.getSemantics(
@@ -155,7 +155,26 @@ Future<void> _currency(WidgetTester tester) async {
     ),
     isSemantics(isChecked: true, hasCheckedState: true),
   );
+  expect(find.text('Second currency (optional)'), findsOneWidget);
   expect(_button(tester, 'Continue with KES').onPressed, isNotNull);
+  if (second != null) {
+    await tester.tap(find.byKey(const Key('second-currency')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, 'Second currency'), findsOneWidget);
+    // The main currency is not offered as the second.
+    expect(find.byKey(const Key('currency-KES')), findsNothing);
+    await tester.enterText(find.byKey(const Key('currency-search')), second);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('currency-$second')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('second-currency')),
+        matching: find.text(second),
+      ),
+      findsOneWidget,
+    );
+  }
   await _tapId(tester, SemanticIds.onboardingCurrencyContinue);
 }
 
@@ -199,7 +218,7 @@ void main() {
     await pumpApp(tester, db: db, sms: sms);
 
     await _welcome(tester);
-    await _currency(tester);
+    await _currency(tester, second: 'USD');
     await _income(tester);
     await _accounts(tester);
 
@@ -221,6 +240,8 @@ void main() {
     expect(find.text('Safe to spend today'), findsOneWidget);
     // On hand adds up what the balances in the messages say.
     expect(find.byKey(const Key('home-on-hand')), findsOneWidget);
+    // No rates yet (nothing fetched, none set): no second figure.
+    expect(find.textContaining('≈ USD'), findsNothing);
 
     final saved = await tester.runAsync(() async {
       final settings = DriftAppSettingsRepository(db);
@@ -232,6 +253,7 @@ void main() {
       );
     });
     expect(saved!.currency, containsPair('base', 'KES'));
+    expect(saved.currency, containsPair('secondary', 'USD'));
     expect(saved.income, isNotNull);
     expect(saved.done, isTrue);
     expect(saved.transactions, hasLength(4));
