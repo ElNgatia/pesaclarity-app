@@ -53,7 +53,6 @@ import '../../spaces/application/business_setup_providers.dart';
 import '../../spaces/application/money_between_spaces_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../../spaces/presentation/business_setup_card.dart';
-import '../../spaces/presentation/money_repair_sheets.dart';
 import '../../spaces/presentation/shared_line_card.dart';
 import '../../spaces/presentation/spaces_sheet.dart';
 import '../../support/presentation/support_card.dart';
@@ -115,12 +114,18 @@ class HomeScreen extends ConsumerWidget {
         : null;
     final health = ref.watch(healthIndexProvider).value;
     final forecast = ref.watch(cashFlowForecastProvider).value;
-    // How much of On hand is another space's (decision 0027).
-    final held = heldLine(
-      ref.watch(moneyBetweenSpacesProvider).value?.heldBySpace ?? const {},
-      ref.watch(spaceNamesProvider),
-      (minor) => shownMoney(context, minor, withCurrency: true),
-    );
+    // How much of On hand is another space's (decision 0027), when On hand
+    // shows.
+    final heldBy = untilNext == null
+        ? null
+        : ref.watch(moneyBetweenSpacesProvider).value?.heldBySpace;
+    final held = heldBy == null || heldBy.isEmpty
+        ? null
+        : heldLine(
+            heldBy,
+            ref.watch(spaceNamesProvider),
+            (minor) => shownMoney(context, minor, withCurrency: true),
+          );
     final bills = ref.watch(upcomingBillsProvider).value ?? const [];
     final currency = ref.watch(currencyControllerProvider).value;
     final now = ref.watch(clockProvider)();
@@ -228,7 +233,6 @@ class HomeScreen extends ConsumerWidget {
                       ),
                     ),
                   const BalanceWarningLine(),
-                  const MoneyRepairPrompt(),
                   const SizedBox(height: 12),
                   const AppNoticeCards(),
                   const ReadAgainHomeCard(),

@@ -20,6 +20,7 @@ import '../features/sales/application/sales_providers.dart';
 import '../features/sms/application/sms_capture_providers.dart';
 import '../features/spaces/application/business_setup_providers.dart';
 import '../features/spaces/application/spaces_providers.dart';
+import '../features/spaces/presentation/money_repair_sheets.dart';
 import '../shared/accessibility.dart';
 import '../shared/semantic_ids.dart';
 import '../theme/pesa_colors.dart';
@@ -170,6 +171,13 @@ class AppShell extends ConsumerWidget {
     ref.listen(saleMatcherProvider, (_, _) {});
     ref.listen(invoiceMatcherProvider, (_, _) {});
     ref.listen(personalPayMatcherProvider, (_, _) {});
+    // Records from before money between spaces, put right once, and what
+    // that changed (decision 0027, section 8).
+    ref.listen(moneyRepairProvider, (_, next) {
+      if (next case AsyncData(:final value)) {
+        showMoneyRepair(context, ref, value);
+      }
+    });
     ref.listen(policyReviewProvider, (_, next) {
       // While reloading, value still holds the previous changes.
       if (next case AsyncData(value: final changes?)) {

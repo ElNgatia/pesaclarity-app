@@ -24,56 +24,44 @@ final moneyRepairProvider = FutureProvider<MoneyRepairState?>((ref) async {
   return ref.read(spaceManagerProvider).repairMoneyBetweenSpaces();
 });
 
-/// On Personal's Home: the first time the app opens after the update, the
-/// sheet that says what the repair changed, then one question for each
-/// business with a shared line. Nothing otherwise.
-class MoneyRepairPrompt extends ConsumerStatefulWidget {
-  const MoneyRepairPrompt({super.key});
-
-  @override
-  ConsumerState<MoneyRepairPrompt> createState() => _MoneyRepairPromptState();
+/// The first time the app opens after the update, over Personal's Home:
+/// the sheet that says what the repair changed, then one question for each
+/// business with a shared line. Nothing otherwise. Shown once.
+Future<void> showMoneyRepair(
+  BuildContext context,
+  WidgetRef ref,
+  MoneyRepairState? state,
+) async {
+  if (_shown ||
+      state == null ||
+      !state.ran ||
+      state.shown ||
+      state.result == null) {
+    return;
+  }
+  _shown = true;
+  final result = state.result!;
+  final store = MoneyRepairStore(ref.read(personalDatabaseProvider));
+  if (result.changedAnything) {
+    await showAppSheet<void>(
+      context: context,
+      builder: (_) => AmountsHiddenScope(child: RepairResultSheet(result)),
+    );
+  }
+  var left = result;
+  for (final q in result.questions) {
+    if (!context.mounted) return;
+    final answered = await showAppSheet<bool>(
+      context: context,
+      builder: (_) => AmountsHiddenScope(child: RepairQuestionSheet(q)),
+    );
+    if (answered ?? false) left = left.withoutQuestion(q);
+  }
+  await store.save(MoneyRepairState(ran: true, shown: true, result: left));
 }
 
-class _MoneyRepairPromptState extends ConsumerState<MoneyRepairPrompt> {
-  var _showing = false;
-
-  Future<void> _show(MoneyRepairState state) async {
-    _showing = true;
-    final result = state.result!;
-    final store = MoneyRepairStore(ref.read(personalDatabaseProvider));
-    if (result.changedAnything) {
-      await showAppSheet<void>(
-        context: context,
-        builder: (_) => AmountsHiddenScope(child: RepairResultSheet(result)),
-      );
-    }
-    var left = result;
-    for (final q in result.questions) {
-      if (!mounted) return;
-      final answered = await showAppSheet<bool>(
-        context: context,
-        builder: (_) => AmountsHiddenScope(child: RepairQuestionSheet(q)),
-      );
-      if (answered ?? false) left = left.withoutQuestion(q);
-    }
-    await store.save(MoneyRepairState(ran: true, shown: true, result: left));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final state = ref.watch(moneyRepairProvider).value;
-    if (!_showing &&
-        state != null &&
-        state.ran &&
-        !state.shown &&
-        state.result != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_showing) _show(state);
-      });
-    }
-    return const SizedBox.shrink();
-  }
-}
+/// Whether this run of the app has shown the repair already.
+var _shown = false;
 
 /// "Your records are put right": what the repair changed, what it removed
 /// and what it could not settle.
