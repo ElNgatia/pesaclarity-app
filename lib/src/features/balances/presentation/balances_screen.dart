@@ -20,6 +20,7 @@ import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../income/application/income_providers.dart';
+import '../../savings/presentation/savings_account_screen.dart';
 import '../application/balances_providers.dart';
 import 'add_account_sheet.dart';
 import 'balance_text.dart';
@@ -222,7 +223,10 @@ class _AccountRow extends ConsumerWidget {
     ].join(' · ');
     return InkWell(
       key: Key('balance-account-${account.id}'),
-      onTap: () => showAccountBalanceSheet(context, balance),
+      // A savings app, such as Chumz, has a page of its own.
+      onTap: () => account.product == null
+          ? showAccountBalanceSheet(context, balance)
+          : showSavingsAccount(context, account.id),
       child: Padding(
         padding: const EdgeInsets.all(Layout.cardPadding),
         child: Row(

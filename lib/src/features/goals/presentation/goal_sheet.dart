@@ -5,10 +5,15 @@ import '../../../core/money/money.dart';
 import '../../../core/money/money_format.dart';
 import '../../../data/repositories/goals_repository.dart';
 import '../../../domain/goals/savings_goal.dart';
+import '../../../domain/savings/savings_account.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../shared/adaptive/adaptive.dart';
 import '../../../shared/widgets/app_sheet.dart';
 import '../../../shared/widgets/form_fields.dart';
+import '../../../shared/widgets/selector_field.dart';
+import '../../currency/application/currency_controller.dart';
+import '../../savings/application/savings_providers.dart';
+import '../../savings/presentation/savings_text.dart';
 import '../application/goals_overview_provider.dart';
 
 /// Opens the sheet to add a goal, or to edit or delete [goal].
@@ -22,7 +27,7 @@ Future<void> showGoalSheet(
 );
 
 /// Name, target, what is saved so far and an optional date for a goal.
-class GoalSheet extends StatefulWidget {
+class GoalSheet extends ConsumerStatefulWidget {
   const GoalSheet({required this.today, this.goal, super.key});
 
   final CalendarDate today;
@@ -31,10 +36,10 @@ class GoalSheet extends StatefulWidget {
   final SavingsGoal? goal;
 
   @override
-  State<GoalSheet> createState() => _GoalSheetState();
+  ConsumerState<GoalSheet> createState() => _GoalSheetState();
 }
 
-class _GoalSheetState extends State<GoalSheet> {
+class _GoalSheetState extends ConsumerState<GoalSheet> {
   final _form = GlobalKey<FormState>();
   late final _name = TextEditingController(text: widget.goal?.name);
   late final _target = TextEditingController(
@@ -44,6 +49,10 @@ class _GoalSheetState extends State<GoalSheet> {
     text: _amountText(widget.goal?.savedMinor),
   );
   late CalendarDate? _date = widget.goal?.targetDate;
+
+  /// The savings app's goal the money is kept in, such as a Chumz goal;
+  /// null when the person types what is saved.
+  late int? _pocketId = widget.goal?.backing?.pocketId;
   var _busy = false;
 
   @override
@@ -63,14 +72,16 @@ class _GoalSheetState extends State<GoalSheet> {
     final target = AmountField.amountFrom(_target.text)!;
     final saved = AmountField.amountFrom(_saved.text) ?? 0;
     final existing = widget.goal;
+    final int goalId;
     if (existing == null) {
-      await repository.add(
+      goalId = await repository.add(
         name: name,
         targetMinor: target,
         savedMinor: saved,
         targetDate: _date,
       );
     } else {
+      goalId = existing.id;
       await repository.update(
         SavingsGoal(
           id: existing.id,
@@ -82,6 +93,9 @@ class _GoalSheetState extends State<GoalSheet> {
           status: existing.status,
         ),
       );
+    }
+    if (_pocketId != existing?.backing?.pocketId) {
+      await repository.setPocket(goalId, _pocketId);
     }
     refreshGoals(container);
     if (mounted) Navigator.of(context).pop();
@@ -99,6 +113,45 @@ class _GoalSheetState extends State<GoalSheet> {
     await container.read(goalsRepositoryProvider).remove(goal.id);
     refreshGoals(container);
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// "Saved in": nowhere, or one goal of a savings app the app keeps, in
+  /// the goal's currency. Null when there is none to choose.
+  Widget? _savedIn() {
+    final currency = widget.goal?.currency ?? ref.watch(baseCurrencyProvider);
+    // The option sheet answers null when dismissed, so "nowhere" is -1.
+    const nowhere = -1;
+    final options = <(int, String)>[
+      (nowhere, SavingsText.typedByYou),
+      for (final account
+          in ref.watch(savingsAccountsProvider).value ??
+              const <SavingsAccountSummary>[])
+        if (account.currency == currency)
+          for (final pocket in account.pockets)
+            (pocket.id, '${account.name} · ${pocket.name}'),
+    ];
+    if (options.length == 1) return null;
+    final selected = _pocketId ?? nowhere;
+    final chosen = options.where((o) => o.$1 == selected).firstOrNull;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: SelectorField(
+        key: const Key('goal-saved-in'),
+        label: SavingsText.savedInLabel,
+        value: chosen?.$2 ?? SavingsText.typedByYou,
+        detail: selected == nowhere ? SavingsText.typedByYouDetail : null,
+        onTap: () async {
+          final picked = await showOptionSheet<int>(
+            context,
+            title: SavingsText.savedInLabel,
+            options: options,
+            selected: selected,
+          );
+          if (picked == null || !mounted) return;
+          setState(() => _pocketId = picked == nowhere ? null : picked);
+        },
+      ),
+    );
   }
 
   @override
@@ -123,12 +176,16 @@ class _GoalSheetState extends State<GoalSheet> {
           const SizedBox(height: 8),
           AmountField(controller: _target, label: 'Target'),
           const SizedBox(height: 16),
-          AmountField(
-            controller: _saved,
-            label: 'Saved so far',
-            allowZero: true,
-          ),
-          const SizedBox(height: 16),
+          // What a savings app's goal holds is what is saved.
+          if (_pocketId == null) ...[
+            AmountField(
+              controller: _saved,
+              label: 'Saved so far',
+              allowZero: true,
+            ),
+            const SizedBox(height: 16),
+          ],
+          ?_savedIn(),
           DateField(
             label: 'Target date (optional)',
             value: _date,

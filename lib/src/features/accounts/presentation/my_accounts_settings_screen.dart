@@ -13,11 +13,13 @@ import '../../../shared/widgets/states.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../activity/application/activity_providers.dart';
 import '../../currency/application/currency_controller.dart';
+import '../../savings/presentation/savings_accounts_card.dart';
 import '../domain/institution.dart';
 import 'account_currency_screen.dart';
 
-/// Profile › My accounts: each account and the currency it counts in, and
-/// the way to add or remove accounts.
+/// Profile › My accounts: each account and the currency it counts in, the
+/// savings apps the app keeps, such as Chumz, and the way to add or remove
+/// accounts.
 class MyAccountsSettingsScreen extends ConsumerWidget {
   const MyAccountsSettingsScreen({super.key});
 
@@ -28,8 +30,11 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
     final base =
         ref.watch(currencyControllerProvider).value?.base ?? BaseCurrency.code;
     final loaded = ref.watch(activityAccountsProvider);
-    final accounts = [...?loaded.value?.values]
-      ..sort((a, b) => a.id.compareTo(b.id));
+    // Savings apps, such as Chumz, have a card of their own.
+    final accounts = [
+      for (final a in [...?loaded.value?.values])
+        if (a.product == null) a,
+    ]..sort((a, b) => a.id.compareTo(b.id));
     final institutions = {
       for (final i in ref.watch(institutionCatalogueProvider)) i.id: i,
     };
@@ -74,6 +79,7 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
                     ),
                   ),
                 ],
+                const SavingsAccountsCard(),
                 const SizedBox(height: 12),
                 const Notice(
                   'Accounts at the same bank are told apart by the account number '

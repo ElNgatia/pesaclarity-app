@@ -26,6 +26,10 @@ abstract final class BalanceText {
   static String said(String amount, String when) => 'Said $amount · $when';
   static String counted(String when) => 'Counted $when';
   static String fulizaOwed(String amount) => '$amount Fuliza owed';
+  static String savingsNote(String name) =>
+      'Money moved between your own accounts. To count payments to $name '
+      'as before, remove it on its page.';
+  static String openSavings(String name) => 'Open $name';
   static const inTheWallet = 'In the wallet';
   static const fulizaOwedLabel = 'Fuliza owed';
   static const worth = 'Worth';
