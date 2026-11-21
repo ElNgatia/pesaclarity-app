@@ -53,6 +53,7 @@ import '../../spaces/application/business_setup_providers.dart';
 import '../../spaces/application/money_between_spaces_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../../spaces/presentation/business_setup_card.dart';
+import '../../spaces/presentation/money_repair_sheets.dart';
 import '../../spaces/presentation/shared_line_card.dart';
 import '../../spaces/presentation/spaces_sheet.dart';
 import '../../support/presentation/support_card.dart';
@@ -227,6 +228,7 @@ class HomeScreen extends ConsumerWidget {
                       ),
                     ),
                   const BalanceWarningLine(),
+                  const MoneyRepairPrompt(),
                   const SizedBox(height: 12),
                   const AppNoticeCards(),
                   const ReadAgainHomeCard(),

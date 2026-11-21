@@ -766,13 +766,18 @@ class RecentlyDeletedScreen extends ConsumerWidget {
                 for (final k in list)
                   ListTile(
                     key: Key('kept-${k.token}'),
-                    title: Text(
-                      k.kind == KeptKind.space
-                          ? k.space.name
-                          : '${k.space.name}: cleared records',
-                    ),
+                    title: Text(switch (k.kind) {
+                      KeptKind.space => k.space.name,
+                      KeptKind.cleared => '${k.space.name}: cleared records',
+                      KeptKind.beforeRepair =>
+                        '${k.space.name}: before the update',
+                    }),
                     subtitle: Text(
-                      '${k.kind == KeptKind.space ? 'Space' : 'Cleared data'}'
+                      '${switch (k.kind) {
+                        KeptKind.space => 'Space',
+                        KeptKind.cleared => 'Cleared data',
+                        KeptKind.beforeRepair => 'Locked copy',
+                      }}'
                       ' · goes on ${dayHeading(CalendarDate.local(k.until), today: today)}',
                     ),
                     trailing: PillButton(
