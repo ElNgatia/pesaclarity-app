@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,6 +12,8 @@ import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/ledger/activity_lines.dart';
 import '../../../domain/ledger/cross_currency_transfers.dart';
 import '../../../domain/ledger/ledger_entry.dart';
+import '../../../domain/ledger/own_transfers.dart';
+import '../../../domain/savings/savings_account.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../shared/format/date_labels.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
@@ -19,6 +23,8 @@ import '../../../shared/widgets/marks.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../activity/application/activity_providers.dart';
 import '../../currency/application/currency_controller.dart';
+import '../../savings/application/savings_providers.dart';
+import '../../savings/presentation/savings_account_screen.dart';
 import '../../security/application/balance_visibility.dart';
 import '../application/balances_providers.dart';
 import 'balance_text.dart';
@@ -111,6 +117,7 @@ class _OwnTransferSheet extends ConsumerWidget {
     final accounts = ref.watch(activityAccountsProvider).value ?? const {};
     final today = CalendarDate.local(ref.watch(clockProvider)());
     final shown = line.shown;
+    final savings = ref.watch(savingsEntryProvider(shown.id)).value;
     String when(DateTime at) =>
         '${dayHeading(CalendarDate.local(at), today: today)} ${formatTime(at)}';
     final out = line.outflow;
@@ -145,33 +152,70 @@ class _OwnTransferSheet extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          BalanceText.unmatchNote,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: 16),
-        OutlinedButton(
-          key: const Key('own-transfer-unmatch'),
-          onPressed: () async {
-            final navigator = Navigator.of(context);
-            final messenger = ScaffoldMessenger.of(context);
-            final transactions = ref.read(transactionsRepositoryProvider);
-            if (shown.transferPairId != null) {
-              await transactions.unmatch(shown.id);
-            } else {
-              await transactions.setTransferAccount(shown.id, null);
-            }
-            navigator.pop();
-            messenger.showSnackBar(
-              const SnackBar(content: Text(BalanceText.unmatched)),
-            );
-          },
-          child: const Text(BalanceText.unmatch),
-        ),
+        // Money into or out of a savings app, such as Chumz, is not
+        // unmatched one payment at a time: its page can remove the app.
+        if (savings != null)
+          ..._savingsPart(context, savings, accounts)
+        else ...[
+          const SizedBox(height: 8),
+          Text(
+            BalanceText.unmatchNote,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          _unmatchButton(context, ref, shown),
+        ],
       ],
     );
   }
+
+  List<Widget> _savingsPart(
+    BuildContext context,
+    SavingsEntryLink savings,
+    Map<int, Account> accounts,
+  ) {
+    final name = accounts[savings.accountId]?.name ?? 'Savings';
+    return [
+      const SizedBox(height: 8),
+      Text(
+        BalanceText.savingsNote(name),
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      const SizedBox(height: 16),
+      OutlinedButton(
+        key: const Key('own-transfer-savings'),
+        onPressed: () {
+          final navigator = Navigator.of(context);
+          navigator.pop();
+          unawaited(showSavingsAccount(navigator.context, savings.accountId));
+        },
+        child: Text(BalanceText.openSavings(name)),
+      ),
+    ];
+  }
+
+  Widget _unmatchButton(
+    BuildContext context,
+    WidgetRef ref,
+    LedgerEntry shown,
+  ) => OutlinedButton(
+    key: const Key('own-transfer-unmatch'),
+    onPressed: () async {
+      final navigator = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
+      final transactions = ref.read(transactionsRepositoryProvider);
+      if (shown.transferPairId != null) {
+        await transactions.unmatch(shown.id);
+      } else {
+        await transactions.setTransferAccount(shown.id, null);
+      }
+      navigator.pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text(BalanceText.unmatched)),
+      );
+    },
+    child: const Text(BalanceText.unmatch),
+  );
 }
 
 /// The rate the person got, the day's rate when the money arrived and what
@@ -238,6 +282,24 @@ class OwnMoneySection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final colors = PesaColors.of(context);
+    // Entries on a savings app, such as Chumz interest, belong to its page.
+    final savings = ref.watch(savingsEntryProvider(record.id)).value;
+    if (savings != null) {
+      final accounts = ref.watch(activityAccountsProvider).value ?? const {};
+      final name = accounts[savings.accountId]?.name ?? 'Savings';
+      return Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: OutlinedButton(
+          key: const Key('transaction-savings'),
+          onPressed: () {
+            final navigator = Navigator.of(context);
+            navigator.pop();
+            unawaited(showSavingsAccount(navigator.context, savings.accountId));
+          },
+          child: Text(BalanceText.openSavings(name)),
+        ),
+      );
+    }
     if (record.kind == TransactionKind.correction) {
       return Padding(
         padding: const EdgeInsets.only(top: 12),

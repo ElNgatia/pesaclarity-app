@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/semantic_ids.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../savings/presentation/savings_accounts_card.dart';
 import '../../sms/presentation/read_again_card.dart';
 import '../../sms/presentation/scan_range_tile.dart';
 import '../application/my_accounts_providers.dart';
@@ -36,6 +37,9 @@ class ChooseAccountsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           const InstitutionList(control: InstitutionControl.toggle),
+          // A savings app, such as Chumz, can be added here, also after
+          // "It's not mine".
+          const SavingsAddCard(),
           const SizedBox(height: 12),
           const ScanRangeTile(),
           const SizedBox(height: 12),
