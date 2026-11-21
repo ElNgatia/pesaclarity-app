@@ -2,6 +2,22 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from commit titles (pull request titles until pull requests into `dev` were rebase-merged).
 
+## [0.5.4](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.3...v0.5.4) (2026-11-21)
+
+
+### Features
+
+* **firefly:** Firefly III screen, Profile row and sending on start ([a4b2965](https://github.com/pesaclarity/pesaclarity-app/commit/a4b2965a4f4f9ac3586fdcae3bf4fa24a2dde5d3))
+* **firefly:** send a space's transactions to the person's own Firefly III ([acb68d7](https://github.com/pesaclarity/pesaclarity-app/commit/acb68d757b0f6bfcb407fcdd1d1c8bb58f72e4fd))
+* **theme:** show the chosen filter pill and count chip as red text, with no fill ([abc2048](https://github.com/pesaclarity/pesaclarity-app/commit/abc204883082ab490af26e88909a048126047eda))
+
+
+### Fixes
+
+* **firefly:** read nothing more while sending is off ([27dece1](https://github.com/pesaclarity/pesaclarity-app/commit/27dece19bc0fd007b5a79d071f6bd1960bce1f49))
+* **privacy:** policy 2.5, sending to your own Firefly III ([d923509](https://github.com/pesaclarity/pesaclarity-app/commit/d9235096a99196b786e677f6e130c11b18e20fc1))
+* **spaces:** store each message in one space, and take out copies on update ([69f76d0](https://github.com/pesaclarity/pesaclarity-app/commit/69f76d05564a1e66be8af23b14e5925a9ad5f41d))
+
 ## [0.5.3](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.2...v0.5.3) (2026-11-21)
 
 
