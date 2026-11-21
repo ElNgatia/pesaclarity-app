@@ -326,6 +326,48 @@ void main() {
       },
     );
 
+    test('after a switch, every account there ends at its balance here, '
+        'in both spaces', () async {
+      Future<void> sendBoth() async {
+        await sender().sendSpace(month.personal, month.personalDb);
+        await sender().sendSpace(month.business, month.businessDb);
+      }
+
+      Future<void> expectNoDifference() async {
+        for (final (space, db) in [
+          (month.personal, month.personalDb),
+          (month.business, month.businessDb),
+        ]) {
+          expect(
+            [
+              for (final d in await sender().checkBalances(space, db))
+                '${d.name}: ${d.thereMinor} there, ${d.expectedMinor} here',
+            ],
+            isEmpty,
+            reason: space.name,
+          );
+        }
+      }
+
+      await sendBoth();
+      await expectNoDifference();
+      // The sale on the shared line is switched to the business (decision
+      // 0027): Personal keeps it on M-Pesa, held for the business, and the
+      // business has it on the owner's account.
+      await month.changes();
+      await sendBoth();
+      await expectNoDifference();
+      final accounts = {
+        for (final a in server.accounts.values) a['name']: a['type'],
+      };
+      expect(
+        accounts.entries
+            .where((e) => '${e.key}'.startsWith('Held for'))
+            .map((e) => e.value),
+        ['liabilities'],
+      );
+    });
+
     test('a move outright keeps the record and retags', () async {
       final p = month.personalDb;
       final bus = await month.tx(
