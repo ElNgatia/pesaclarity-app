@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/accounts/mpesa_lines.dart';
 import '../../domain/spaces/space.dart';
 import '../../domain/spaces/space_categories.dart';
 import '../database/app_database.dart';
@@ -95,6 +96,25 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
     }
   }
 
+  /// Moves each of [transactionIds] to [spaceId], as [move] does, opening
+  /// that space's database once.
+  Future<void> moveMany(Iterable<int> transactionIds, String spaceId) async {
+    final (target, close) = await _openTarget(spaceId);
+    try {
+      final once = DriftSpaceMoveRepository(
+        _source,
+        (_) async => (target, false),
+        sourceSpaceId: sourceSpaceId,
+        nameOf: _nameOf,
+      );
+      for (final id in transactionIds) {
+        await once.move(id, spaceId);
+      }
+    } finally {
+      if (close) await target.close();
+    }
+  }
+
   Future<T> _with<T>(
     String spaceId,
     Future<T> Function(AppDatabase db) work,
@@ -160,18 +180,20 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
       // Already "This was for me": Personal has the purchase.
       return;
     }
+    if (account.institutionId != null &&
+        !await _reads(_source, account) &&
+        await _with(spaceId, (db) => _reads(db, account))) {
+      // To the space that reads its account: a copy moved here before
+      // money between spaces going back, or an M-Pesa line's payments
+      // following the line to the space it was given to. It takes its
+      // balance with it, and is never "This was for me".
+      await _moveHome(tx, account, spaceId, toCategoryId: toCategoryId);
+      return;
+    }
     if (spaceId == personalSpaceId &&
         sourceSpaceId != personalSpaceId &&
         tx.direction == TransactionDirection.outflow) {
       await forMe(transactionId, personalCategoryId: toCategoryId);
-      return;
-    }
-    if (account.institutionId != null &&
-        !await _reads(_source, account) &&
-        await _with(spaceId, (db) => _reads(db, account))) {
-      // A copy moved here before money between spaces, going back to the
-      // space that reads its account: it takes its balance home.
-      await _moveHome(tx, account, spaceId, toCategoryId: toCategoryId);
       return;
     }
     if (account.institutionId == null &&
@@ -449,9 +471,13 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
   }
 
   /// Whether [db]'s space reads [account]: has its institution switched on
-  /// (each account is read in one space only).
+  /// (each account is read in one space only), or, for an M-Pesa line's
+  /// account, that line.
   static Future<bool> _reads(AppDatabase db, Account account) async {
-    final institution = account.institutionId;
+    final line = lineOfReference(account.reference);
+    final institution = line == null
+        ? account.institutionId
+        : lineSelectionId(line);
     if (institution == null) return false;
     return await (db.select(db.selectedInstitutions)
               ..where((s) => s.institutionId.equals(institution)))

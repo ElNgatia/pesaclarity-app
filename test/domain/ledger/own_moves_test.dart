@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pesaclarity/src/domain/accounts/mpesa_lines.dart';
 import 'package:pesaclarity/src/domain/enums.dart';
 import 'package:pesaclarity/src/domain/ledger/ledger_entry.dart';
 import 'package:pesaclarity/src/domain/ledger/own_accounts.dart';
@@ -413,6 +414,45 @@ void main() {
         cpValue: '0730000000',
       );
       expect(own.namedBy(self), isNull);
+    });
+
+    test('an M-Pesa line\'s key is never an own number (rule 3)', () {
+      // A line's account is keyed `line:<id>` (decision 0026), whatever
+      // its id reads like; only a number kept on an account is the
+      // person's.
+      const line = 9;
+      final lines = OwnAccounts([
+        const OwnAccount(id: mpesa, institutionId: 'mpesa'),
+        OwnAccount(
+          id: line,
+          reference: lineReference('0722000009'),
+          institutionId: 'mpesa',
+        ),
+        OwnAccount(
+          id: kcb,
+          reference: lineReference('1234567890'),
+          institutionId: 'kcb',
+        ),
+      ]);
+      final toPhone = out(
+        1,
+        mpesa,
+        100,
+        kind: TransactionKind.sent,
+        cpKind: PayeeIdentifierKind.phone,
+        cpValue: '0722000009',
+      );
+      final toAccount = out(
+        2,
+        mpesa,
+        100,
+        kind: TransactionKind.paybill,
+        cpKind: PayeeIdentifierKind.account,
+        cpValue: '1234567890',
+      );
+      expect(lines.namedBy(toPhone), isNull);
+      expect(lines.namedBy(toAccount), isNull);
+      expect(lines.phoneOf(line), isNull);
     });
   });
 }

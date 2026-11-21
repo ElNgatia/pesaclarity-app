@@ -123,8 +123,12 @@ class SmsChannel(
             "UPPER(TRIM(${Telephony.Sms.ADDRESS})) IN (${watched.joinToString(",") { "?" }})" +
                 " AND ${Telephony.Sms.DATE} >= ?"
         val args = (watched + sinceMillis.toString()).toTypedArray()
+        // The SIM each message arrived on tells two M-Pesa lines apart. The
+        // column exists from Android 5.1; older phones read without it.
+        val withSim = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1
         val projection =
-            arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.DATE_SENT)
+            arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.DATE_SENT) +
+                if (withSim) arrayOf(Telephony.Sms.SUBSCRIPTION_ID) else emptyArray<String>()
         val messages = mutableListOf<Map<String, Any>>()
         activity.contentResolver
             .query(Telephony.Sms.Inbox.CONTENT_URI, projection, selection, args, "${Telephony.Sms.DATE} ASC")
@@ -133,6 +137,7 @@ class SmsChannel(
                 val body = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
                 val date = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
                 val dateSent = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE_SENT)
+                val sim = if (withSim) cursor.getColumnIndex(Telephony.Sms.SUBSCRIPTION_ID) else -1
                 while (cursor.moveToNext()) {
                     val sent = cursor.getLong(dateSent)
                     messages +=
@@ -140,6 +145,7 @@ class SmsChannel(
                             cursor.getString(address) ?: continue,
                             cursor.getString(body) ?: continue,
                             if (sent > 0) sent else cursor.getLong(date),
+                            if (sim >= 0 && !cursor.isNull(sim)) cursor.getInt(sim) else NO_SIM,
                         )
                 }
             }
@@ -154,6 +160,8 @@ class SmsChannel(
                 override fun onReceive(context: Context, intent: Intent) {
                     if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
                     val parts = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+                    // The SIM it arrived on; phones name the extra one of two ways.
+                    val sim = intent.getIntExtra(SUBSCRIPTION_INDEX, intent.getIntExtra(SUBSCRIPTION, NO_SIM))
                     // A long message arrives in parts; join them as the inbox does.
                     parts
                         .filterNotNull()
@@ -161,7 +169,7 @@ class SmsChannel(
                         .filterKeys { normalise(it) in watched }
                         .forEach { (address, group) ->
                             val body = group.joinToString("") { it.messageBody.orEmpty() }
-                            sink.success(message(address, body, group.first().timestampMillis))
+                            sink.success(message(address, body, group.first().timestampMillis, sim))
                         }
                 }
             }
@@ -188,14 +196,20 @@ class SmsChannel(
         receiver = null
     }
 
-    private fun message(sender: String, body: String, receivedAtMillis: Long) =
-        mapOf("sender" to sender, "body" to body, "receivedAtMillis" to receivedAtMillis)
+    private fun message(sender: String, body: String, receivedAtMillis: Long, subscriptionId: Int) =
+        mapOf<String, Any>("sender" to sender, "body" to body, "receivedAtMillis" to receivedAtMillis) +
+            if (subscriptionId >= 0) mapOf("subscriptionId" to subscriptionId) else emptyMap()
 
     private companion object {
         const val REQUEST_CODE = 4701
         const val GRANTED = "granted"
         const val DENIED = "denied"
         const val BLOCKED = "blocked"
+        const val NO_SIM = -1
+
+        // SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, and the older name.
+        const val SUBSCRIPTION_INDEX = "android.telephony.extra.SUBSCRIPTION_INDEX"
+        const val SUBSCRIPTION = "subscription"
         val PERMISSIONS = arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS)
 
         // Matches ujumbe's SenderFilter: case-insensitive, ignoring surrounding spaces.

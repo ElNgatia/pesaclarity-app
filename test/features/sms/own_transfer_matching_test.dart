@@ -296,4 +296,82 @@ void main() {
     expect(senders, isNotEmpty);
     expect(walletNotices.keys.toSet(), containsAll(senders));
   });
+
+  test('a switched payment and its balance record are never a move '
+      '(decision 0027)', () async {
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    Future<int> account(
+      String name,
+      AccountType type, {
+      String? institution,
+      String? space,
+    }) => db
+        .into(db.accounts)
+        .insert(
+          AccountsCompanion.insert(
+            name: name,
+            type: type,
+            openingDate: DateTime.utc(2026),
+            institutionId: Value(institution),
+            linkedSpaceId: Value(space),
+          ),
+        );
+    final bank = await account('KCB', AccountType.bank, institution: 'kcb');
+    final owners = await account(
+      'Your M-Pesa',
+      AccountType.ownersAccount,
+      space: 'personal',
+    );
+    final at = DateTime.utc(2026, 11, 20, 14, 6);
+    Future<int> tx(
+      int accountId,
+      TransactionDirection direction, {
+      int minutes = 0,
+      String? from,
+    }) => db
+        .into(db.transactions)
+        .insert(
+          TransactionsCompanion.insert(
+            accountId: accountId,
+            occurredAt: at.add(Duration(minutes: minutes)),
+            amountMinor: 400000,
+            direction: direction,
+            source: TransactionSource.sms,
+            counterpartyName: Value(from),
+          ),
+        );
+    // Money out of KCB, and a payment switched in on the owner's account a
+    // few minutes later for the same amount: amount and time alone would
+    // guess a move between the two.
+    final paid = await tx(bank, TransactionDirection.outflow);
+    final switched = await tx(
+      owners,
+      TransactionDirection.inflow,
+      minutes: 3,
+      from: 'KCB 1',
+    );
+    // And the balance record a switch leaves where its account lives.
+    await db
+        .into(db.balanceRecords)
+        .insert(
+          BalanceRecordsCompanion.insert(
+            accountId: bank,
+            occurredAt: at.add(const Duration(minutes: 3)),
+            amountMinor: 400000,
+            direction: TransactionDirection.inflow,
+            linkId: 'switch:personal:$bank:K1',
+            spaceId: 'stall',
+          ),
+        );
+    expect(await DriftTransactionsRepository(db).pairOwnTransfers(), 0);
+    await repairBalancesOnce(db);
+    for (final id in [paid, switched]) {
+      final row = await (db.select(
+        db.transactions,
+      )..where((t) => t.id.equals(id))).getSingle();
+      expect(row.transferPairId, isNull);
+    }
+    expect(await ownMoveQuestions(db), isEmpty);
+  });
 }

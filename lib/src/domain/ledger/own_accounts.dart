@@ -1,4 +1,5 @@
 import '../accounts/account_reference.dart';
+import '../accounts/mpesa_lines.dart';
 import '../enums.dart';
 import '../payees/payee_identifier.dart';
 import 'ledger_entry.dart';
@@ -79,8 +80,13 @@ class OwnAccounts {
     return named != null && own != null && !named.sameAs(own);
   }
 
+  /// [raw] as a phone number. The key of an M-Pesa line (`line:<id>`,
+  /// decision 0026) is no number of the person's, whatever its id reads
+  /// like, so it is never one.
   static String? _phone(String? raw) =>
-      raw == null ? null : PayeeIdentifier.phone(raw)?.value;
+      raw == null || lineOfReference(raw) != null
+      ? null
+      : PayeeIdentifier.phone(raw)?.value;
 
   static String? _paybillAccount(String value) {
     final i = value.indexOf('#');
