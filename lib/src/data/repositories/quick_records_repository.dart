@@ -66,6 +66,17 @@ abstract interface class QuickRecordsRepository {
     required int cashAccountId,
   });
 
+  /// The owner's own money put into the business by [method] (decision
+  /// 0027, Put money in), filed under [categoryId] once its message comes,
+  /// or at once in cash.
+  Future<int> putIn({
+    required DateTime at,
+    required int amountMinor,
+    required SalePaymentMethod method,
+    required int categoryId,
+    required int cashAccountId,
+  });
+
   /// Change of [amountMinor] given back to a customer who paid too much,
   /// filed under [salesCategoryId] as money back on a sale.
   Future<int> change({
@@ -296,6 +307,30 @@ class DriftQuickRecordsRepository implements QuickRecordsRepository {
   });
 
   @override
+  Future<int> putIn({
+    required DateTime at,
+    required int amountMinor,
+    required SalePaymentMethod method,
+    required int categoryId,
+    required int cashAccountId,
+  }) => _db.transaction(() async {
+    final id = await _insert(
+      QuickRecordsCompanion.insert(
+        kind: QuickRecordKind.putIn,
+        at: at,
+        amountMinor: amountMinor,
+        currency: Value(BaseCurrency.code),
+        method: method,
+        categoryId: Value(categoryId),
+      ),
+    );
+    if (method == SalePaymentMethod.cash) {
+      await _payInCash(id, at: at, cashAccountId: cashAccountId);
+    }
+    return id;
+  });
+
+  @override
   Future<int> change({
     required DateTime at,
     required int amountMinor,
@@ -341,7 +376,9 @@ class DriftQuickRecordsRepository implements QuickRecordsRepository {
             accountId: cashAccountId,
             occurredAt: at,
             amountMinor: r.amountMinor,
-            direction: r.kind == QuickRecordKind.gotPaid
+            direction:
+                r.kind == QuickRecordKind.gotPaid ||
+                    r.kind == QuickRecordKind.putIn
                 ? TransactionDirection.inflow
                 : TransactionDirection.outflow,
             currency: Value(r.currency),
@@ -407,6 +444,7 @@ class DriftQuickRecordsRepository implements QuickRecordsRepository {
           QuickRecordKind.paid => WaitingKind.paid,
           QuickRecordKind.paidYourself => WaitingKind.paidYourself,
           QuickRecordKind.change => WaitingKind.change,
+          QuickRecordKind.putIn => WaitingKind.putIn,
         },
         method: r.method,
         amountMinor: r.amountMinor,

@@ -41,6 +41,11 @@ String cashBookTitle(LedgerEntry entry, {String? categoryName}) {
 
 /// How a row names the account it moved through: its name, or for a
 /// purchase with another space's money, "Paid from Vegetable stall"
-/// (decision 0027, section 6).
-String accountTag(String name, AccountType type) =>
-    type == AccountType.paidBySpace ? 'Paid from $name' : name;
+/// (decision 0027, section 6). A row on Held for another space names the
+/// account the money is on ([heldOn], "M-Pesa"), as the owner sees it.
+String accountTag(String name, AccountType type, {String? heldOn}) =>
+    switch (type) {
+      AccountType.paidBySpace => 'Paid from $name',
+      AccountType.heldForSpace => heldOn ?? name,
+      _ => name,
+    };

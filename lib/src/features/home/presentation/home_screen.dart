@@ -54,6 +54,7 @@ import '../../spaces/application/business_setup_providers.dart';
 import '../../spaces/application/money_between_spaces_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../../spaces/presentation/business_setup_card.dart';
+import '../../spaces/presentation/restore_check_card.dart';
 import '../../spaces/presentation/shared_line_card.dart';
 import '../../spaces/presentation/spaces_sheet.dart';
 import '../../support/presentation/support_card.dart';
@@ -175,6 +176,7 @@ class HomeScreen extends ConsumerWidget {
                   if (sellsProducts) ...[
                     const _SalesTodayCard(),
                     const SizedBox(height: 12),
+                    const RestoreCheckCard(),
                     const _QuickButtons(services: false),
                     const SizedBox(height: 12),
                     const WaitingPaymentsCard(),
@@ -187,6 +189,7 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   const AppNoticeCards(),
+                  if (!sellsProducts) const RestoreCheckCard(),
                   if (isBusiness && !sellsProducts) ...[
                     const _QuickButtons(services: true),
                     const SizedBox(height: 12),
@@ -236,6 +239,7 @@ class HomeScreen extends ConsumerWidget {
                   const BalanceWarningLine(),
                   const SizedBox(height: 12),
                   const AppNoticeCards(),
+                  const RestoreCheckCard(),
                   const ReadAgainHomeCard(),
                   SupportHomeCard(
                     moneyTight: _moneyTight(safeToSpend, untilNext, forecast),

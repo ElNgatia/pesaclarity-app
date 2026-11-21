@@ -76,6 +76,12 @@ enum BookAccountKind {
   /// Money the owner took out of a business ("Paid yourself").
   ownerPay(BookAccountClass.equity),
 
+  /// The owner's own money put into a business, never owed back (decision
+  /// 0027, Put money in): "Put in by you" in the business, and in Personal
+  /// money put into one of the owner's businesses. Neither income nor
+  /// spending on either side.
+  ownerCapital(BookAccountClass.equity),
+
   /// What the accounts held when the books start.
   openingBalances(BookAccountClass.equity),
 
@@ -228,6 +234,7 @@ class BookAccount {
   static const costOfSales = BookAccount.fixed(BookAccountKind.costOfSales);
   static const stockLosses = BookAccount.fixed(BookAccountKind.stockLosses);
   static const ownerPay = BookAccount.fixed(BookAccountKind.ownerPay);
+  static const ownerCapital = BookAccount.fixed(BookAccountKind.ownerCapital);
   static const openingBalances = BookAccount.fixed(
     BookAccountKind.openingBalances,
   );

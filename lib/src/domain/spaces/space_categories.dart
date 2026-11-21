@@ -105,6 +105,23 @@ const ownerPaySeed = CategorySeed(
   CategoryType.transfer,
 );
 
+/// The owner's own money put into a business (decision 0027, Put money
+/// in): capital, never owed back, never a sale or income. The row reads
+/// "Put money in"; the books call the figure "Put in by you".
+const ownerCapitalSeed = CategorySeed(
+  'owner_capital',
+  'Put money in',
+  CategoryType.transfer,
+);
+
+/// Personal's side of Put money in: money moved into the owner's business,
+/// never spending, so it counts in neither Out nor the Plan.
+const putIntoBusinessSeed = CategorySeed(
+  'put_into_business',
+  'Put into my business',
+  CategoryType.transfer,
+);
+
 /// Categories added for each kind.
 const _added = <SpaceKind, List<CategorySeed>>{
   SpaceKind.business: [

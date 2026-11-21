@@ -570,3 +570,122 @@ Future<void> settleHeldFor(
     }
   });
 }
+
+/// What [business] has on each owner's account in Personal through the
+/// payments dated from [from] up to [to] (all of them, without a range),
+/// by owner's account id: money in less money out and fees, as its
+/// journal moves the account. Zeros left out. Clearing those payments
+/// takes this much off the business's money on the owner's accounts
+/// (decision 0027, owner's decision 9).
+Future<Map<int, int>> ownersPartIn(
+  AppDatabase business, {
+  DateTime? from,
+  DateTime? to,
+}) async {
+  final owners = [
+    for (final a
+        in await (business.select(business.accounts)..where(
+              (a) =>
+                  a.type.equalsValue(AccountType.ownersAccount) &
+                  a.linkedSpaceId.equals(personalSpaceId),
+            ))
+            .get())
+      a.id,
+  ];
+  if (owners.isEmpty) return const {};
+  final rows =
+      await (business.select(business.transactions)..where(
+            (t) =>
+                t.accountId.isIn(owners) &
+                (from == null
+                    ? const Constant(true)
+                    : t.occurredAt.isBiggerOrEqualValue(from)) &
+                (to == null
+                    ? const Constant(true)
+                    : t.occurredAt.isSmallerThanValue(to)),
+          ))
+          .get();
+  final out = <int, int>{};
+  for (final t in rows) {
+    final signed = t.direction == TransactionDirection.inflow
+        ? t.amountMinor
+        : -t.amountMinor;
+    final fee = t.kind == TransactionKind.fulizaDraw ? 0 : t.feeMinor;
+    out[t.accountId] = (out[t.accountId] ?? 0) + signed - fee;
+  }
+  return out..removeWhere((_, v) => v == 0);
+}
+
+/// "It is mine now" on Clear data for a date range (owner's decision 9):
+/// what the cleared payments held for the business on each of the owner's
+/// accounts ([parts], by the business's owner's account id, from
+/// [ownersPartIn]) is filed in Personal as pay from the business, or what
+/// they owed the owner let go, as [settleHeldFor] does for all of it.
+Future<void> settleHeldPart({
+  required AppDatabase personal,
+  required AppDatabase business,
+  required String spaceId,
+  required String spaceName,
+  required Map<int, int> parts,
+  required int payCategoryId,
+  required DateTime at,
+}) async {
+  for (final MapEntry(key: ownersId, value: minor) in parts.entries) {
+    final owners = await (business.select(
+      business.accounts,
+    )..where((a) => a.id.equals(ownersId))).getSingleOrNull();
+    final lineId = owners?.linkedAccountId;
+    if (lineId == null) continue;
+    final line = await (personal.select(
+      personal.accounts,
+    )..where((a) => a.id.equals(lineId))).getSingleOrNull();
+    if (line == null) continue;
+    await personal.transaction(() async {
+      final held = await ensureHeldForAccount(
+        personal,
+        spaceId: spaceId,
+        account: line,
+        spaceName: spaceName,
+      );
+      await personal
+          .into(personal.transactions)
+          .insert(
+            TransactionsCompanion.insert(
+              accountId: held,
+              occurredAt: at,
+              amountMinor: minor.abs(),
+              direction: minor > 0
+                  ? TransactionDirection.inflow
+                  : TransactionDirection.outflow,
+              kind: Value(minor > 0 ? null : TransactionKind.correction),
+              currency: Value(line.currency),
+              source: TransactionSource.manual,
+              counterpartyName: Value(spaceName),
+              categoryOverrideId: Value(minor > 0 ? payCategoryId : null),
+              linkId: Value('settle:$spaceId:${at.microsecondsSinceEpoch}'),
+              linkedSpaceId: Value(spaceId),
+            ),
+          );
+    });
+  }
+}
+
+/// "Keep it apart" on Clear data (owner's decision 9): the business keeps
+/// what the cleared payments [parts] held on each owner's account as that
+/// account's opening amount ("On your M-Pesa 650"), so it still agrees
+/// with what Personal holds for it.
+Future<void> keepOwnersPart(AppDatabase business, Map<int, int> parts) async {
+  for (final MapEntry(key: id, value: minor) in parts.entries) {
+    final account = await (business.select(
+      business.accounts,
+    )..where((a) => a.id.equals(id))).getSingleOrNull();
+    if (account == null) continue;
+    await (business.update(
+      business.accounts,
+    )..where((a) => a.id.equals(id))).write(
+      AccountsCompanion(
+        openingBalanceMinor: Value(account.openingBalanceMinor + minor),
+      ),
+    );
+  }
+}

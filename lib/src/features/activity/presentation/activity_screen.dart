@@ -551,7 +551,11 @@ class _ActivityRow extends StatelessWidget {
   final void Function(LedgerEntry, CategorySuggestion) onAccept;
 
   String _account(int id) => switch (accounts[id]) {
-    final a? => accountTag(a.name, a.type),
+    final a? => accountTag(
+      a.name,
+      a.type,
+      heldOn: accounts[a.linkedAccountId]?.name,
+    ),
     null => 'Account',
   };
 

@@ -167,6 +167,8 @@ String _detail(WaitingPayment w) => [
     WaitingKind.paidYourself => 'Pay yourself',
     WaitingKind.payFromBusiness => 'From your business',
     WaitingKind.change => 'Change',
+    WaitingKind.putIn => 'Put money in',
+    WaitingKind.putIntoBusiness => 'Into your business',
   },
   formatTime(w.at),
 ].join(' · ');
@@ -185,5 +187,7 @@ String waitingTitle(WaitingPayment w) {
     WaitingKind.payFromBusiness => 'From your business by $how',
     WaitingKind.change =>
       who == null ? 'Change by $how' : 'Change to $who by $how',
+    WaitingKind.putIn => 'Put money in by $how',
+    WaitingKind.putIntoBusiness => 'Into your business by $how',
   };
 }
