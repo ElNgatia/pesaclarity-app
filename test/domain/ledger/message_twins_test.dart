@@ -70,10 +70,40 @@ void main() {
       );
     });
 
+    // A person sending from their KCB account to M-Pesa: M-Pesa's message
+    // names the person, not the bank. It is still the one wallet credit
+    // KCB's notice is about; counted twice, it doubled the wallet.
+    test('also when M-Pesa names the person who sent it', () {
+      for (final name in ['MARY WAMBUI DOE 0700***009', 'MARY DOE', null]) {
+        expect(
+          twinMatch(_wallet(name: name), _bank()),
+          TwinMatch.walletCredit,
+          reason: '$name',
+        );
+        expect(walletCreditSide(_wallet(name: name), _bank()), isTrue);
+        expect(walletCreditSide(_bank(), _wallet(name: name)), isFalse);
+      }
+    });
+
     test('not when M-Pesa names someone else', () {
       expect(twinMatch(_wallet(name: 'JOHN KAMAU'), _bank()), isNull);
       expect(twinMatch(_wallet(name: 'KCBX TRADERS'), _bank()), isNull);
-      expect(twinMatch(_wallet(name: null), _bank()), isNull);
+    });
+
+    test('M-Pesa read before readers were recorded counts by its receipt', () {
+      final old = TwinFacts(
+        at: _at,
+        amountMinor: 250000,
+        direction: TransactionDirection.inflow,
+        currency: 'KES',
+        kind: TransactionKind.received,
+        receipt: 'TJB0000031',
+        messageHash: 'm1',
+        counterpartyName: 'MARY WAMBUI DOE',
+      );
+      expect(twinMatch(old, _bank()), TwinMatch.walletCredit);
+      expect(isMpesaReceipt('TJB0000031'), isTrue);
+      expect(isMpesaReceipt('KCB0000000000031'), isFalse);
     });
 
     test('not outside the twin window', () {

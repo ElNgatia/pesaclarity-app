@@ -12,6 +12,67 @@ const mmf = 13;
 
 void main() {
   group('findOwnTransfers', () {
+    // A fund's notice ("Your payment of KES 300.00 to 0700000000 - JANE DOE
+    // from account 000000M ... Transaction ref: QAB1CD2EF3") and M-Pesa's
+    // "QAB1CD2EF3 Confirmed.You have received Ksh300.00 from EXAMPLE
+    // CAPITAL LTD": one movement out of the fund into M-Pesa, not income.
+    // Made-up code, names and numbers.
+    group('one transaction code on both sides', () {
+      final fundOut = entry(
+        id: 30,
+        accountId: mmf,
+        kind: TransactionKind.withdrawal,
+        at: eat(2026, 11, 3, 8),
+        amount: kes(300),
+      );
+      final mpesaIn = inflow(
+        id: 31,
+        accountId: mpesa,
+        at: eat(2026, 11, 3, 10),
+        amount: kes(300),
+      );
+      const codes = {30: 'QAB1CD2EF3', 31: 'qab1cd2ef3'};
+
+      test('pairs, whatever either side names or how it was read, beyond '
+          'the usual window', () {
+        expect(findOwnTransfers([fundOut, mpesaIn]), isEmpty);
+        expect(findOwnTransfers([fundOut, mpesaIn], receipts: codes), [
+          const TransferPair(30, 31),
+        ]);
+      });
+
+      test('wins over a nearer money out of the same amount', () {
+        final nearer = entry(
+          id: 32,
+          accountId: bank,
+          kind: TransactionKind.bank,
+          at: eat(2026, 11, 3, 10, 1),
+          amount: kes(300),
+        );
+        expect(findOwnTransfers([fundOut, nearer, mpesaIn], receipts: codes), [
+          const TransferPair(30, 31),
+        ]);
+      });
+
+      test('not for other amounts, or a pair the person unmatched', () {
+        final other = inflow(
+          id: 31,
+          accountId: mpesa,
+          at: eat(2026, 11, 3, 10),
+          amount: kes(350),
+        );
+        expect(findOwnTransfers([fundOut, other], receipts: codes), isEmpty);
+        expect(
+          findOwnTransfers(
+            [fundOut, mpesaIn],
+            receipts: codes,
+            declined: {const TransferPair(30, 31)},
+          ),
+          isEmpty,
+        );
+      });
+    });
+
     test('pairs bank to own M-Pesa', () {
       final out = entry(
         id: 10,
