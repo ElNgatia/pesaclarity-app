@@ -54,7 +54,7 @@ class SavingsAccountScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(account?.name ?? SavingsText.savingsApps),
         actions: const [
-          Center(child: Tag(SavingsText.saved)),
+          Center(child: _SavedLabel()),
           SizedBox(width: Layout.gutter),
         ],
       ),
@@ -71,6 +71,19 @@ class SavingsAccountScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// "Saved", in the app bar: plain muted text, saying what kind of account
+/// this is.
+class _SavedLabel extends StatelessWidget {
+  const _SavedLabel();
+
+  @override
+  Widget build(BuildContext context) => Text(
+    SavingsText.saved,
+    style: Theme.of(context).textTheme.bodyMedium!
+        .copyWith(color: PesaColors.of(context).textMuted),
+  );
 }
 
 class _Gone extends StatelessWidget {
@@ -309,7 +322,6 @@ class _TotalsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = PesaColors.of(context);
     final currency = account.currency;
     String plain(int minor) =>
         shownMoney(context, minor, currency: currency, withCurrency: false);
@@ -320,7 +332,6 @@ class _TotalsCard extends StatelessWidget {
         _Fact(
           SavingsText.interestSoFar,
           _signed(context, account.interestMinor, currency),
-          color: account.interestMinor > 0 ? colors.successText : null,
         ),
       // So the lines add up to the balance.
       if (account.wasThereBeforeMinor != 0)
@@ -351,13 +362,12 @@ class _TotalsCard extends StatelessWidget {
 /// [LabelValueRow], the value takes its own line under the label when both
 /// do not fit, so the amount is never split.
 class _Fact extends StatelessWidget {
-  const _Fact(this.label, this.value, {this.color});
+  const _Fact(this.label, this.value);
 
   final String label;
 
   /// Already formatted, and masked while amounts are hidden.
   final String value;
-  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -366,9 +376,7 @@ class _Fact extends StatelessWidget {
     final labelStyle = theme.textTheme.bodyMedium!.copyWith(
       color: colors.textMuted,
     );
-    final valueStyle = AppTypography.rowAmount(
-      color ?? theme.colorScheme.onSurface,
-    );
+    final valueStyle = AppTypography.rowAmount(theme.colorScheme.onSurface);
     final amount = FigureText(value, style: valueStyle);
     final needs =
         _widestWord(context, label, labelStyle) +
@@ -549,7 +557,6 @@ class _RecentRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.amount,
-    this.amountColor,
     this.onTap,
     super.key,
   });
@@ -560,7 +567,6 @@ class _RecentRow extends StatelessWidget {
 
   /// Already formatted, and masked while amounts are hidden.
   final String amount;
-  final Color? amountColor;
   final VoidCallback? onTap;
 
   @override
@@ -597,9 +603,7 @@ class _RecentRow extends StatelessWidget {
               amount,
               Text(
                 amount,
-                style: AppTypography.rowAmount(
-                  amountColor ?? theme.colorScheme.onSurface,
-                ),
+                style: AppTypography.rowAmount(theme.colorScheme.onSurface),
               ),
             ),
           ],
@@ -694,7 +698,6 @@ class _UpdateRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = PesaColors.of(context);
     final currency = account.currency;
     String plain(int minor) => shownMoney(
       context,
@@ -723,9 +726,6 @@ class _UpdateRow extends ConsumerWidget {
         day,
       ].join(' · '),
       amount: change == 0 ? '0' : _signed(context, change, currency),
-      amountColor: update.interestMinor > 0 && change > 0
-          ? colors.successText
-          : null,
       onTap: () => _undo(context, ref, day),
     );
   }

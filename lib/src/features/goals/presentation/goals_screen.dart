@@ -20,7 +20,6 @@ import '../../../shared/widgets/progress_ring.dart';
 import '../../../shared/widgets/sections.dart';
 import '../../../shared/widgets/states.dart';
 import '../../../theme/app_typography.dart';
-import '../../../theme/brand_tokens.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../debts/presentation/debt_row.dart';
@@ -516,40 +515,18 @@ class _LinkCard extends StatelessWidget {
   }
 }
 
-/// "Saved in Chumz", on a goal whose money a savings app keeps.
+/// "Saved in Chumz", on a goal whose money a savings app keeps: plain
+/// muted text after the savings icon, as the lock line under it is.
 class SavedInChip extends StatelessWidget {
   const SavedInChip(this.accountName, {super.key});
 
   final String accountName;
 
   @override
-  Widget build(BuildContext context) {
-    final colors = PesaColors.of(context);
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: colors.markTeal.withValues(alpha: dark ? 0.12 : 0.10),
-        borderRadius: BorderRadius.circular(BrandTokens.pillRadius),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.account_balance_outlined,
-            size: MediaQuery.textScalerOf(context).scale(14),
-            color: colors.markTeal,
-          ),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              SavingsText.savedIn(accountName),
-              style: Theme.of(context).textTheme.labelMedium!
-                  .copyWith(color: colors.markTeal, fontSize: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => IconLine(
+    icon: Icons.account_balance_outlined,
+    text: TextSpan(text: SavingsText.savedIn(accountName)),
+    style: Theme.of(context).textTheme.bodySmall!
+        .copyWith(color: PesaColors.of(context).textMuted, fontSize: 12),
+  );
 }

@@ -181,7 +181,7 @@ class _SavingsAddedLineState extends ConsumerState<SavingsAddedLine> {
           text: SavingsText.added(widget.name, widget.notice.updated),
         ),
         style: theme.textTheme.bodySmall!.copyWith(
-          color: colors.successText,
+          color: colors.textMuted,
           fontWeight: FontWeight.w500,
         ),
       ),
