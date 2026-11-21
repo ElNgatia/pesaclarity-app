@@ -87,7 +87,15 @@ class CashBook {
           ),
     };
 
-    final ids = {for (final a in money) a.id};
+    // Money on the owner's accounts (decision 0027) is the business's
+    // too: its sales and costs show here, its own line beside the columns.
+    final ids = {
+      for (final a in money) a.id,
+      for (final a in accounts)
+        if (a.type == AccountType.ownersAccount &&
+            (currency == null || a.currency == currency))
+          a.id,
+    };
     final accountOf = {for (final e in all) e.id: e.accountId};
     bool withinBook(LedgerEntry e) =>
         e.transferPairId != null && ids.contains(accountOf[e.transferPairId]);

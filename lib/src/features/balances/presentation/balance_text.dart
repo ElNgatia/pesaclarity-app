@@ -233,6 +233,9 @@ abstract final class BalanceText {
   static const startOfToday = 'At the start of today';
   static const lessRainyDay = 'Less rainy day fund';
   static const onHand = 'On hand';
+
+  /// After the line that says how much is another space's (decision 0027).
+  static const safeToSpendLeavesOut = 'Safe to spend leaves it out.';
   static const savingsNotCounted = 'Savings accounts are not counted.';
   static const seeAllBalances = 'See all balances';
   static String fulizaTakenOff(String amount) => 'Includes $amount Fuliza owed';

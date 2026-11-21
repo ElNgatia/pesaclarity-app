@@ -50,6 +50,7 @@ import '../../sales/presentation/records_sheets.dart';
 import '../../sales/presentation/waiting_payments_card.dart';
 import '../../sms/presentation/read_again_home_card.dart';
 import '../../spaces/application/business_setup_providers.dart';
+import '../../spaces/application/money_between_spaces_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../../spaces/presentation/business_setup_card.dart';
 import '../../spaces/presentation/shared_line_card.dart';
@@ -113,6 +114,12 @@ class HomeScreen extends ConsumerWidget {
         : null;
     final health = ref.watch(healthIndexProvider).value;
     final forecast = ref.watch(cashFlowForecastProvider).value;
+    // How much of On hand is another space's (decision 0027).
+    final held = heldLine(
+      ref.watch(moneyBetweenSpacesProvider).value?.heldBySpace ?? const {},
+      ref.watch(spaceNamesProvider),
+      (minor) => shownMoney(context, minor, withCurrency: true),
+    );
     final bills = ref.watch(upcomingBillsProvider).value ?? const [];
     final currency = ref.watch(currencyControllerProvider).value;
     final now = ref.watch(clockProvider)();
@@ -237,7 +244,7 @@ class HomeScreen extends ConsumerWidget {
                           key: const Key('home-on-hand'),
                           label: 'On hand',
                           value: _plain(context, untilNext.onHandMinor),
-                          note: second(untilNext.onHandMinor),
+                          note: held ?? second(untilNext.onHandMinor),
                           belowZero: untilNext.onHandMinor < 0,
                           onTap: () => showOnHandSheet(context),
                         )

@@ -21,6 +21,7 @@ import '../../../theme/pesa_colors.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../income/application/income_providers.dart';
 import '../../savings/presentation/savings_account_screen.dart';
+import '../../spaces/application/money_between_spaces_providers.dart';
 import '../application/balances_providers.dart';
 import 'add_account_sheet.dart';
 import 'balance_text.dart';
@@ -245,6 +246,29 @@ class _AccountRow extends ConsumerWidget {
                       color: colors.textMuted,
                     ),
                   ),
+                  // How much of it is another space's (decision 0027).
+                  if (heldLine(
+                        ref
+                                .watch(moneyBetweenSpacesProvider)
+                                .value
+                                ?.heldOn(account.id) ??
+                            const {},
+                        ref.watch(spaceNamesProvider),
+                        (m) => shownMoney(
+                          context,
+                          m,
+                          currency: balance.opening.currency,
+                          withCurrency: true,
+                        ),
+                      )
+                      case final held?)
+                    Text(
+                      held,
+                      key: Key('balance-held-${account.id}'),
+                      style: theme.textTheme.bodySmall!.copyWith(
+                        color: colors.textMuted,
+                      ),
+                    ),
                 ],
               ),
             ),
