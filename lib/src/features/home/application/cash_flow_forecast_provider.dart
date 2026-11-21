@@ -8,6 +8,7 @@ import '../../../data/repositories/plan_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/forecast/cash_flow_forecast.dart';
 import '../../../domain/time/calendar.dart';
+import '../../spaces/application/money_between_spaces_providers.dart';
 
 /// This month's cash-flow forecast for day-to-day accounts (everything but
 /// SACCO and money market accounts), or null when there are none.
@@ -32,8 +33,11 @@ final cashFlowForecastProvider = FutureProvider<CashFlowForecast?>((ref) async {
   );
 
   return CashFlowForecast.project(
-    balanceMinor: (await readJournal(ref))
-        .totalHeldAt(accounts, at: tomorrow, where: (_) => true),
+    // Worked from the owner's own part (decision 0027, owner's decision 3).
+    balanceMinor:
+        (await readJournal(ref))
+            .totalHeldAt(accounts, at: tomorrow, where: (_) => true) -
+        await notOwnMinorAt(ref, tomorrow),
     today: today,
     plan: await ref.watch(planRepositoryProvider).monthPlan(today.yearMonth),
     entries: entries,

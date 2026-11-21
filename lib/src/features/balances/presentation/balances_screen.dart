@@ -21,6 +21,7 @@ import '../../../theme/pesa_colors.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../income/application/income_providers.dart';
 import '../../savings/presentation/savings_account_screen.dart';
+import '../../spaces/application/money_between_spaces_providers.dart';
 import '../application/balances_providers.dart';
 import 'add_account_sheet.dart';
 import 'balance_text.dart';
@@ -245,12 +246,40 @@ class _AccountRow extends ConsumerWidget {
                       color: colors.textMuted,
                     ),
                   ),
+                  // How much of it is another space's (decision 0027).
+                  if (heldLine(
+                        ref
+                                .watch(moneyBetweenSpacesProvider)
+                                .value
+                                ?.heldOn(account.id) ??
+                            const {},
+                        ref.watch(spaceNamesProvider),
+                        (m) => shownMoney(
+                          context,
+                          m,
+                          currency: balance.opening.currency,
+                          withCurrency: true,
+                        ),
+                      )
+                      case final held?)
+                    Text(
+                      held,
+                      key: Key('balance-held-${account.id}'),
+                      style: theme.textTheme.bodySmall!.copyWith(
+                        color: colors.textMuted,
+                      ),
+                    ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            Flexible(
-              flex: 2,
+            // The amount takes the width it needs, up to more than half the
+            // row, so a five-figure balance stays whole at twice the text
+            // size; the name and its lines wrap beside it.
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.55,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [

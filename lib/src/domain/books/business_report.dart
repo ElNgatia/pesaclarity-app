@@ -144,10 +144,16 @@ class BalanceSummary {
     required this.owedToSuppliersMinor,
     required this.stockMinor,
     required this.paidYourselfMinor,
+    this.withOwnerMinor = 0,
   });
 
   /// Cash, M-Pesa and bank.
   final int moneyMinor;
+
+  /// The business's money on the owner's accounts (decision 0027): above
+  /// zero "With the owner", money the business has; below zero "Owed to
+  /// the owner", what the owner has put in.
+  final int withOwnerMinor;
   final int owedToYouMinor;
   final int owedToSuppliersMinor;
   final int stockMinor;
@@ -158,7 +164,11 @@ class BalanceSummary {
   /// What the business is worth on its books: what it has, less what it
   /// owes.
   int get netMinor =>
-      moneyMinor + owedToYouMinor + stockMinor - owedToSuppliersMinor;
+      moneyMinor +
+      withOwnerMinor +
+      owedToYouMinor +
+      stockMinor -
+      owedToSuppliersMinor;
 }
 
 /// Names for the fixed book accounts as reports print them.
@@ -218,12 +228,15 @@ BalanceSummary balanceSummary(
 }) {
   final to = period.to.startInstant;
   var money = 0;
+  var withOwner = 0;
   for (final MapEntry(:key, :value)
       in books.trialBalance(currency: currency, to: to).entries) {
     if (key.kind == BookAccountKind.money) money += value;
+    if (key.kind == BookAccountKind.ownersAccount) withOwner += value;
   }
   return BalanceSummary(
     moneyMinor: money,
+    withOwnerMinor: withOwner,
     owedToYouMinor: books.balanceOf(
       BookAccount.owedToYou,
       currency: currency,

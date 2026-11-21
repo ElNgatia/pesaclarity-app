@@ -341,5 +341,5 @@ bool _drawFollows(LedgerEntry e, List<LedgerEntry> own) => own.any(
 
 int _chronological(LedgerEntry a, LedgerEntry b) {
   final byTime = a.occurredAt.compareTo(b.occurredAt);
-  return byTime != 0 ? byTime : a.id.compareTo(b.id);
+  return byTime != 0 ? byTime : a.order.compareTo(b.order);
 }

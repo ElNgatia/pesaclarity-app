@@ -38,3 +38,9 @@ String cashBookTitle(LedgerEntry entry, {String? categoryName}) {
   if (parts.isNotEmpty) return parts.join(' · ');
   return entry.counterpartyValue ?? kindLabel(entry.kind);
 }
+
+/// How a row names the account it moved through: its name, or for a
+/// purchase with another space's money, "Paid from Vegetable stall"
+/// (decision 0027, section 6).
+String accountTag(String name, AccountType type) =>
+    type == AccountType.paidBySpace ? 'Paid from $name' : name;

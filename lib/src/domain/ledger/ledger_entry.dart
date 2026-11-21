@@ -37,6 +37,9 @@ class LedgerEntry {
     this.originalAmountMinor,
     this.originalCurrency,
     this.exchangeCostMinor,
+    this.linkedSpaceId,
+    this.heldForAccountId,
+    this.placeId,
   }) : currency = currency ?? BaseCurrency.code,
        assert(amountMinor >= 0, 'amountMinor is always positive'),
        assert(feeMinor >= 0, 'feeMinor is always positive');
@@ -126,6 +129,31 @@ class LedgerEntry {
   /// has no rate for its day or only an approximate one.
   final int? exchangeCostMinor;
 
+  /// The space on the other side of money between spaces (decision 0027):
+  /// for a switched payment, a side of Pay yourself, or a purchase with
+  /// another space's money.
+  final String? linkedSpaceId;
+
+  /// For a balance record (what a payment switched to another space leaves
+  /// where its account lives), the Held for account it posts against. A
+  /// balance record is never a transaction: only the journal and balances
+  /// read it, with [id] the record's id made negative so it never meets a
+  /// transaction's.
+  final int? heldForAccountId;
+
+  /// For a balance record, the id its payment had as a transaction, which
+  /// keeps its place among entries at the same time.
+  final int? placeId;
+
+  /// Where this entry stands among entries at the same time.
+  int get order => placeId ?? id;
+
+  /// Whether this is a balance record (see [heldForAccountId]).
+  bool get isBalanceRecord => heldForAccountId != null;
+
+  /// The balance record's own id, for a balance record.
+  int? get balanceRecordId => isBalanceRecord ? -id : null;
+
   bool get isInflow => direction == TransactionDirection.inflow;
 
   bool get isOutflow => direction == TransactionDirection.outflow;
@@ -175,6 +203,9 @@ class LedgerEntry {
     originalAmountMinor: originalAmountMinor,
     originalCurrency: originalCurrency,
     exchangeCostMinor: exchangeCostMinor ?? this.exchangeCostMinor,
+    linkedSpaceId: linkedSpaceId,
+    heldForAccountId: heldForAccountId,
+    placeId: placeId,
   );
 
   @override

@@ -312,7 +312,12 @@ class MpesaLineRouting {
                   .get())
             t.id,
         ];
-        await DriftSpaceMoveRepository(source, spaces.open).moveMany(ids, to);
+        await DriftSpaceMoveRepository(
+          source,
+          spaces.open,
+          sourceSpaceId: from,
+          nameOf: spaces.nameOf,
+        ).moveMany(ids, to);
       } finally {
         if (closeSource) await source.close();
       }

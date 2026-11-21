@@ -1,3 +1,5 @@
+import '../enums.dart';
+
 /// What kind of thing a book account is, for the sign of its balance and for
 /// reports.
 enum BookAccountClass {
@@ -109,7 +111,26 @@ enum BookAccountKind {
   /// What own transfers across currencies cost against the day's rate: the
   /// money out less what the money in was worth that day. Counted with
   /// fees; negative when more came in than the day's rate gives.
-  exchangeCost(BookAccountClass.expense);
+  exchangeCost(BookAccountClass.expense),
+
+  /// Money on one of this space's accounts that belongs to another space
+  /// (decision 0027): "Held for Vegetable stall". [BookAccount.id] is the
+  /// held-for account's id (an `AccountType.heldForSpace` account). Below
+  /// zero, the other space owes this one.
+  heldForSpace(BookAccountClass.liability),
+
+  /// This space's money on an account that lives in another space: the
+  /// business's owner's account, "On your M-Pesa". [BookAccount.id] is the
+  /// owner's account's id (an `AccountType.ownersAccount` account). Below
+  /// zero, it is what the owner has put in.
+  ownersAccount(BookAccountClass.asset),
+
+  /// Another space's money that paid for something of this space's: "Paid
+  /// by Vegetable stall", Personal's other side of a purchase with the
+  /// business's money. [BookAccount.id] is its `AccountType.paidBySpace`
+  /// account's id. It counts in neither money in nor money out, so it is
+  /// never income.
+  paidBySpace(BookAccountClass.equity);
 
   const BookAccountKind(this.accountClass);
 
@@ -120,7 +141,10 @@ enum BookAccountKind {
       this == money ||
       this == incomeCategory ||
       this == spendingCategory ||
-      this == fulizaOwed;
+      this == fulizaOwed ||
+      this == heldForSpace ||
+      this == ownersAccount ||
+      this == paidBySpace;
 }
 
 /// One account in a space's books.
@@ -146,6 +170,29 @@ class BookAccount {
   /// Fuliza owed on M-Pesa account [accountId].
   const BookAccount.fulizaOwed(int accountId)
     : this._(BookAccountKind.fulizaOwed, accountId);
+
+  /// Held for another space, on held-for account [accountId].
+  const BookAccount.heldForSpace(int accountId)
+    : this._(BookAccountKind.heldForSpace, accountId);
+
+  /// The owner's account [accountId], in a business.
+  const BookAccount.ownersAccount(int accountId)
+    : this._(BookAccountKind.ownersAccount, accountId);
+
+  /// Paid by another space, on account [accountId].
+  const BookAccount.paidBySpace(int accountId)
+    : this._(BookAccountKind.paidBySpace, accountId);
+
+  /// The account that stands for money account [accountId] of [type] in the
+  /// books: the account itself, or for money between spaces the account
+  /// kind that says what it is.
+  factory BookAccount.forAccount(int accountId, AccountType type) =>
+      switch (type) {
+        AccountType.heldForSpace => BookAccount.heldForSpace(accountId),
+        AccountType.ownersAccount => BookAccount.ownersAccount(accountId),
+        AccountType.paidBySpace => BookAccount.paidBySpace(accountId),
+        _ => BookAccount.money(accountId),
+      };
 
   /// Kinds by name, built once: reading the journal parses every posting's
   /// account.

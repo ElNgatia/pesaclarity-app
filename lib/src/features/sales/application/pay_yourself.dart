@@ -10,6 +10,7 @@ import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/category_seeds.dart';
 import '../../../data/repositories/quick_records_repository.dart';
+import '../../../data/repositories/space_move_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/categories/default_categories.dart';
 import '../../../domain/sales/sale_matching.dart';
@@ -174,6 +175,82 @@ class PayYourselfController {
         business: business,
       ),
     ]);
+  }
+
+  /// Pay yourself on a line the business shares with Personal (decision
+  /// 0027, section 6): no money moves, so both sides are written at once,
+  /// with one link. The business's part of the line, on its owner's account
+  /// [ownersAccountId], goes down as Paid yourself; in Personal, Held for
+  /// the business goes down and the pay comes in [as] chosen. Never more
+  /// than the business has on that line (owner's decision 5): returns false,
+  /// writing nothing, when [amountMinor] is more.
+  Future<bool> payYourselfOnLine({
+    required int amountMinor,
+    required int ownersAccountId,
+    required PersonalPayAs as,
+    required int onLineMinor,
+  }) async {
+    if (amountMinor <= 0 || amountMinor > onLineMinor) return false;
+    final now = _ref.read(clockProvider)();
+    final space = _ref.read(activeSpaceProvider);
+    final db = _ref.read(appDatabaseProvider);
+    final personal = _ref.read(personalDatabaseProvider);
+    final owners = await (db.select(
+      db.accounts,
+    )..where((a) => a.id.equals(ownersAccountId))).getSingle();
+    final line = owners.linkedAccountId == null
+        ? null
+        : await (personal.select(personal.accounts)
+                ..where((a) => a.id.equals(owners.linkedAccountId!)))
+              .getSingleOrNull();
+    if (owners.type != AccountType.ownersAccount ||
+        owners.linkedSpaceId != personalSpaceId ||
+        line == null) {
+      return false;
+    }
+    final link = 'pay:${space.id}:${now.microsecondsSinceEpoch}';
+    await personal.transaction(() async {
+      final held = await ensureHeldForAccount(
+        personal,
+        spaceId: space.id,
+        account: line,
+        spaceName: space.name,
+      );
+      await personal
+          .into(personal.transactions)
+          .insert(
+            TransactionsCompanion.insert(
+              accountId: held,
+              occurredAt: now,
+              amountMinor: amountMinor,
+              direction: TransactionDirection.inflow,
+              currency: Value(owners.currency),
+              source: TransactionSource.manual,
+              counterpartyName: Value(space.name),
+              categoryOverrideId: Value(
+                await ensureCategory(personal, as.seed),
+              ),
+              linkId: Value(link),
+              linkedSpaceId: Value(space.id),
+            ),
+          );
+    });
+    await db
+        .into(db.transactions)
+        .insert(
+          TransactionsCompanion.insert(
+            accountId: ownersAccountId,
+            occurredAt: now,
+            amountMinor: amountMinor,
+            direction: TransactionDirection.outflow,
+            currency: Value(owners.currency),
+            source: TransactionSource.manual,
+            categoryOverrideId: Value(await ensureCategory(db, ownerPaySeed)),
+            linkId: Value(link),
+            linkedSpaceId: const Value(personalSpaceId),
+          ),
+        );
+    return true;
   }
 
   /// In Personal: files pay from a business when its message has come in,

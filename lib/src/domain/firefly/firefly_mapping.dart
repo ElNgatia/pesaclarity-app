@@ -467,8 +467,12 @@ List<FireflyPart> fireflyParts(
   final debt = isFulizaKind && fuliza != null ? fuliza : null;
 
   switch (role) {
-    case LedgerRole.correction:
-      // The journal says what it changed; it is sent as that below.
+    case LedgerRole.correction || LedgerRole.betweenSpaces:
+      // The journal says what it changed; it is sent as that below. Money
+      // between spaces (decision 0027) is neither side's income or
+      // spending: a correction of another space's part is sent as what it
+      // moved, like any correction. Balance records are not transactions
+      // and are never read as parts (see `readFireflySpace`).
       break;
     case LedgerRole.spending || LedgerRole.fee || LedgerRole.tax:
       final to = switch (role) {

@@ -2,13 +2,14 @@
 // SIM, split and read again with nothing stored twice, each line read in
 // the space it is given, and on iPhone the questions the balance cannot
 // answer. Made-up names, numbers and amounts only.
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
-import 'package:pesaclarity/src/data/database/space_databases.dart';
 import 'package:pesaclarity/src/data/repositories/app_settings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/institutions_repository.dart';
+import 'package:pesaclarity/src/data/repositories/space_leak_repair.dart';
 import 'package:pesaclarity/src/domain/accounts/mpesa_lines.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/features/accounts/application/mpesa_lines_providers.dart';
@@ -81,19 +82,8 @@ class _ShortcutQueue extends FakeSmsSource implements ShortcutConnection {
   Future<void> openShortcuts() async {}
 }
 
-/// The two spaces' databases, in memory, for moves between them.
-class _InMemorySpaces extends SpaceDatabases {
-  _InMemorySpaces(super.ref, {required this.personal, required this.shop});
-
-  final AppDatabase personal;
-  final AppDatabase shop;
-
-  @override
-  Future<(AppDatabase, bool)> open(String spaceId) async =>
-      (spaceId == personalSpaceId ? personal : shop, false);
-}
-
 void main() {
+  _leakRepairByLine();
   late AppDatabase personal;
   late AppDatabase shop;
 
@@ -112,11 +102,6 @@ void main() {
       sms: sms,
       clock: () => DateTime.utc(2026, 11, 20, 7),
       active: open,
-      overrides: [
-        spaceDatabasesProvider.overrideWith(
-          (ref) => _InMemorySpaces(ref, personal: personal, shop: shop),
-        ),
-      ],
     );
   }
 
@@ -422,6 +407,46 @@ void main() {
     expect(lines.line('2')!.messages, 2);
     // Nothing was stored: counting reads, it does not record.
     expect(await count(personal), 0);
+  });
+}
+
+void _leakRepairByLine() {
+  test('the repair of copies across spaces finds who reads a line by the '
+      'line, so a line a business reads is never taken for a copy', () async {
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    Future<Account> mpesa(String? reference) async {
+      final id = await db
+          .into(db.accounts)
+          .insert(
+            AccountsCompanion.insert(
+              name: 'M-Pesa',
+              type: AccountType.mpesa,
+              openingDate: DateTime.utc(2026),
+              institutionId: const Value(mpesaInstitutionId),
+              reference: Value(reference),
+            ),
+          );
+      return (db.select(
+        db.accounts,
+      )..where((a) => a.id.equals(id))).getSingle();
+    }
+
+    final readers = {
+      mpesaInstitutionId: personalSpaceId,
+      lineSelectionId('sim:3'): _shop.id,
+    };
+    expect(
+      readerOfAccount(readers, await mpesa(lineReference('sim:3'))),
+      _shop.id,
+    );
+    // A line no space has switched on, and the account from before lines
+    // were told apart, are read where M-Pesa is.
+    expect(
+      readerOfAccount(readers, await mpesa(lineReference('sim:4'))),
+      personalSpaceId,
+    );
+    expect(readerOfAccount(readers, await mpesa(null)), personalSpaceId);
   });
 }
 

@@ -20,7 +20,9 @@ import '../../spaces/application/spaces_providers.dart';
 final booksProvider = FutureProvider<Books>((ref) async {
   ref.watch(ledgerChangesProvider);
   final today = CalendarDate.local(ref.watch(clockProvider)());
-  final accounts = await ref.watch(accountsRepositoryProvider).openings();
+  final accounts = await ref
+      .watch(accountsRepositoryProvider)
+      .openings(betweenSpaces: true);
   final to = today.addDays(1).startInstant;
   // Entries before an account's opening still post, and its opening
   // balance absorbs them, so every record is read.
