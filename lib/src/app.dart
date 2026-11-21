@@ -7,6 +7,7 @@ import 'features/auth/presentation/keep_session_fresh.dart';
 import 'features/backup/presentation/backup_when_online.dart';
 import 'features/categoriser/presentation/learn_when_due.dart';
 import 'features/crash_reports/presentation/crash_reports_on_start.dart';
+import 'features/firefly/presentation/firefly_when_online.dart';
 import 'features/look/application/look_providers.dart';
 import 'features/look/presentation/field_style_theme.dart';
 import 'features/security/presentation/lock_screen.dart';
@@ -44,9 +45,11 @@ class PesaClarityApp extends ConsumerWidget {
               child: AppLockGate(
                 child: KeepSessionFresh(
                   child: BackupWhenOnline(
-                    child: LearnWhenDue(
-                      child: AskBeforeUpdateCheck(
-                        child: CrashReportsOnStart(child: child!),
+                    child: FireflyWhenOnline(
+                      child: LearnWhenDue(
+                        child: AskBeforeUpdateCheck(
+                          child: CrashReportsOnStart(child: child!),
+                        ),
                       ),
                     ),
                   ),

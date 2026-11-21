@@ -9,6 +9,7 @@ import '../../domain/enums.dart';
 import '../../domain/people/reminder_text.dart';
 import '../../domain/spaces/space.dart';
 import '../../domain/spaces/space_categories.dart';
+import '../repositories/firefly_triggers.dart';
 import '../repositories/journal_repository.dart';
 import 'tables.dart';
 
@@ -74,19 +75,23 @@ part 'app_database.g.dart';
     SavingsPockets,
     SavingsEntries,
     SavingsReadings,
+    FireflyOutbox,
+    FireflySent,
+    FireflyAccounts,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 42;
+  int get schemaVersion => 43;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
       await createJournalTriggers(this);
+      await createFireflyTriggers(this);
       await seedDefaultCategories();
     },
     onUpgrade: (m, from, to) async {
@@ -351,9 +356,11 @@ class AppDatabase extends _$AppDatabase {
       }
       // Savings accounts the app keeps from the payments into them.
       if (from < 41) await _addSavingsAccounts(m);
+      // Sending to the person's own Firefly III (decision 0029).
+      if (from < 42) await _addFirefly(m);
       // The other side's code a message prints, which pairs two sides of
       // one own transfer (decision 0030).
-      if (from < 42) {
+      if (from < 43) {
         await _addColumnIfMissing(
           m,
           transactions,
@@ -435,6 +442,21 @@ class AppDatabase extends _$AppDatabase {
     await _createIndexIfMissing(m, savingsReadingsPocket);
     await _addColumnIfMissing(m, goals, goals.savedInPocketId);
     await _createIndexIfMissing(m, goalsSavedInPocket);
+  }
+
+  /// The Firefly III outbox, what was sent and its accounts, and the
+  /// triggers that fill the outbox. Safe to run more than once.
+  Future<void> _addFirefly(Migrator m) async {
+    for (final TableInfo<Table, Object?> table in [
+      fireflyOutbox,
+      fireflySent,
+      fireflyAccounts,
+    ]) {
+      if (!await _exists('table', table.actualTableName)) {
+        await m.createTable(table);
+      }
+    }
+    await createFireflyTriggers(this);
   }
 
   /// Tables only Ask uses. They stay on this phone: backups leave them

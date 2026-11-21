@@ -333,6 +333,12 @@ void main() {
     Future<AppDatabase> version4() async {
       final old = await version5();
       await old.customStatement('DROP TABLE selected_institutions');
+      // The Firefly III triggers (version 42) read the settings table.
+      for (final kind in ['insert', 'update', 'delete']) {
+        await old.customStatement(
+          'DROP TRIGGER firefly_outbox_transaction_$kind',
+        );
+      }
       await old.customStatement('DROP TABLE app_settings');
       await old.customStatement('PRAGMA user_version = 4');
       return old;
@@ -857,9 +863,113 @@ void main() {
       expect(await columns(db, 'debts'), contains('next_due_day'));
     });
 
+    /// Takes the current schema in [old] back to version 42, before the
+    /// other side's code.
+    Future<void> toVersion42(AppDatabase old) async {
+      await old.customStatement(
+        'ALTER TABLE transactions DROP COLUMN linked_receipt_no',
+      );
+      await old.customStatement('PRAGMA user_version = 42');
+    }
+
+    test('migrates a version 42 database: the other side\'s code, and is '
+        'safe to run twice', () async {
+      final old = AppDatabase(NativeDatabase(file));
+      await toVersion42(old);
+      await old.close();
+      final db = AppDatabase(NativeDatabase(file));
+      expect(await userVersion(db), db.schemaVersion);
+      expect(db.schemaVersion, 43);
+      expect(await columns(db, 'transactions'), contains('linked_receipt_no'));
+      await db.customStatement('PRAGMA user_version = 42');
+      await db.close();
+      final again = AppDatabase(NativeDatabase(file));
+      addTearDown(again.close);
+      expect(await userVersion(again), again.schemaVersion);
+      expect(
+        await columns(again, 'transactions'),
+        contains('linked_receipt_no'),
+      );
+    });
+
+    /// Takes the current schema in [old] back to version 41, before sending
+    /// to Firefly III.
+    Future<void> toVersion41(AppDatabase old) async {
+      await toVersion42(old);
+      for (final trigger in [
+        'firefly_outbox_transaction_insert',
+        'firefly_outbox_transaction_update',
+        'firefly_outbox_transaction_delete',
+      ]) {
+        await old.customStatement('DROP TRIGGER $trigger');
+      }
+      for (final table in [
+        'firefly_outbox',
+        'firefly_sent',
+        'firefly_accounts',
+      ]) {
+        await old.customStatement('DROP TABLE $table');
+      }
+      await old.customStatement('PRAGMA user_version = 41');
+    }
+
+    test('migrates a version 41 database: the Firefly III outbox', () async {
+      final old = AppDatabase(NativeDatabase(file));
+      final wallet = await old
+          .into(old.accounts)
+          .insert(
+            AccountsCompanion.insert(
+              name: 'M-Pesa',
+              type: AccountType.mpesa,
+              openingDate: DateTime.utc(2026),
+            ),
+          );
+      await old
+          .into(old.transactions)
+          .insert(
+            TransactionsCompanion.insert(
+              accountId: wallet,
+              occurredAt: DateTime.utc(2026, 11, 3),
+              amountMinor: 45000,
+              direction: TransactionDirection.outflow,
+              source: TransactionSource.manual,
+            ),
+          );
+      await toVersion41(old);
+      await old.close();
+
+      var db = AppDatabase(NativeDatabase(file));
+      expect(await userVersion(db), db.schemaVersion);
+      expect(
+        await tableNames(db),
+        containsAll(['firefly_outbox', 'firefly_sent', 'firefly_accounts']),
+      );
+      // What was there stays, and nothing is queued: sending is off.
+      expect(await db.select(db.transactions).get(), hasLength(1));
+      expect(await db.select(db.fireflyOutbox).get(), isEmpty);
+      // Running the step again changes nothing.
+      await db.customStatement('PRAGMA user_version = 41');
+      await db.close();
+      db = AppDatabase(NativeDatabase(file));
+      addTearDown(db.close);
+      expect(await userVersion(db), db.schemaVersion);
+
+      // The triggers fill the outbox once the space is sent.
+      await db
+          .into(db.appSettings)
+          .insert(
+            AppSettingsCompanion.insert(key: 'firefly.sending', value: 'true'),
+          );
+      await db
+          .update(db.transactions)
+          .write(const TransactionsCompanion(amountMinor: Value(46000)));
+      expect((await db.select(db.fireflyOutbox).get()).single.action, 'send');
+    });
+
     /// Takes the current schema in [old] back to version 40, before savings
     /// accounts.
     Future<void> toVersion40(AppDatabase old) async {
+      await toVersion41(old);
       await old.customStatement('DROP INDEX goals_saved_in_pocket');
       await old.customStatement(
         'ALTER TABLE goals DROP COLUMN saved_in_pocket_id',
@@ -901,7 +1011,7 @@ void main() {
       final db = AppDatabase(NativeDatabase(file));
       addTearDown(db.close);
       expect(await userVersion(db), db.schemaVersion);
-      expect(db.schemaVersion, 42);
+      expect(db.schemaVersion, 43);
       expect((await columns(db, 'accounts'))['product'], isFalse);
       expect((await columns(db, 'goals'))['saved_in_pocket_id'], isFalse);
       expect(
@@ -1036,28 +1146,6 @@ void main() {
       expect(await columns(db, 'accounts'), contains('product'));
       expect(await columns(db, 'goals'), contains('saved_in_pocket_id'));
       expect(await db.select(db.savingsPockets).get(), isEmpty);
-    });
-
-    test('migrates a version 41 database: the other side\'s code, and is '
-        'safe to run twice', () async {
-      final old = AppDatabase(NativeDatabase(file));
-      await old.customStatement(
-        'ALTER TABLE transactions DROP COLUMN linked_receipt_no',
-      );
-      await old.customStatement('PRAGMA user_version = 41');
-      await old.close();
-      final db = AppDatabase(NativeDatabase(file));
-      expect(await userVersion(db), db.schemaVersion);
-      expect(await columns(db, 'transactions'), contains('linked_receipt_no'));
-      await db.customStatement('PRAGMA user_version = 41');
-      await db.close();
-      final again = AppDatabase(NativeDatabase(file));
-      addTearDown(again.close);
-      expect(await userVersion(again), again.schemaVersion);
-      expect(
-        await columns(again, 'transactions'),
-        contains('linked_receipt_no'),
-      );
     });
 
     test('migrates a version 17 database: moved transactions', () async {

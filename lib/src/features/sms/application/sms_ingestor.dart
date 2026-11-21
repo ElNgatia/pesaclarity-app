@@ -154,6 +154,7 @@ class SmsIngestor {
     this._templates,
     this._reads,
     this._parse = parseInBackground,
+    this._heldElsewhere,
     List<Institution>? catalogue,
   }) : _catalogue = catalogue ?? institutionCatalogue;
 
@@ -169,6 +170,12 @@ class SmsIngestor {
   /// keep a message from being stored twice.
   final MessageReadsRepository? _reads;
   final SmsParseBatch _parse;
+
+  /// Which of the given message hashes another space already holds. Each
+  /// message lands in one space: one another space holds (it read it while
+  /// it read the account, or the person moved it there) is never stored
+  /// here as well, whichever space reads the account now.
+  final Future<Set<String>> Function(Set<String> hashes)? _heldElsewhere;
 
   /// Every institution the app knows, for messages one institution sends
   /// about money on another's account (see
@@ -217,10 +224,18 @@ class SmsIngestor {
     final setAside = reads == null
         ? const <String>{}
         : await reads.setAside(hashes);
-    // Stored before, set aside, or dealt with in review.
+    final heldElsewhere = _heldElsewhere;
+    final elsewhere = heldElsewhere == null
+        ? const <String>{}
+        : await heldElsewhere({
+            for (final hash in hashes)
+              if (!known.containsKey(hash) && !setAside.contains(hash)) hash,
+          });
+    // Stored before, set aside, dealt with in review, or in another space.
     bool settled(String hash) =>
         known.containsKey(hash) ||
         setAside.contains(hash) ||
+        elsewhere.contains(hash) ||
         (inReview[hash]?.$2 ?? false);
     final leavingReview = <int>[];
     void leaveReview(String hash) {
@@ -259,7 +274,9 @@ class SmsIngestor {
           leaveReview(rawHash);
           (parsedByPack[result.packId] ??= []).add(result);
         case Unmatched(:final message, :final rawHash):
-          if (known.containsKey(rawHash) || setAside.contains(rawHash)) {
+          if (known.containsKey(rawHash) ||
+              setAside.contains(rawHash) ||
+              elsewhere.contains(rawHash)) {
             settledCount++;
             continue;
           }

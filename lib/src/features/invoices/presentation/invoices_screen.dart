@@ -124,6 +124,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                     options: [for (final f in _Filter.values) (f, f.label)],
                     value: _filter,
                     highlight: _filter != _Filter.all,
+                    highlightAs: ChoiceHighlight.text,
                     itemKey: (f) => Key('invoices-${f.name}'),
                     onChanged: (f) => setState(() => _filter = f),
                   ),

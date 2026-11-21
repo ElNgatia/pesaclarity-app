@@ -5,6 +5,7 @@ import 'package:ujumbe/ujumbe.dart' show engineVersion;
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/database/database_providers.dart';
+import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/balances_repair.dart';
@@ -237,14 +238,21 @@ final onHandProvider = FutureProvider<OnHand?>((ref) async {
 /// them across currencies. Safe to run again: only unpaired entries pair.
 ///
 /// First, once per space and again whenever the message readers change,
-/// puts right what earlier versions counted twice and matches own transfers
-/// over the whole history (see [repairBalancesOnce]; decision 0030).
+/// puts right what earlier versions counted twice, within the space and
+/// with the other spaces, and matches own transfers over the whole history
+/// (see [repairBalancesOnce]; decision 0030).
 final pairHistoryOnceProvider = FutureProvider<void>((ref) async {
   const key = 'ledger.ownTransfersPaired';
   const version = 2;
+  final spaces = ref.watch(spaceDatabasesProvider);
   await repairBalancesOnce(
     ref.watch(appDatabaseProvider),
     readers: ref.watch(readersVersionProvider),
+    spaces: (
+      here: ref.watch(activeSpaceIdProvider),
+      ids: [for (final space in await spaces.listed()) space.id],
+      open: spaces.open,
+    ),
   );
   final settings = ref.watch(appSettingsRepositoryProvider);
   final done = (await settings.readJson(key))?['version'];

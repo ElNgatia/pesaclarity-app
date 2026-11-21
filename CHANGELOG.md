@@ -2,6 +2,58 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from commit titles (pull request titles until pull requests into `dev` were rebase-merged).
 
+## [0.5.3](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.2...v0.5.3) (2026-11-21)
+
+
+### Features
+
+* **activity:** show own transfers across currencies as the mockups ([2f15c32](https://github.com/pesaclarity/pesaclarity-app/commit/2f15c3247786d90e5eb261f99ae60a09ebfdadfe))
+* **app-status:** pin the production signing key ([dcf1847](https://github.com/pesaclarity/pesaclarity-app/commit/dcf1847d9c0e5893124b0a1b5a07e07cc5ba82c8))
+* **categoriser:** suggest with the PyTorch categoriser on rayo, fine-tuned in Dart ([a34e8e7](https://github.com/pesaclarity/pesaclarity-app/commit/a34e8e78b4830e9e2b754ac5b0be980e6412e745))
+* **categoriser:** the rules decide where they are certain, the model the rest ([414afa4](https://github.com/pesaclarity/pesaclarity-app/commit/414afa466649b1062b9ac772f438922abb4eb082))
+* **categoriser:** well-known payees win over the model too ([c2b0778](https://github.com/pesaclarity/pesaclarity-app/commit/c2b0778f5b1231f6d6bc95daf88896a4af7695ac))
+* **debts:** show when a loan's next instalment is due ([33366b9](https://github.com/pesaclarity/pesaclarity-app/commit/33366b9531c6f98d19db7e2dc12ee0021f317f6d))
+* **goals:** save a goal in a savings app's goal ([8981805](https://github.com/pesaclarity/pesaclarity-app/commit/8981805cfe52c04dc72139b13a43fcc2cb53d173))
+* **income:** leave savings accounts out of money arriving ([6b1ddbc](https://github.com/pesaclarity/pesaclarity-app/commit/6b1ddbc3e98faf09945ccc757b99fa8a189eced8))
+* **journal:** clear Money in transit when own transfers pair, with fees ([3aaa161](https://github.com/pesaclarity/pesaclarity-app/commit/3aaa1614ca58b2967cb1096fd4dfd5bedb65454c))
+* **ledger:** pair own transfers across currencies and post their exchange ([a3b3905](https://github.com/pesaclarity/pesaclarity-app/commit/a3b3905a7f4a3237aa49e82d994b21cc87532197))
+* **ledger:** rule for own transfers across currencies ([d7a934e](https://github.com/pesaclarity/pesaclarity-app/commit/d7a934ef9664a7d913a0a5dd9afc53ddd413460e))
+* **plan:** count money moved into savings as saved ([c31929b](https://github.com/pesaclarity/pesaclarity-app/commit/c31929b224a478da4e16a5697b43017359b49cc3))
+* read KCB's messages into one transfer, debt repayment or payment each ([1941431](https://github.com/pesaclarity/pesaclarity-app/commit/1941431a0efb7943ee658cf96b9ff60b029c9959))
+* **savings:** keep Chumz as a savings account fed from M-Pesa ([db82c46](https://github.com/pesaclarity/pesaclarity-app/commit/db82c466f55abe9a254188987850f5b5c7f84cf8))
+* **savings:** know Chumz by the paybill its payments print ([4ce1962](https://github.com/pesaclarity/pesaclarity-app/commit/4ce1962423eab526d928c4c290a895bb4a3f3ea5))
+* **savings:** store savings accounts, their goals and typed balances ([0449367](https://github.com/pesaclarity/pesaclarity-app/commit/0449367ff88589b8c7b5f7de3ed2e49faf016320))
+* **savings:** work out a savings goal's interest from typed balances ([49a41dc](https://github.com/pesaclarity/pesaclarity-app/commit/49a41dc5dc8d2aa36c175739185a9b35d038a618))
+* **security:** add a setting to allow screenshots and screen recording ([d759e6b](https://github.com/pesaclarity/pesaclarity-app/commit/d759e6b35c0e49bbbca1d038fc14611b2f6a7ed3))
+* **sms:** drop known notices such as KCB's declined card payments ([dda39bb](https://github.com/pesaclarity/pesaclarity-app/commit/dda39bb5f70f8d56bbb7eb6d3ba96add41e91c4c))
+* **spaces:** keep a savings account whole when records move or clear ([5f2d460](https://github.com/pesaclarity/pesaclarity-app/commit/5f2d460f227366218ff3572c54624d510c0ce48a))
+* **theme:** show the selected side of a switch as red text, with no fill ([3e4f855](https://github.com/pesaclarity/pesaclarity-app/commit/3e4f855bcd53af51f4c0422dc633a4baed08e2fe))
+
+
+### Fixes
+
+* **a11y:** Ask's tap targets and previews; check Ask's screens again ([2a18cff](https://github.com/pesaclarity/pesaclarity-app/commit/2a18cffb76852d81a8d79b390559eef8a5019804))
+* **a11y:** Conversations title and Ask's suggestions whole at large text ([419d05e](https://github.com/pesaclarity/pesaclarity-app/commit/419d05eaf8138d4751b21d1b92ac7e04328040e5))
+* **a11y:** keep words whole at large text ([58fd1bf](https://github.com/pesaclarity/pesaclarity-app/commit/58fd1bfa7572af2eb1729e52312ef17643b9c4eb))
+* **a11y:** move a row's end part under its title when the title only just fits ([74a418d](https://github.com/pesaclarity/pesaclarity-app/commit/74a418d7a47f8fc67da7d6a05d29ee7e2dad10b2))
+* **backup:** restore a backup file only into its own space ([3bf25f3](https://github.com/pesaclarity/pesaclarity-app/commit/3bf25f368eccc169b8cf8796ca7def21db6e8c36))
+* **ledger:** count money from KCB into M-Pesa once when both send a message ([9116248](https://github.com/pesaclarity/pesaclarity-app/commit/9116248b065e49a7f480d835dfb887cc86656bdb))
+* **ledger:** offer own-transfer sides only in the same currency ([5360ac1](https://github.com/pesaclarity/pesaclarity-app/commit/5360ac165bd202c8d941a34ad21b1fb5d5e3e03d))
+* **sms:** let go of only the iPhone messages a scan read ([723a180](https://github.com/pesaclarity/pesaclarity-app/commit/723a180d332fc835d6522319b81d6e0a73078d32))
+* **sms:** read missed messages whenever the app returns to the front ([5b843b4](https://github.com/pesaclarity/pesaclarity-app/commit/5b843b4a7e1c71af91e98f3e9eb24cdf2f59648a))
+* **sms:** read missed messages whenever the app returns to the front ([215547b](https://github.com/pesaclarity/pesaclarity-app/commit/215547b8cbab9021de72e6a5056ee75ffb8e44ec))
+* **sms:** read missed messages whenever the app returns to the front ([#344](https://github.com/pesaclarity/pesaclarity-app/issues/344)) ([5b843b4](https://github.com/pesaclarity/pesaclarity-app/commit/5b843b4a7e1c71af91e98f3e9eb24cdf2f59648a))
+* **sms:** read only the open space's accounts right after a switch ([82a72ec](https://github.com/pesaclarity/pesaclarity-app/commit/82a72ecfc99478a91b8e2677992a8c1496945ca8))
+* **spaces:** accounts keep their opening balance after Clear data ([2fb2493](https://github.com/pesaclarity/pesaclarity-app/commit/2fb2493f8f8c92bfd45dce605ecb2c8c2488f844))
+* **spaces:** keep a two-message payment gone after it is cleared or moved ([e5a6ead](https://github.com/pesaclarity/pesaclarity-app/commit/e5a6eadbb6e3449c4d2e9c7486a5599506fe3126))
+* **spaces:** keep the list of spaces when Personal is restored ([a5756aa](https://github.com/pesaclarity/pesaclarity-app/commit/a5756aa64f39289419e56a7a39432010a7222e93))
+* **spaces:** leave a moved payment's balance behind ([2d4de42](https://github.com/pesaclarity/pesaclarity-app/commit/2d4de422edbb32d29b73cffca92741e8b6596420))
+* **spaces:** leave a payment's debt and goal behind when it moves ([94f63c1](https://github.com/pesaclarity/pesaclarity-app/commit/94f63c1945a1f4a5bdd996d90774d6b1a8b9bed3))
+* **spaces:** read each account in one space only ([36793b0](https://github.com/pesaclarity/pesaclarity-app/commit/36793b0a23909e164adbec42fb88fce3057c6a86))
+* **spaces:** show each space its own balances after a switch ([a17c894](https://github.com/pesaclarity/pesaclarity-app/commit/a17c894bd9c61a62ca38354c1d4ea560b729da9f))
+* **spaces:** stop a deleted business's rules moving money ([4abbb9b](https://github.com/pesaclarity/pesaclarity-app/commit/4abbb9b8ecf12961d30944e9aff5c7209b6df4f4))
+* **tool:** create the reader recording's rayo session as the app's rayo reads it ([f4c4b06](https://github.com/pesaclarity/pesaclarity-app/commit/f4c4b06b738d87adf1272b145143e18075c178cf))
+
 ## [0.5.2](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.1...v0.5.2) (2026-11-19)
 
 
