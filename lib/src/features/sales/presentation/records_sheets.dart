@@ -18,8 +18,10 @@ import '../../../domain/stock/stock.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../domain/time/date_labels.dart';
 import '../../../shared/adaptive/adaptive.dart';
+import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/app_sheet.dart';
 import '../../../shared/widgets/choice_menu.dart';
+import '../../../shared/widgets/figures.dart';
 import '../../../shared/widgets/form_fields.dart';
 import '../../../shared/widgets/marks.dart';
 import '../../../shared/widgets/states.dart';
@@ -33,6 +35,7 @@ import '../../stock/application/stock_providers.dart';
 import '../../stock/presentation/item_sheet.dart';
 import '../../stock/presentation/measure_sheet.dart';
 import '../application/pay_yourself.dart';
+import '../application/put_money_in.dart';
 import '../application/sales_providers.dart';
 import 'pay_sheet.dart';
 
@@ -75,6 +78,10 @@ Future<bool?> showGotPaidSheet(BuildContext context, {String? customer}) =>
 Future<bool?> showPayYourselfSheet(BuildContext context) =>
     _sheet(context, const _PayYourselfSheet());
 
+/// Put money in: the owner's own money into the business (decision 0027).
+Future<bool?> showPutMoneyInSheet(BuildContext context) =>
+    _sheet(context, const PutMoneyInSheet());
+
 /// Paid: the business pays a supplier some or all of what it owes.
 Future<bool?> showPaidSheet(BuildContext context, {int? debtId}) =>
     _sheet(context, _PaidSheet(debtId: debtId));
@@ -84,6 +91,12 @@ Future<bool?> showPaidSheet(BuildContext context, {int? debtId}) =>
 void _savedAtOnce(NavigatorState navigator, {required String what}) {
   navigator.pop(true);
   showNote(navigator.context, '$what saved.');
+}
+
+/// Closes the sheet and says [text].
+void _closeWith(NavigatorState navigator, String text) {
+  navigator.pop(true);
+  showNote(navigator.context, text);
 }
 
 void _saved(
@@ -887,6 +900,7 @@ class _PayYourselfSheetState extends ConsumerState<_PayYourselfSheet> {
   final _form = GlobalKey<FormState>();
   final _amount = TextEditingController();
   _PayFrom? _from;
+  PayLands? _lands;
   var _as = PersonalPayAs.salary;
   var _saving = false;
 
@@ -909,7 +923,11 @@ class _PayYourselfSheetState extends ConsumerState<_PayYourselfSheet> {
     ];
   }
 
-  Future<void> _save(List<(int, String, int)> lines, _PayFrom from) async {
+  Future<void> _save(
+    List<(int, String, int)> lines,
+    _PayFrom from, {
+    PayLanding? lands,
+  }) async {
     if (!(_form.currentState?.validate() ?? false)) return;
     final navigator = Navigator.of(context);
     final amount = AmountField.amountFrom(_amount.text)!;
@@ -932,7 +950,12 @@ class _PayYourselfSheetState extends ConsumerState<_PayYourselfSheet> {
         amountMinor: amount,
         method: method,
         as: _as,
+        lands: lands?.lands,
       );
+      if (lands != null) {
+        _closeWith(navigator, 'Pay saved.');
+        return;
+      }
       _saved(navigator, method: method, what: 'Pay');
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -974,6 +997,15 @@ class _PayYourselfSheetState extends ConsumerState<_PayYourselfSheet> {
     final onLine = from.ownersAccountId == null
         ? null
         : lines.firstWhere((l) => l.$1 == from.ownersAccountId);
+    // "Where it lands" (decision 0027): only when real money leaves the
+    // business's bank.
+    final landings = from.method == SalePaymentMethod.bank
+        ? ref.watch(payLandingsProvider).value
+        : null;
+    final lands = landings?.options.firstWhere(
+      (o) => o.lands == (_lands ?? landings.last),
+      orElse: () => landings.options.first,
+    );
     return Form(
       key: _form,
       child: SheetBody(
@@ -1013,6 +1045,19 @@ class _PayYourselfSheetState extends ConsumerState<_PayYourselfSheet> {
             ),
             onChanged: (o) => setState(() => _from = o),
           ),
+          if (landings != null && lands != null) ...[
+            const SizedBox(height: 16),
+            _label(context, 'Where it lands'),
+            ChoiceMenu<PayLands>(
+              key: const Key('pay-yourself-lands-menu'),
+              name: 'Where it lands',
+              expand: true,
+              options: [for (final o in landings.options) (o.lands, o.label)],
+              value: lands.lands,
+              itemKey: (o) => Key('pay-yourself-lands-${o.saved}'),
+              onChanged: (o) => setState(() => _lands = o),
+            ),
+          ],
           const SizedBox(height: 16),
           _label(context, 'Into Personal as'),
           AdaptiveSegmented<PersonalPayAs>(
@@ -1062,13 +1107,179 @@ class _PayYourselfSheetState extends ConsumerState<_PayYourselfSheet> {
                 );
               },
             )
+          else if (lands != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Notice(
+                payLandsNotice(
+                  businessBank: ref.watch(businessBankNameProvider),
+                  to: lands,
+                ),
+                key: const Key('pay-yourself-lands-note'),
+              ),
+            )
           else
             _waitNote(from.method!, AmountField.amountFrom(_amount.text) ?? 0),
           const SizedBox(height: 16),
           FilledButton(
             key: const Key('pay-yourself-save'),
-            onPressed: _saving ? null : () => _save(lines, from),
+            onPressed: _saving ? null : () => _save(lines, from, lands: lands),
             child: const Text('Pay yourself'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Put money in (decision 0027): the owner's own money into the business.
+/// It is never a sale or income here, and never spending in Personal.
+class PutMoneyInSheet extends ConsumerStatefulWidget {
+  const PutMoneyInSheet({super.key});
+
+  @override
+  ConsumerState<PutMoneyInSheet> createState() => _PutMoneyInSheetState();
+}
+
+class _PutMoneyInSheetState extends ConsumerState<PutMoneyInSheet> {
+  final _form = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  PutInFrom? _from;
+  PutInto? _into;
+  var _saving = false;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save(PutInFrom from, PutInto into) async {
+    if (!(_form.currentState?.validate() ?? false)) return;
+    final navigator = Navigator.of(context);
+    final amount = AmountField.amountFrom(_amount.text)!;
+    setState(() => _saving = true);
+    try {
+      final saved = await ref
+          .read(putMoneyInControllerProvider)
+          .putMoneyIn(amountMinor: amount, from: from, into: into);
+      if (!saved) return;
+      final waits =
+          from.source != PutInSource.cash || into == PutInto.businessBank;
+      _closeWith(
+        navigator,
+        into != PutInto.staysOnMpesa && waits
+            ? 'Saved. Each side will match its message when it comes.'
+            : 'Saved.',
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final space = ref.watch(activeSpaceProvider);
+    final sources = ref.watch(putInSourcesProvider).value ?? const [];
+    final bank = ref.watch(businessBankNameProvider);
+    if (sources.isEmpty) return const SizedBox(height: 200);
+    final from = sources.contains(_from) ? _from! : sources.first;
+    final intos = putIntoFor(from.source);
+    final into = intos.contains(_into) ? _into! : intos.first;
+    String money(int minor) => shownMoney(context, minor, withCurrency: true);
+    String plain(int minor) => shownMoney(context, minor);
+    return Form(
+      key: _form,
+      child: SheetBody(
+        title: 'Put money in',
+        subtitle:
+            'Your own money into the business. It is not a sale and not '
+            'income.',
+        children: [
+          AmountField(
+            key: const Key('put-in-amount'),
+            controller: _amount,
+            label: 'Amount',
+          ),
+          const SizedBox(height: 16),
+          _label(context, 'From'),
+          ChoiceMenu<PutInFrom>(
+            key: const Key('put-in-from-menu'),
+            name: 'From',
+            expand: true,
+            options: [for (final s in sources) (s, s.label)],
+            value: from,
+            itemKey: (o) => Key('put-in-from-${o.source.name}-${o.accountId}'),
+            onChanged: (o) => setState(() => _from = o),
+          ),
+          const SizedBox(height: 16),
+          _label(context, 'Into ${space.name}'),
+          ChoiceMenu<PutInto>(
+            key: const Key('put-in-into-menu'),
+            name: 'Into ${space.name}',
+            expand: true,
+            options: [for (final i in intos) (i, i.label)],
+            value: into,
+            itemKey: (o) => Key('put-in-into-${o.name}'),
+            onChanged: (o) => setState(() => _into = o),
+          ),
+          ListenableBuilder(
+            listenable: _amount,
+            builder: (context, _) {
+              final amount = AmountField.amountFrom(_amount.text) ?? 0;
+              final yours = switch (into) {
+                PutInto.staysOnMpesa => 'Your own part of M-Pesa',
+                _ => switch (from.source) {
+                  PutInSource.cash => from.accountName ?? 'Cash',
+                  _ => from.accountName ?? from.label,
+                },
+              };
+              final theirs = switch (into) {
+                PutInto.staysOnMpesa => 'Put in by you',
+                PutInto.businessCash => 'Cash. Put in by you',
+                PutInto.businessBank => '${bank ?? 'Bank'}. Put in by you',
+              };
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 12),
+                  Notice(
+                    putInNotice(
+                      from: from,
+                      into: into,
+                      amountMinor: amount,
+                      business: space.name,
+                      businessBank: bank,
+                      money: money,
+                    ),
+                    key: const Key('put-in-notice'),
+                  ),
+                  const SizedBox(height: 12),
+                  _label(context, 'What it does'),
+                  GroupedSection(
+                    key: const Key('put-in-what-it-does'),
+                    children: [
+                      LabelValueRow(
+                        label: 'Personal',
+                        detail: yours,
+                        value: amount == 0 ? plain(0) : '-${plain(amount)}',
+                      ),
+                      LabelValueRow(
+                        label: space.name,
+                        detail: theirs,
+                        value: amount == 0 ? plain(0) : '+${plain(amount)}',
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            key: const Key('put-in-save'),
+            onPressed: _saving ? null : () => _save(from, into),
+            child: const Text('Put money in'),
           ),
         ],
       ),

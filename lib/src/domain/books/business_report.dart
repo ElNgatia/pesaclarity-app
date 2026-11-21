@@ -145,6 +145,7 @@ class BalanceSummary {
     required this.stockMinor,
     required this.paidYourselfMinor,
     this.withOwnerMinor = 0,
+    this.putInMinor = 0,
   });
 
   /// Cash, M-Pesa and bank.
@@ -160,6 +161,10 @@ class BalanceSummary {
 
   /// Taken out by the owner during the period.
   final int paidYourselfMinor;
+
+  /// "Put in by you": the owner's own money put into the business during
+  /// the period (decision 0027, Put money in), never owed back.
+  final int putInMinor;
 
   /// What the business is worth on its books: what it has, less what it
   /// owes.
@@ -184,6 +189,7 @@ String bookAccountName(BookAccount a, Map<int, String> categoryNames) =>
       BookAccountKind.stockLosses => 'Stock spoiled or lost',
       BookAccountKind.exchangeCost => 'Exchange cost',
       BookAccountKind.currencyExchange => 'Currency exchange',
+      BookAccountKind.ownerCapital => 'Put in by you',
       _ => a.kind.name,
     };
 
@@ -250,6 +256,12 @@ BalanceSummary balanceSummary(
     stockMinor: books.balanceOf(BookAccount.stock, currency: currency, to: to),
     paidYourselfMinor: -books.balanceOf(
       BookAccount.ownerPay,
+      currency: currency,
+      from: period.from.startInstant,
+      to: to,
+    ),
+    putInMinor: books.balanceOf(
+      BookAccount.ownerCapital,
       currency: currency,
       from: period.from.startInstant,
       to: to,

@@ -172,7 +172,11 @@ class CashBookRow extends StatelessWidget {
   final String Function(int minor) plain;
 
   String _account(int id) => switch (accounts[id]) {
-    final a? => accountTag(a.name, a.type),
+    final a? => accountTag(
+      a.name,
+      a.type,
+      heldOn: accounts[a.linkedAccountId]?.name,
+    ),
     null => 'Account',
   };
 

@@ -2,7 +2,11 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-import '../books/books.dart' show ownerPayCategoryKey;
+import '../books/books.dart'
+    show
+        ownerCapitalCategoryKey,
+        ownerPayCategoryKey,
+        putIntoBusinessCategoryKey;
 import '../enums.dart';
 import '../ledger/ledger_entry.dart';
 import '../ledger/ledger_role.dart';
@@ -349,6 +353,10 @@ const fireflyFulizaCharges = 'Fuliza charges';
 const fireflyNotYetSorted = 'Not yet sorted';
 const fireflyBalanceCorrection = 'Balance correction';
 
+/// The revenue account the owner's own money put into a business comes
+/// from (decision 0027, Put money in): capital, never a sale.
+const fireflyPutInByYou = 'Put in by you';
+
 /// What the mapping needs about one transaction.
 class FireflyTransactionFacts {
   const FireflyTransactionFacts({
@@ -677,6 +685,20 @@ List<FireflyPart> fireflyParts(
       // A business paying its owner leaves the books for good.
       if (e.isOutflow && facts.categoryKey == ownerPayCategoryKey) {
         spend(payee ?? category ?? 'Paid yourself', category: category);
+        break;
+      }
+      // Put money in (decision 0027): the owner's capital comes into the
+      // business from outside its books, and leaves Personal's for good.
+      // Each side is sent once, from its own space.
+      if (e.isInflow && facts.categoryKey == ownerCapitalCategoryKey) {
+        earn(fireflyPutInByYou, category: category);
+        break;
+      }
+      if (e.isOutflow && facts.categoryKey == putIntoBusinessCategoryKey) {
+        spend(
+          payee ?? e.counterpartyName ?? category ?? 'Put into my business',
+          category: category,
+        );
         break;
       }
       final other = role == LedgerRole.saving

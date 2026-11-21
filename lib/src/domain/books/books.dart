@@ -201,6 +201,15 @@ class StockEntry {
 /// Category key whose outflows are the owner taking money out.
 const ownerPayCategoryKey = 'owner_pay';
 
+/// Category key of the owner's own money put into a business (decision
+/// 0027, Put money in): in the business, money in that is the owner's
+/// capital, never owed back.
+const ownerCapitalCategoryKey = 'owner_capital';
+
+/// Category key of Personal's side of Put money in: money out of Personal
+/// into one of the owner's businesses, never spending.
+const putIntoBusinessCategoryKey = 'put_into_business';
+
 /// A space's double-entry books, worked out from its transactions and
 /// accounts. Nothing here is stored: the books always follow the records.
 ///
@@ -498,6 +507,10 @@ JournalEntry postEntry(
   }
 
   final ownerPay = category?.key == ownerPayCategoryKey;
+  // Put money in (decision 0027): the owner's capital, on either side.
+  final capital =
+      (category?.key == ownerCapitalCategoryKey && e.isInflow) ||
+      (category?.key == putIntoBusinessCategoryKey && e.isOutflow);
   final fromCustomer = category?.key == customerPaymentsKey;
   final toSupplier = category?.key == supplierPaymentsKey;
   switch (roleOf(e)) {
@@ -545,6 +558,8 @@ JournalEntry postEntry(
     case LedgerRole.ownTransfer:
       final other = ownerPay && e.isOutflow
           ? BookAccount.ownerPay
+          : capital
+          ? BookAccount.ownerCapital
           : BookAccount.ownTransfers;
       e.isInflow ? inFrom(other, amount) : outTo(other, amount);
     case LedgerRole.correction:

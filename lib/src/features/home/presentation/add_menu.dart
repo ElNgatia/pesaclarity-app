@@ -39,6 +39,15 @@ Future<void> showAddMenu(BuildContext context, {bool business = false}) async {
             subtitle: const Text('Move money to Personal as income'),
             onTap: () => Navigator.pop(context, _AddChoice.payYourself),
           ),
+        if (business)
+          ListTile(
+            key: const Key('add-put-money-in'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.login),
+            title: const Text('Put money in'),
+            subtitle: const Text('Your own money into the business'),
+            onTap: () => Navigator.pop(context, _AddChoice.putMoneyIn),
+          ),
         if (canImport)
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -58,12 +67,14 @@ Future<void> showAddMenu(BuildContext context, {bool business = false}) async {
       context.go(AppRoutes.importStatement);
     case _AddChoice.payYourself:
       await showPayYourselfSheet(context);
+    case _AddChoice.putMoneyIn:
+      await showPutMoneyInSheet(context);
     case null:
       break;
   }
 }
 
-enum _AddChoice { manual, import, payYourself }
+enum _AddChoice { manual, import, payYourself, putMoneyIn }
 
 /// The one round button, beside the tab bar on every tab: Sell in a
 /// business, add a transaction (or import a statement) everywhere else.

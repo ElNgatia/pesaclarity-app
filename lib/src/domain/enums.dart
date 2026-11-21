@@ -161,7 +161,7 @@ enum SalePaymentMethod {
 /// A record made from a business's Today: stock or a cost bought, a
 /// customer paying what they owe, paying a supplier, the owner paying
 /// themselves, or change sent back to a customer who paid too much.
-enum QuickRecordKind { bought, gotPaid, paid, paidYourself, change }
+enum QuickRecordKind { bought, gotPaid, paid, paidYourself, change, putIn }
 
 /// What a business sells: something kept in stock, or its time or skill.
 enum ItemKind { product, service }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/reachability.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/database_providers.dart';
+import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/category_seeds.dart';
 import '../../../data/repositories/money_repair.dart';
 import '../../../domain/spaces/business_setup.dart';
@@ -698,7 +699,25 @@ class ClearSpaceScreen extends ConsumerStatefulWidget {
   ConsumerState<ClearSpaceScreen> createState() => _ClearSpaceScreenState();
 }
 
+/// What clearing [spaceId] from `from` up to `to` takes off its money on
+/// the owner's accounts (decision 0027, owner's decision 9).
+final _clearedPartProvider = FutureProvider.autoDispose
+    .family<int, (String, DateTime, DateTime)>((ref, key) async {
+      final (spaceId, from, to) = key;
+      final (db, close) = await ref.watch(spaceDatabasesProvider).open(spaceId);
+      try {
+        return (await ownersPartIn(
+          db,
+          from: from,
+          to: to,
+        )).values.fold<int>(0, (sum, v) => sum + v);
+      } finally {
+        if (close) await db.close();
+      }
+    });
+
 class _ClearSpaceScreenState extends ConsumerState<ClearSpaceScreen> {
+  var _mine = true;
   var _keep = true;
   var _online = false;
   var _busy = false;
@@ -731,6 +750,33 @@ class _ClearSpaceScreenState extends ConsumerState<ClearSpaceScreen> {
     if (space == null) {
       return Scaffold(appBar: AppBar(), body: const LoadingView());
     }
+    (DateTime, DateTime)? instants(DateTimeRange? r) => r == null
+        ? null
+        : (
+            CalendarDate(r.start.year, r.start.month, r.start.day).startInstant,
+            CalendarDate(
+              r.end.year,
+              r.end.month,
+              r.end.day,
+            ).addDays(1).startInstant,
+          );
+    final rangeAt = _onlyRange ? instants(_range) : null;
+    // Asked only when what is cleared holds the business's money on the
+    // owner's accounts; for a date range, only when that range does.
+    final heldMinor =
+        space.id == personalSpaceId || (_onlyRange && rangeAt == null)
+        ? 0
+        : rangeAt != null
+        ? ref
+                  .watch(
+                    _clearedPartProvider((space.id, rangeAt.$1, rangeAt.$2)),
+                  )
+                  .value ??
+              0
+        : (ref.watch(_heldForProvider(space.id)).value ?? const {}).values.fold(
+            0,
+            (sum, v) => sum + v,
+          );
     return Scaffold(
       appBar: AppBar(title: const Text('Clear data')),
       body: ListView(
@@ -775,6 +821,15 @@ class _ClearSpaceScreenState extends ConsumerState<ClearSpaceScreen> {
               style: _muted(context),
             ),
           ],
+          if (heldMinor != 0) ...[
+            const SizedBox(height: 16),
+            _HeldChoice(
+              space: space,
+              heldMinor: heldMinor,
+              mine: _mine,
+              onChanged: (v) => setState(() => _mine = v),
+            ),
+          ],
           const SizedBox(height: 16),
           OutlinedButton(
             key: const Key('clear-back-up'),
@@ -795,6 +850,11 @@ class _ClearSpaceScreenState extends ConsumerState<ClearSpaceScreen> {
                 ? null
                 : () async {
                     final range = _onlyRange ? _range : null;
+                    final held = heldMinor == 0
+                        ? null
+                        : _mine
+                        ? HeldOnClear.mine
+                        : HeldOnClear.apart;
                     final yes = await confirmDelete(
                       context,
                       title: 'Clear ${space.name}?',
@@ -812,6 +872,7 @@ class _ClearSpaceScreenState extends ConsumerState<ClearSpaceScreen> {
                           space,
                           keep: _keep,
                           deleteOnline: _online,
+                          held: held,
                           from: range == null
                               ? null
                               : CalendarDate(
