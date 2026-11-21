@@ -38,14 +38,19 @@ class SmsScanService {
   /// With [again], every message from [from] is read again, whatever was
   /// read before, and transactions the readers now read better are updated
   /// (see [SmsIngestor.ingest]).
+  ///
+  /// Afterwards the source lets go of what it keeps of messages received
+  /// before the scan started ([SmsSource.release]), unless [release] is
+  /// false.
   Future<SmsIngestSummary> scan(
     List<Institution> selected, {
     DateTime? from,
     SmsScanProgress? onProgress,
     bool again = false,
+    bool release = true,
   }) {
     final run = _previous.then(
-      (_) => _scan(selected, from, onProgress, again: again),
+      (_) => _scan(selected, from, onProgress, again: again, release: release),
     );
     _previous = run.then((_) {}, onError: (_) {});
     return run;
@@ -56,6 +61,7 @@ class SmsScanService {
     DateTime? from,
     SmsScanProgress? onProgress, {
     required bool again,
+    required bool release,
   }) async {
     final startedAt = _clock().toUtc();
     final inboxes = [
@@ -86,7 +92,7 @@ class SmsScanService {
       await _marks.markScanned(institution.id, startedAt);
     }
     // Everything before the start has now been read for every institution.
-    if (selected.isNotEmpty) await _source.release(startedAt);
+    if (release && selected.isNotEmpty) await _source.release(startedAt);
     return summary;
   }
 }

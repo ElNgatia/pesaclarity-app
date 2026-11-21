@@ -151,6 +151,15 @@ void main() {
     expect((await service().scan([_institution('mpesa')])).added, 3);
   });
 
+  test('can leave the source holding what it read', () async {
+    final summary = await service().scan([
+      _institution('mpesa'),
+    ], release: false);
+    expect(summary.added, 3);
+    expect(await marks.scannedUntil('mpesa'), today);
+    expect(source.releases, isEmpty);
+  });
+
   test('an empty selection lets go of nothing', () async {
     await service().scan(const []);
     expect(source.releases, isEmpty);
