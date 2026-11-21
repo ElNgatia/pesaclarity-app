@@ -71,13 +71,16 @@ part 'app_database.g.dart';
     AskConversations,
     AskMessages,
     AskShortcuts,
+    SavingsPockets,
+    SavingsEntries,
+    SavingsReadings,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 39;
+  int get schemaVersion => 41;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -340,6 +343,14 @@ class AppDatabase extends _$AppDatabase {
           transactions.twinMessageHash,
         );
       }
+      // When a loan's next instalment is due, and where that came from.
+      if (from < 40) {
+        await _addColumnIfMissing(m, debts, debts.nextDueDay);
+        await _addColumnIfMissing(m, debts, debts.nextDueSetAt);
+        await _addColumnIfMissing(m, debts, debts.nextDueTransactionId);
+      }
+      // Savings accounts the app keeps from the payments into them.
+      if (from < 41) await _addSavingsAccounts(m);
       // Plain English names: the seeded giving category, unless renamed.
       if (from < 17) {
         await customStatement(
@@ -394,6 +405,27 @@ class AppDatabase extends _$AppDatabase {
       }
     }
     await _createIndexIfMissing(m, askMessagesConversation);
+  }
+
+  /// Savings accounts the app keeps: the product an account is, its
+  /// pockets, the entries on it and the balances typed for it, and the
+  /// pocket a goal is saved in. Nothing is converted here: a savings
+  /// account starts when the person adds one. Safe to run more than once.
+  Future<void> _addSavingsAccounts(Migrator m) async {
+    await _addColumnIfMissing(m, accounts, accounts.product);
+    for (final TableInfo<Table, Object?> table in [
+      savingsPockets,
+      savingsEntries,
+      savingsReadings,
+    ]) {
+      if (!await _exists('table', table.actualTableName)) {
+        await m.createTable(table);
+      }
+    }
+    await _createIndexIfMissing(m, savingsEntriesPocket);
+    await _createIndexIfMissing(m, savingsReadingsPocket);
+    await _addColumnIfMissing(m, goals, goals.savedInPocketId);
+    await _createIndexIfMissing(m, goalsSavedInPocket);
   }
 
   /// Tables only Ask uses. They stay on this phone: backups leave them

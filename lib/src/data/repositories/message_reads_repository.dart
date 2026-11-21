@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../database/app_database.dart';
 import '../database/database_providers.dart';
+import 'savings_links.dart';
 
 /// A transaction already read from a message, and whether the person has
 /// made it theirs since (see [MessageReadsRepository.stored]).
@@ -134,6 +135,8 @@ class MessageReadsRepository {
         readBy: Value(readBy),
       ),
     );
+    // Read now as a payment into a savings account the app keeps.
+    await linkSavingsPayments(_db, [row.id]);
     return true;
   });
 
@@ -203,23 +206,31 @@ class MessageReadsRepository {
 }
 
 /// Sets aside the messages behind [transactionIds] in [db], before they are
-/// removed, so reading the messages again never brings them back.
+/// removed, so reading the messages again never brings them back: each
+/// one's own message and, for two messages kept as one transaction, the
+/// second message merged into it.
 Future<void> setAsideMessagesOf(
   AppDatabase db,
   Iterable<int> transactionIds,
 ) async {
   final ids = transactionIds.toList();
+  final t = db.transactions;
   for (var i = 0; i < ids.length; i += 500) {
     final chunk = ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
-    final hashes =
-        await (db.selectOnly(db.transactions)
-              ..addColumns([db.transactions.messageHash])
+    final rows =
+        await (db.selectOnly(t)
+              ..addColumns([t.messageHash, t.twinMessageHash])
               ..where(
-                db.transactions.id.isIn(chunk) &
-                    db.transactions.messageHash.isNotNull(),
+                t.id.isIn(chunk) &
+                    (t.messageHash.isNotNull() | t.twinMessageHash.isNotNull()),
               ))
-            .map((row) => row.read(db.transactions.messageHash)!)
             .get();
+    final hashes = {
+      for (final row in rows) ...[
+        ?row.read(t.messageHash),
+        ?row.read(t.twinMessageHash),
+      ],
+    };
     for (final hash in hashes) {
       await db
           .into(db.setAsideMessages)

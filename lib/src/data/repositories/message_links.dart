@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
 import '../../domain/accounts/account_reference.dart';
+import '../../domain/debts/next_due.dart';
+import '../../domain/time/calendar.dart';
 import '../database/app_database.dart';
 
 /// Marks the new transaction [id] as money moved to the person's own
@@ -57,7 +59,9 @@ Future<void> markTransferToOwnAccount(
 /// Records the new loan repayment [id] against the debt its message names,
 /// such as "KCB Salary Advance": the debt with that lender, or a new one,
 /// and, when the message gives what is left, that balance as confirmed just
-/// after the payment. It is paying back a debt, never spending.
+/// after the payment. When the message says when the next instalment is
+/// due, that becomes the debt's next due date, unless a later message or
+/// the person's own edit set it. It is paying back a debt, never spending.
 Future<void> linkLoanRepayment(AppDatabase db, int id) async {
   final row = await (db.select(
     db.transactions,
@@ -108,4 +112,79 @@ Future<void> linkLoanRepayment(AppDatabase db, int id) async {
       DebtsCompanion(balanceMinor: Value(owed), balanceAsOf: Value(after)),
     );
   }
+  final due = row.owedDueAt;
+  final dueSetAt = debt.nextDueSetAt;
+  if (due != null && (dueSetAt == null || !row.occurredAt.isBefore(dueSetAt))) {
+    // The parsers give a due day as midnight in the lender's own time;
+    // lenders whose messages print one are in East Africa Time.
+    final day = CalendarDate.of(due, nairobiUtcOffset);
+    await (db.update(db.debts)..where((d) => d.id.equals(debt!.id))).write(
+      DebtsCompanion(
+        nextDueDay: Value(dayKey(day)),
+        nextDueSetAt: Value(row.occurredAt),
+        nextDueTransactionId: Value(id),
+      ),
+    );
+  }
+}
+
+/// Takes back what the repayment [row] set on its debt when its message was
+/// read (see [linkLoanRepayment]), before [row] leaves this space: the
+/// balance its message confirmed and the next due date it gave. Each goes
+/// back to what the newest repayment message still linked to the debt says,
+/// or to nothing, as if [row]'s message had not been read here. A balance
+/// or date set since, by a later message or by the person, stays.
+Future<void> unlinkLoanRepayment(AppDatabase db, TransactionRecord row) async {
+  final debtId = row.debtId;
+  if (debtId == null) return;
+  final debt = await (db.select(
+    db.debts,
+  )..where((d) => d.id.equals(debtId))).getSingleOrNull();
+  if (debt == null) return;
+  // The other repayment messages on this debt, newest first.
+  final others =
+      await (db.select(db.transactions)
+            ..where(
+              (t) =>
+                  t.debtId.equals(debtId) &
+                  t.id.equals(row.id).not() &
+                  t.kind.equalsValue(TransactionKind.loanRepayment) &
+                  t.direction.equalsValue(TransactionDirection.outflow),
+            )
+            ..orderBy([
+              (t) => OrderingTerm.desc(t.occurredAt),
+              (t) => OrderingTerm.desc(t.id),
+            ]))
+          .get();
+  final owed = row.owedAfterMinor;
+  final asOf = debt.balanceAsOf;
+  final after = row.occurredAt.add(const Duration(seconds: 1));
+  final setBalance =
+      owed != null &&
+      debt.balanceMinor == owed &&
+      asOf != null &&
+      asOf.isAtSameMomentAs(after);
+  final setDue = debt.nextDueTransactionId == row.id;
+  if (!setBalance && !setDue) return;
+  final balance = others.where((t) => t.owedAfterMinor != null).firstOrNull;
+  final due = others.where((t) => t.owedDueAt != null).firstOrNull;
+  await (db.update(db.debts)..where((d) => d.id.equals(debtId))).write(
+    DebtsCompanion(
+      balanceMinor: setBalance
+          ? Value(balance?.owedAfterMinor)
+          : const Value.absent(),
+      balanceAsOf: setBalance
+          ? Value(balance?.occurredAt.add(const Duration(seconds: 1)))
+          : const Value.absent(),
+      nextDueDay: setDue
+          ? Value(
+              due == null
+                  ? null
+                  : dayKey(CalendarDate.of(due.owedDueAt!, nairobiUtcOffset)),
+            )
+          : const Value.absent(),
+      nextDueSetAt: setDue ? Value(due?.occurredAt) : const Value.absent(),
+      nextDueTransactionId: setDue ? Value(due?.id) : const Value.absent(),
+    ),
+  );
 }

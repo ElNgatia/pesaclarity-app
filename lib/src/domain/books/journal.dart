@@ -1,6 +1,8 @@
 import '../enums.dart';
 import '../ledger/balances.dart';
+import '../ledger/cross_currency_transfers.dart';
 import '../ledger/ledger_entry.dart';
+import '../ledger/own_transfers.dart';
 import 'book_account.dart';
 import 'books.dart';
 
@@ -32,20 +34,45 @@ import 'books.dart';
 ///   owed, against Balance corrections.
 /// * Any other gap between a reported balance and the records posts against
 ///   Not yet sorted, in an entry of its own.
+/// * Each side of an own transfer goes through Money in transit, and once
+///   both sides are paired the money out's entry clears what the transfer
+///   lost on the way ([transferShortfall]): a fee when less arrived than
+///   left, Not yet sorted when more did.
+/// * A paired transfer between two currencies posts one exchange entry per
+///   currency, dated when the money arrived ([JournalSource.exchange]):
+///   the money out's currency moves what left from transit to Currency
+///   exchange, less what the exchange cost against the day's rate
+///   ([arrivedInOutCurrency], from [rateOn]), which goes to Exchange cost;
+///   the money in's currency moves what arrived from Currency exchange
+///   back into transit. Every entry sums to zero in its currency, and
+///   transit clears in each. With no rate for that day, or only an
+///   approximate one, the cost is not known: the whole money out goes to
+///   Currency exchange.
 ///
 /// Transactions on no known account, in another currency than their account
 /// or before its opening date still post, as they read alone.
+///
+/// [partners] holds the other sides of the own transfers in [history] that
+/// [history] leaves out, by id, for posting only some accounts: a money
+/// out's entry needs what arrived, and an exchange entry needs both sides.
 List<JournalEntry> postJournal({
   required Iterable<AccountOpening> accounts,
   required Iterable<LedgerEntry> history,
   required Map<int, BookCategory> categories,
+  Map<int, LedgerEntry> partners = const {},
+  DayRate? rateOn,
 }) {
   final all = history.toList();
+  final byId = {for (final e in all) e.id: e};
+  LedgerEntry? partnerOf(LedgerEntry e) => switch (e.transferPairId) {
+    null => null,
+    final id => byId[id] ?? partners[id],
+  };
   final out = <JournalEntry>[];
   final walked = <int>{};
   for (final account in accounts) {
     final walk = WalletWalk.of(account, all);
-    out.addAll(_postAccount(account, walk, all, categories));
+    out.addAll(_postAccount(account, walk, all, categories, partnerOf));
     walked.addAll(walk.entries.map((e) => e.id));
   }
   for (final e in all) {
@@ -56,10 +83,60 @@ List<JournalEntry> postJournal({
         categories: categories,
         moneyChange: _plainChange(e),
         owedDelta: _plainOwed(e),
+        partner: partnerOf(e),
       ),
     );
   }
+  for (final e in all) {
+    if (_exchange(e, partnerOf(e), categories, rateOn) case final entry?) {
+      out.add(entry);
+    }
+  }
   return out;
+}
+
+/// [e]'s currency's exchange entry, when [e] and [partner] are the two
+/// sides of an own transfer across currencies that both go through Money
+/// in transit; null otherwise. Dated when the money arrived.
+JournalEntry? _exchange(
+  LedgerEntry e,
+  LedgerEntry? partner,
+  Map<int, BookCategory> categories,
+  DayRate? rateOn,
+) {
+  if (partner == null) return null;
+  final (out, into) = e.isOutflow ? (e, partner) : (partner, e);
+  if (!isCrossCurrencyPair(out, into)) return null;
+  bool viaTransit(LedgerEntry side) => _ownLines(
+    side,
+    categories,
+  ).any((l) => l.account == BookAccount.moneyInTransit);
+  if (!viaTransit(out) || !viaTransit(into)) return null;
+  final List<JournalLine> lines;
+  if (e.isOutflow) {
+    final arrived = rateOn == null
+        ? null
+        : arrivedInOutCurrency(out, into, rateOn);
+    final cost = arrived == null ? 0 : out.amountMinor - arrived;
+    lines = [
+      JournalLine(BookAccount.currencyExchange, out.amountMinor - cost),
+      JournalLine(BookAccount.exchangeCost, cost),
+      JournalLine(BookAccount.moneyInTransit, -out.amountMinor),
+    ];
+  } else {
+    lines = [
+      JournalLine(BookAccount.moneyInTransit, into.amountMinor),
+      JournalLine(BookAccount.currencyExchange, -into.amountMinor),
+    ];
+  }
+  return JournalEntry(
+    source: JournalSource.exchange,
+    sourceId: e.id,
+    at: into.occurredAt,
+    currency: e.currency,
+    accountId: e.accountId,
+    lines: lines,
+  );
 }
 
 /// The balance of [account] in [currency] from [entries] dated before [at],
@@ -98,6 +175,7 @@ List<JournalEntry> _postAccount(
   WalletWalk walk,
   List<LedgerEntry> all,
   Map<int, BookCategory> categories,
+  LedgerEntry? Function(LedgerEntry e) partnerOf,
 ) {
   final money = BookAccount.money(account.id);
   final own = walk.entries;
@@ -166,6 +244,7 @@ List<JournalEntry> _postAccount(
             : BookAccount.borrowed,
         fundedBy: fundedBy,
         funded: walk.isFunded(e),
+        partner: partnerOf(e),
       ),
     );
     owed = owedNow;
@@ -191,6 +270,7 @@ List<JournalEntry> _postAccount(
 /// One transaction's entry. [moneyChange] is what it moves its money
 /// account by and [owedDelta] what it moves Fuliza owed by; [fundedBy] is
 /// a Fuliza draw that funded it, and [funded] says it is such a draw.
+/// [partner] is the other side of the own transfer it is half of.
 JournalEntry _postOne(
   LedgerEntry e, {
   required Map<int, BookCategory> categories,
@@ -199,6 +279,7 @@ JournalEntry _postOne(
   BookAccount? fuliza,
   int fundedBy = 0,
   bool funded = false,
+  LedgerEntry? partner,
 }) {
   final money = BookAccount.money(e.accountId);
   final owedAccount = fuliza ?? BookAccount.fulizaOwed(e.accountId);
@@ -206,6 +287,19 @@ JournalEntry _postOne(
   int moneyIn(Iterable<JournalLine> ls) => ls
       .where((l) => l.account == money)
       .fold(0, (sum, l) => sum + l.amountMinor);
+
+  // Both sides are here: what the transfer lost on the way leaves transit.
+  final lost = _lostOnTheWay(e, partner, lines, categories);
+  if (lost != 0) {
+    lines
+      ..add(JournalLine(BookAccount.moneyInTransit, -lost))
+      ..add(
+        JournalLine(
+          lost > 0 ? BookAccount.fees : BookAccount.notYetSorted,
+          lost,
+        ),
+      );
+  }
 
   final extra = moneyChange - moneyIn(lines);
   lines.add(JournalLine(money, extra));
@@ -239,6 +333,25 @@ JournalEntry _postOne(
     accountId: e.accountId,
     lines: _merged(lines),
   );
+}
+
+/// What the own transfer money out [e] lost on the way to [partner], its
+/// other side (see [transferShortfall]): zero unless both sides go through
+/// Money in transit by their own meaning ([lines] are [e]'s own lines).
+int _lostOnTheWay(
+  LedgerEntry e,
+  LedgerEntry? partner,
+  List<JournalLine> lines,
+  Map<int, BookCategory> categories,
+) {
+  if (partner == null) return 0;
+  final lost = transferShortfall(e, partner);
+  if (lost == null || lost == 0) return 0;
+  bool viaTransit(Iterable<JournalLine> ls) =>
+      ls.any((l) => l.account == BookAccount.moneyInTransit);
+  return viaTransit(lines) && viaTransit(_ownLines(partner, categories))
+      ? lost
+      : 0;
 }
 
 /// What [e] posts by its own meaning, before what balances read into it.

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
@@ -11,11 +12,13 @@ import '../../domain/books/books.dart';
 import '../../domain/books/journal.dart';
 import '../../domain/books/journal_balances.dart';
 import '../../domain/ledger/balances.dart';
+import '../../domain/ledger/cross_currency_transfers.dart';
 import '../../domain/ledger/ledger_entry.dart';
 import '../../features/currency/application/currency_controller.dart';
 import '../database/app_database.dart';
 import '../database/database_providers.dart';
 import 'accounts_repository.dart';
+import 'app_settings_repository.dart';
 import 'transactions_repository.dart';
 
 /// What one [JournalRepository.sync] or [JournalRepository.rebuild] did.
@@ -47,6 +50,14 @@ class JournalSync {
 /// transfer matched or unmatched) or is gone gets a reversal and then the
 /// new entry. Nothing is edited or deleted, and running either again
 /// changes nothing.
+///
+/// An own transfer's money out clears what the transfer lost on the way,
+/// and a transfer across currencies posts an exchange entry for each side,
+/// so a side's entries depend on the other side too: when one side's
+/// entry changes and the other is on an account not being reposted,
+/// [sync] reposts that account as well. Exchange entries cost the exchange
+/// at the rates kept with the space; when those change, the accounts of
+/// transfers across currencies are reposted.
 class JournalRepository {
   JournalRepository(this._db, {DateTime Function()? clock, this._changes})
     : _clock = clock ?? DateTime.now;
@@ -74,32 +85,61 @@ class JournalRepository {
   void dispose() => _counting?.cancel();
 
   /// The records of [accountIds], or of every account, read as balances
-  /// read them but in their own currency.
+  /// read them but in their own currency, and the other sides of their own
+  /// transfers where those are on another account, by id.
   Future<
     ({
       List<AccountOpening> accounts,
       List<LedgerEntry> history,
       Map<int, BookCategory> categories,
+      Map<int, LedgerEntry> partners,
     })
   >
-  _records([Set<int>? accountIds]) async => (
-    accounts: [
-      for (final a in await DriftAccountsRepository(_db).openings())
-        if (accountIds == null || accountIds.contains(a.id)) a,
-    ],
-    history: await DriftTransactionsRepository(_db).ledgerEntries(
+  _records([Set<int>? accountIds]) async {
+    final transactions = DriftTransactionsRepository(_db);
+    final history = await transactions.ledgerEntries(
       from: DateTime.utc(1970),
       to: DateTime.utc(9999),
       accountIds: accountIds,
-    ),
-    categories: {
-      for (final c in await _db.select(_db.categories).get())
-        c.id: (key: c.key, type: c.type),
-    },
-  );
+    );
+    final partners = <int, LedgerEntry>{};
+    if (accountIds != null) {
+      final here = {for (final e in history) e.id};
+      final away = [
+        for (final e in history)
+          if (e.transferPairId case final id? when !here.contains(id)) id,
+      ];
+      // A few at a time, well inside SQLite's limit on variables.
+      for (var i = 0; i < away.length; i += 500) {
+        final ids = away.sublist(i, min(i + 500, away.length)).toSet();
+        for (final e in await transactions.ledgerEntries(
+          from: DateTime.utc(1970),
+          to: DateTime.utc(9999),
+          ids: ids,
+        )) {
+          partners[e.id] = e;
+        }
+      }
+    }
+    return (
+      accounts: [
+        for (final a in await DriftAccountsRepository(_db).openings())
+          if (accountIds == null || accountIds.contains(a.id)) a,
+      ],
+      history: history,
+      categories: {
+        for (final c in await _db.select(_db.categories).get())
+          c.id: (key: c.key, type: c.type),
+      },
+      partners: partners,
+    );
+  }
 
-  /// Reposts the accounts marked as changed since the last sync.
+  /// Reposts the accounts marked as changed since the last sync, and the
+  /// accounts of own transfers across currencies when the rates they were
+  /// posted at changed.
   Future<JournalSync> sync() => _db.transaction(() async {
+    await _markExchangesIfRatesChanged();
     final dirty = {
       for (final d in await _db.select(_db.journalDirty).get()) d.accountId,
     };
@@ -113,18 +153,92 @@ class JournalRepository {
 
   /// Reposts every account, and reverses entries that belong to none.
   Future<JournalSync> rebuild() => _db.transaction(() async {
+    await _markExchangesIfRatesChanged();
     final done = await _repost(null);
     await _db.delete(_db.journalDirty).go();
     return done;
   });
 
-  /// Reposts [accountIds], or everything.
+  /// What the rates the exchange entries use were last posted at (see
+  /// [CurrencyController.storedRatesSignature]), as this repository last
+  /// saw it.
+  String? _seenRates;
+
+  static const _ratesPostedKey = 'journal.exchangeRates';
+
+  /// Marks the accounts of own transfers across currencies for reposting
+  /// when the rates have changed since their exchange entries were
+  /// posted: a day's rate kept later, or a rate the person set, changes
+  /// what an exchange cost.
+  Future<void> _markExchangesIfRatesChanged() async {
+    final signature = await CurrencyController.storedRatesSignature(_db);
+    if (signature == _seenRates) return;
+    final settings = DriftAppSettingsRepository(_db);
+    final posted = await settings.readJson(_ratesPostedKey);
+    if (posted?['signature'] != signature) {
+      final accounts = await _db
+          .customSelect(
+            'SELECT DISTINCT t.account_id AS id FROM transactions t '
+            'INNER JOIN transactions p ON p.id = t.transfer_pair_id '
+            'WHERE p.currency <> t.currency',
+            readsFrom: {_db.transactions},
+          )
+          .map((row) => row.read<int>('id'))
+          .get();
+      for (final id in accounts) {
+        await _db
+            .into(_db.journalDirty)
+            .insertOnConflictUpdate(
+              JournalDirtyCompanion(accountId: Value(id)),
+            );
+      }
+      await settings.writeJson(_ratesPostedKey, {'signature': signature});
+    }
+    _seenRates = signature;
+  }
+
+  /// Reposts [accountIds], or everything, and then the accounts of the
+  /// other sides of own transfers whose entry changed.
   Future<JournalSync> _repost(Set<int>? accountIds) async {
+    var posted = 0;
+    var reversed = 0;
+    final done = {...?accountIds};
+    var next = accountIds;
+    while (true) {
+      final (sync, others) = await _repostOnce(next);
+      posted += sync.posted;
+      reversed += sync.reversed;
+      if (next == null) break;
+      next = others.difference(done);
+      if (next.isEmpty) break;
+      done.addAll(next);
+    }
+    return JournalSync(posted: posted, reversed: reversed);
+  }
+
+  /// Reposts [accountIds], or everything. Also says which other accounts
+  /// hold the other sides of own transfers whose entry changed.
+  Future<(JournalSync, Set<int>)> _repostOnce(Set<int>? accountIds) async {
     final r = await _records(accountIds);
+    final byId = {for (final e in r.history) e.id: e};
+    // Rates are read only for a transfer across currencies.
+    final acrossCurrencies = r.history.any(
+      (e) => switch (e.transferPairId) {
+        final id? => switch (byId[id] ?? r.partners[id]) {
+          final other? => other.currency != e.currency,
+          null => false,
+        },
+        null => false,
+      },
+    );
     final wanted = postJournal(
       accounts: r.accounts,
       history: r.history,
       categories: r.categories,
+      partners: r.partners,
+      rateOn: acrossCurrencies
+          ? dayRatesOf(await CurrencyController.storedConverter(_db))
+          : null,
     );
     final rates = {
       for (final t in await (_db.select(
@@ -132,8 +246,12 @@ class JournalRepository {
       )..where((t) => t.fxRateMicros.isNotNull())).get())
         t.id: t.fxRateMicros!,
     };
+    // An exchange entry converts as its side's transaction does.
     int? rateOf(JournalEntry e) =>
-        e.source == JournalSource.transaction ? rates[e.sourceId] : null;
+        e.source == JournalSource.transaction ||
+            e.source == JournalSource.exchange
+        ? rates[e.sourceId]
+        : null;
 
     final byKey = <(JournalSource, int), List<_Stored>>{};
     for (final s in await _live(accountIds)) {
@@ -141,6 +259,8 @@ class JournalRepository {
     }
     var posted = 0;
     var reversed = 0;
+    // Transactions whose entries were posted or reversed.
+    final changed = <int>{};
     final now = _clock();
     final writes = _JournalWrites();
     for (final e in wanted) {
@@ -155,18 +275,38 @@ class JournalRepository {
         } else {
           writes.reverse(s, now);
           reversed++;
+          if (e.source == JournalSource.transaction) changed.add(e.sourceId);
         }
       }
       if (kept) continue;
       writes.post(e, rateOf(e), now);
       posted++;
+      if (e.source == JournalSource.transaction) changed.add(e.sourceId);
     }
     for (final gone in byKey.values.expand((s) => s)) {
       writes.reverse(gone, now);
       reversed++;
     }
     await writes.flush(_db);
-    return JournalSync(posted: posted, reversed: reversed);
+    final here = {for (final e in r.history) e.id};
+    final away = [
+      for (final e in r.history)
+        if (changed.contains(e.id))
+          if (e.transferPairId case final id? when !here.contains(id)) id,
+    ];
+    final others = <int>{};
+    for (var i = 0; accountIds != null && i < away.length; i += 500) {
+      final ids = away.sublist(i, min(i + 500, away.length));
+      final t = _db.transactions;
+      others.addAll(
+        await (_db.selectOnly(t, distinct: true)
+              ..addColumns([t.accountId])
+              ..where(t.id.isIn(ids)))
+            .map((row) => row.read(t.accountId)!)
+            .get(),
+      );
+    }
+    return (JournalSync(posted: posted, reversed: reversed), others);
   }
 
   /// Entries that are neither reversed nor reversals, with their postings:
@@ -277,7 +417,11 @@ class JournalRepository {
     for (final (row, postings) in byEntry) {
       // An entry's postings share one currency.
       final currency = postings.first.currency;
-      final record = row.sourceKind == JournalSource.transaction
+      // An exchange entry converts as its side's transaction does, so
+      // Money in transit clears in the base as well.
+      final record =
+          row.sourceKind == JournalSource.transaction ||
+              row.sourceKind == JournalSource.exchange
           ? got[row.sourceId]
           : null;
       int? inBase(int minor) {
@@ -434,13 +578,18 @@ class JournalRepository {
       }
     } on Object catch (error) {
       if (kDebugMode) debugPrint('Building the journal failed: $error');
-      await db
-          .into(db.journalDirty)
-          .insertOnConflictUpdate(
-            const JournalDirtyCompanion(accountId: Value(_rebuildAll)),
-          );
+      await markForRebuild(db);
     }
   }
+
+  /// Marks [db]'s whole journal to be posted again from the records at the
+  /// next [sync]. Clearing a space's data removes its journal with its
+  /// records; this starts it again from the accounts the space keeps.
+  static Future<void> markForRebuild(AppDatabase db) => db
+      .into(db.journalDirty)
+      .insertOnConflictUpdate(
+        const JournalDirtyCompanion(accountId: Value(_rebuildAll)),
+      );
 
   /// Marks the whole journal for a rebuild, when an account id cannot.
   static const _rebuildAll = -1;
@@ -676,36 +825,49 @@ final journalRepositoryProvider = Provider<JournalRepository>((ref) {
 });
 
 /// The open space's journal balances at one ledger generation (how many
-/// changes the ledger has seen) and with one currency converter. Every
-/// provider that reads the journal at that generation shares this one read.
+/// changes the ledger has seen), read through one repository (which holds
+/// the space's database) with one currency converter. Every provider that
+/// reads the journal at that generation shares this one read.
+///
+/// The repository is part of the key because each space's generation
+/// starts at zero: keyed by generation and converter alone, a space opened
+/// after another was handed that space's balances once their counts met.
 ///
 /// It depends on nothing that changes: a change to the ledger or to the
 /// rates makes a new key rather than invalidating this one while its readers
 /// are still computing. The newest key is kept alive, so a reader that is
 /// only read (not listened to) still gets its value; older keys are let go
-/// once the next one is read and nothing watches them.
+/// once the next one is read and nothing watches them. A key of another
+/// repository (another space) is always the newest.
 final journalAtGenerationProvider = FutureProvider.autoDispose
-    .family<JournalBalances, (int, CurrencyConverter)>((ref, key) {
-      final (generation, converter) = key;
+    .family<JournalBalances, (int, CurrencyConverter, JournalRepository)>((
+      ref,
+      key,
+    ) {
+      final (generation, converter, journal) = key;
       final latest = ref.read(_latestJournalProvider);
       final link = ref.keepAlive();
       final newest = latest.generation;
-      if (newest == null || generation >= newest) {
+      if (newest == null ||
+          !identical(latest.journal, journal) ||
+          generation >= newest) {
         final older = latest.link;
         latest
           ..link = link
-          ..generation = generation;
+          ..generation = generation
+          ..journal = journal;
         older?.close();
       } else {
         link.close();
       }
-      return ref.read(journalRepositoryProvider).read(converter: converter);
+      return journal.read(converter: converter);
     });
 
 /// The newest journal generation read, kept alive until the next.
 class _LatestJournal {
   KeepAliveLink? link;
   int? generation;
+  JournalRepository? journal;
 }
 
 final _latestJournalProvider = Provider<_LatestJournal>(
@@ -716,7 +878,10 @@ final _latestJournalProvider = Provider<_LatestJournal>(
 /// ledger and shared by every provider that calls this. Providers that call
 /// it watch `ledgerChangesProvider` themselves, so they follow every change.
 Future<JournalBalances> readJournal(Ref ref) {
-  final generation = ref.watch(journalRepositoryProvider).generation;
+  final journal = ref.watch(journalRepositoryProvider);
   final converter = ref.watch(currencyConverterProvider);
-  return ref.watch(journalAtGenerationProvider((generation, converter)).future);
+  return ref.watch(
+    journalAtGenerationProvider((journal.generation, converter, journal))
+        .future,
+  );
 }

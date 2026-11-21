@@ -21,6 +21,7 @@ import '../../../shared/format/date_labels.dart';
 import '../../../shared/format/ledger_labels.dart';
 import '../../../shared/semantic_ids.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
+import '../../../shared/widgets/beside_or_under.dart';
 import '../../../shared/widgets/choice_menu.dart';
 import '../../../shared/widgets/figures.dart';
 import '../../../shared/widgets/marks.dart';
@@ -573,7 +574,12 @@ class _ActivityRow extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
-        amount: _entryAmount(context, shown, transfer: true),
+        amount: _entryAmount(
+          context,
+          shown,
+          transfer: true,
+          arrived: transfer.outflow == null ? null : transfer.inflow,
+        ),
         onTap: () => showOwnTransferSheet(context, transfer),
       ),
       DailyNoiseLine() && final noise => _row(
@@ -656,31 +662,42 @@ class _ActivityRow extends StatelessWidget {
     required Widget amount,
     Widget? trailing,
     VoidCallback? onTap,
-  }) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(16),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          avatar,
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                RowName(title, style: Theme.of(context).textTheme.titleMedium),
-                subtitle,
-              ],
+  }) {
+    final nameStyle = Theme.of(context).textTheme.titleMedium;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            avatar,
+            const SizedBox(width: 14),
+            // The amount moves under the name at larger text, where the
+            // name would otherwise break a word.
+            Expanded(
+              child: BesideOrUnder(
+                gap: 12,
+                // The subtitle may be a DetailLine, which fits itself.
+                leadMinWidth: RowName.widestWord(context, title, nameStyle),
+                lead: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RowName(title, style: nameStyle),
+                    subtitle,
+                  ],
+                ),
+                end: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [amount, ?trailing],
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          amount,
-          ?trailing,
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Widget _amount(
     BuildContext context,
@@ -702,11 +719,14 @@ class _ActivityRow extends StatelessWidget {
   }
 
   /// [entry]'s amount in the currency it moved in, with the base amount
-  /// under it when that differs; an own [transfer] shows no sign.
+  /// under it when that differs; an own [transfer] shows no sign. A
+  /// transfer whose money [arrived] in another currency shows that amount
+  /// under it instead, in its own currency.
   Widget _entryAmount(
     BuildContext context,
     LedgerEntry entry, {
     bool transfer = false,
+    LedgerEntry? arrived,
   }) {
     final colors = PesaColors.of(context);
     final inflow = entry.direction == TransactionDirection.inflow;
@@ -733,7 +753,10 @@ class _ActivityRow extends StatelessWidget {
           ? colors.successText
           : Theme.of(context).colorScheme.onSurface,
     );
-    final under = original != null
+    final arrivedIn = arrived?.originalCurrency ?? arrived?.currency;
+    final under = arrived != null && arrivedIn != (ownCode ?? entry.currency)
+        ? '→ ${_orHidden(context, formatMoney(Money(arrived.originalAmountMinor ?? arrived.amountMinor, currency: arrivedIn!), alwaysShowMinorUnits: true))}'
+        : original != null
         ? '≈ ${_orHidden(context, formatMoney(Money(entry.amountMinor, currency: entry.currency)))}'
         : ownCode != null
         ? 'Not in totals yet'
@@ -821,10 +844,15 @@ class _Avatar extends StatelessWidget {
       ),
       child: icon != null
           ? Icon(icon, color: foreground, size: 22)
-          : Text(
-              text!,
-              style: Theme.of(context).textTheme.labelLarge!
-                  .copyWith(color: foreground),
+          // Initials shrink to fit at larger text rather than wrap.
+          : FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                text!,
+                softWrap: false,
+                style: Theme.of(context).textTheme.labelLarge!
+                    .copyWith(color: foreground),
+              ),
             ),
     );
   }
