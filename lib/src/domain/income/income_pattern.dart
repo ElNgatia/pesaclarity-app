@@ -38,11 +38,8 @@ class IncomePattern {
     final days = <CalendarDate>{};
     final senders = <String>{};
     for (final e in history) {
-      if (e.currency != currency || !e.isInflow || e.amountMinor <= 0) continue;
-      final role = roleOf(e);
-      if (role != LedgerRole.income && role != LedgerRole.awaitingPayee) {
-        continue;
-      }
+      if (e.currency != currency || e.amountMinor <= 0) continue;
+      if (!isMoneyArrived(e)) continue;
       final date = e.date;
       if (date.isBefore(from) || date.isAfter(today)) continue;
       days.add(date);
