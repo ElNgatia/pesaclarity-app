@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/time/clock.dart';
 import '../../../data/repositories/savings_repository.dart';
 import '../../../domain/savings/savings_prompt.dart';
 import '../../../theme/brand_tokens.dart';
@@ -39,6 +40,11 @@ class SavingsPromptRow extends StatelessWidget {
 /// "Is this your Chumz savings?", under the payment it is about: Add Chumz
 /// opens the sheet that adds it, and "It's not mine" stops the question for
 /// good, leaving the payment as it is.
+///
+/// For an M-Pesa family member (decision 0026 item 5), the same question in
+/// its own words, "You have Ziidi. Add it?", under its newest move: Add
+/// makes the account at once and turns every move into a transfer, and
+/// "Not now" stops the question for good, counting the moves as before.
 class SavingsPromptCard extends ConsumerWidget {
   const SavingsPromptCard(this.prompt, {super.key});
 
@@ -46,73 +52,122 @@ class SavingsPromptCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final colors = PesaColors.of(context);
     final product = prompt.product;
-    // Drawn one pixel up, so its top edge is the row's bottom edge.
-    return Transform.translate(
-      offset: const Offset(0, -1),
-      child: Container(
-        key: const Key('savings-prompt'),
-        margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-        decoration: BoxDecoration(
-          color: theme.cardTheme.color ?? theme.colorScheme.surface,
-          border: Border.all(color: colors.border),
-          borderRadius: const BorderRadius.vertical(
-            bottom: Radius.circular(BrandTokens.cardRadius),
+    final family = product.keptOnItsOwn;
+    Future<void> decline() async {
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      await ref.read(savingsRepositoryProvider).decline(product.id);
+      messenger
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              family
+                  ? SavingsText.familyDeclined(product)
+                  : SavingsText.declined(product),
+            ),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Semantics(
-              header: true,
-              child: IconLine(
-                icon: Icons.account_balance_outlined,
-                iconColor: colors.link,
-                iconSize: 20,
-                gap: 10,
-                text: TextSpan(text: SavingsText.promptTitle(product)),
-                style: theme.textTheme.titleMedium!,
+        );
+    }
+
+    return AskCard(
+      key: const Key('savings-prompt'),
+      title: family
+          ? SavingsText.familyTitle(product)
+          : SavingsText.promptTitle(product),
+      body: family
+          ? SavingsText.familyBody(product)
+          : SavingsText.promptBody(product, prompt.paidTo),
+      primary: FilledButton(
+        key: const Key('savings-prompt-add'),
+        onPressed: family
+            ? () => ref
+                  .read(savingsRepositoryProvider)
+                  .add(
+                    product,
+                    at: ref.read(clockProvider)(),
+                    promptedTransactionId: prompt.transactionId,
+                  )
+            : () => showAddSavingsSheet(
+                context,
+                product,
+                promptedTransactionId: prompt.transactionId,
               ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              SavingsText.promptBody(product, prompt.paidTo),
-              style: theme.textTheme.bodyMedium!.copyWith(
-                color: colors.textMuted,
-              ),
-            ),
-            const SizedBox(height: 14),
-            _Buttons(
-              primary: FilledButton(
-                key: const Key('savings-prompt-add'),
-                onPressed: () => showAddSavingsSheet(
-                  context,
-                  product,
-                  promptedTransactionId: prompt.transactionId,
-                ),
-                child: Text(SavingsText.add(product)),
-              ),
-              secondary: OutlinedButton(
-                key: const Key('savings-prompt-decline'),
-                onPressed: () async {
-                  final messenger = ScaffoldMessenger.maybeOf(context);
-                  await ref.read(savingsRepositoryProvider).decline(product.id);
-                  messenger
-                    ?..hideCurrentSnackBar()
-                    ..showSnackBar(
-                      SnackBar(content: Text(SavingsText.declined(product))),
-                    );
-                },
-                child: const Text(SavingsText.notMine),
-              ),
-            ),
-          ],
-        ),
+        child: Text(SavingsText.add(product)),
+      ),
+      secondary: OutlinedButton(
+        key: const Key('savings-prompt-decline'),
+        onPressed: decline,
+        child: Text(family ? SavingsText.notNow : SavingsText.notMine),
       ),
     );
+  }
+}
+
+/// A question with its answers, drawn as the bottom of a card whose top is
+/// the row it is about ([SavingsPromptRow]); with [attached] false, as a
+/// card of its own, for a question about no one row.
+class AskCard extends StatelessWidget {
+  const AskCard({
+    required this.title,
+    required this.body,
+    required this.primary,
+    required this.secondary,
+    this.attached = true,
+    super.key,
+  });
+
+  final String title;
+  final String body;
+  final Widget primary;
+  final Widget secondary;
+  final bool attached;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = PesaColors.of(context);
+    const radius = Radius.circular(BrandTokens.cardRadius);
+    final card = Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color ?? theme.colorScheme.surface,
+        border: Border.all(color: colors.border),
+        borderRadius: attached
+            ? const BorderRadius.vertical(bottom: radius)
+            : const BorderRadius.all(radius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            header: true,
+            child: IconLine(
+              icon: Icons.account_balance_outlined,
+              iconColor: colors.link,
+              iconSize: 20,
+              gap: 10,
+              text: TextSpan(text: title),
+              style: theme.textTheme.titleMedium!,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            body,
+            style: theme.textTheme.bodyMedium!.copyWith(
+              color: colors.textMuted,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _Buttons(primary: primary, secondary: secondary),
+        ],
+      ),
+    );
+    // Drawn one pixel up, so its top edge is the row's bottom edge.
+    return attached
+        ? Transform.translate(offset: const Offset(0, -1), child: card)
+        : card;
   }
 }
 

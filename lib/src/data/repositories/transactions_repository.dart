@@ -397,6 +397,7 @@ class DriftTransactionsRepository implements TransactionsRepository {
       for (final c in await _db.select(_db.categories).get()) c.id: c,
     };
     final savings = await _intoSavings(categories.values);
+    final waiting = await _waiting(categories.values);
     final accounts = accountIds?.toList();
     final only = ids?.toList();
     String any(List<int> list) => List.filled(list.length, '?').join(', ');
@@ -458,6 +459,7 @@ class DriftTransactionsRepository implements TransactionsRepository {
           tags,
           _converter,
           savings: savings,
+          waiting: waiting,
         ),
     ];
     return _withExchangeCosts(entries, records, categories);
@@ -550,6 +552,18 @@ class DriftTransactionsRepository implements TransactionsRepository {
     return accounts.isEmpty
         ? null
         : _IntoSavings(accounts.toSet(), category.id);
+  }
+
+  /// The M-Pesa family members whose question is open (decision 0026 item
+  /// 5) and the seeded Own transfer category their moves wait under; null
+  /// when none is open.
+  Future<_Waiting?> _waiting(Iterable<Category> categories) async {
+    final hold = await FamilyHold.of(_db);
+    if (hold == null) return null;
+    final category = categories
+        .where((c) => c.key == ownTransferCategoryKey)
+        .firstOrNull;
+    return _Waiting(hold, category?.id);
   }
 
   @override
@@ -955,6 +969,15 @@ class _IntoSavings {
       !accountIds.contains(record.accountId);
 }
 
+/// The moves of M-Pesa family members whose question is open, and the Own
+/// transfer category they wait under (null when it is gone).
+class _Waiting {
+  const _Waiting(this.hold, this.categoryId);
+
+  final FamilyHold hold;
+  final int? categoryId;
+}
+
 LedgerEntry _toLedgerEntry(
   TransactionRecord record,
   Payee? payee,
@@ -962,6 +985,7 @@ LedgerEntry _toLedgerEntry(
   Map<int, Set<int>> tags,
   CurrencyConverter? converter, {
   _IntoSavings? savings,
+  _Waiting? waiting,
 }) {
   // Amounts in another currency are converted into the base one, at the
   // rate the person got or else the rates of their day; with no rate they
@@ -998,7 +1022,19 @@ LedgerEntry _toLedgerEntry(
       savings != null &&
       savings.takes(record) &&
       (applied.categoryId == null || applied.isCategoryAuto);
-  final categoryId = saved ? savings.categoryId : applied.categoryId;
+  // A family member's move waits as an own transfer until the person
+  // answers its question: never income or spending, whatever was
+  // suggested. What the person chose for it stays.
+  final held =
+      !saved &&
+      waiting != null &&
+      (applied.categoryId == null || applied.isCategoryAuto) &&
+      waiting.hold.holds(record);
+  final categoryId = saved
+      ? savings.categoryId
+      : held
+      ? waiting.categoryId
+      : applied.categoryId;
   final category = categoryId == null ? null : categories[categoryId];
   return LedgerEntry(
     id: record.id,
@@ -1011,9 +1047,9 @@ LedgerEntry _toLedgerEntry(
     feeMinor: inBase(record.feeMinor)!,
     payeeId: record.payeeId,
     categoryId: categoryId,
-    categoryType: category?.type,
-    isDailySpending: category?.isDailySpending ?? false,
-    categoryIsAuto: !saved && applied.isCategoryAuto,
+    categoryType: held ? CategoryType.transfer : category?.type,
+    isDailySpending: !held && (category?.isDailySpending ?? false),
+    categoryIsAuto: !saved && !held && applied.isCategoryAuto,
     needsPurpose: applied.needsPurpose,
     transferPairId: record.transferPairId,
     transferAccountId: record.transferAccountId,

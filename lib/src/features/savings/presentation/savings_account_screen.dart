@@ -215,8 +215,8 @@ class _BodyState extends ConsumerState<_Body> {
           onPressed: () => _showRenameSheet(context, account),
           child: const Text(SavingsText.changeName),
         ),
-        // An M-Pesa account, or a fund read from its own messages, is kept
-        // without asking: there is nothing to remove.
+        // An M-Pesa account, or a fund read from its own messages, is one
+        // of the M-Pesa family: it is not removed from here.
         if (!(account.product?.keptOnItsOwn ?? false)) ...[
           const SizedBox(height: 8),
           TextButton(

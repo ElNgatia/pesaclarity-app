@@ -19,6 +19,34 @@ abstract final class SavingsText {
       'Payments to ${product.name} stay as they are. You can add it from '
       'My accounts › Add or remove accounts.';
 
+  // The question about an M-Pesa family member (decision 0026 item 5),
+  // under its newest move in Activity.
+  static String familyTitle(SavingsProduct product) =>
+      'You have ${product.askedAs}. Add it?';
+  static String familyBody(SavingsProduct product) =>
+      'Add it as an account so money you move between M-Pesa and '
+      '${product.name} counts as your own, not as income or spending.';
+  static const notNow = 'Not now';
+  static String familyDeclined(SavingsProduct product) =>
+      'Money moved to and from ${product.name} counts as it did before. '
+      'You can add it from My accounts › Add or remove accounts.';
+
+  // The question about Pochi la Biashara, at the top of Activity.
+  static const pochiTitle = 'You have Pochi la Biashara. Add it?';
+  static String pochiBody(int payments) =>
+      'Add it as an account so money paid into your Pochi is kept apart '
+      'from your M-Pesa balance. $payments '
+      '${payments == 1 ? 'payment waits' : 'payments wait'} until you add it.';
+  static const addPochi = 'Add Pochi';
+  static const pochiDeclined =
+      'Pochi la Biashara is not added. You can add it from My accounts › '
+      'Add or remove accounts.';
+  static String pochiAdded(int read) => read == 0
+      ? 'Pochi la Biashara added'
+      : 'Pochi la Biashara added · $read '
+            '${read == 1 ? 'payment' : 'payments'} read';
+  static const pochiPaidThrough = 'Payments into your Pochi wait to be added';
+
   /// The line shown once under the payment after adding.
   static String added(String name, int updated) => updated == 0
       ? '$name added'
@@ -134,6 +162,7 @@ abstract final class SavingsText {
 
   // My accounts and Add or remove accounts.
   static const savingsApps = 'Savings apps';
+  static const mpesaFamily = 'M-Pesa';
   static String rowName(String name, SavingsProduct? product) =>
       product == null || product.provider == name
       ? name

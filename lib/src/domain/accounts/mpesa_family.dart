@@ -24,3 +24,14 @@ bool isPochiOwnAccount(String? ownAccount) =>
 /// for Pochi la Biashara, otherwise the number as printed.
 String? ownAccountReference(String? ownAccount) =>
     isPochiOwnAccount(ownAccount) ? pochiReference : ownAccount;
+
+/// Why a message into the person's Pochi la Biashara waits in the review
+/// inbox, the one place its text is kept: Pochi is not an account in the
+/// space that read it yet. It waits there, never income, spending or
+/// M-Pesa's money, until the person answers "You have Pochi la Biashara.
+/// Add it?" (decision 0026 item 5) and is read onto its account on Add.
+const pochiAskReason = 'mpesa_pochi_not_added';
+
+/// The setting that keeps "Not now" about Pochi la Biashara in a space, so
+/// it is not asked again there.
+const pochiDeclinedKey = 'mpesa.pochiDeclined';

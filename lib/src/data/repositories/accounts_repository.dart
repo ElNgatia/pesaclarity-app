@@ -36,6 +36,11 @@ abstract interface class AccountsRepository {
     String? reference,
   });
 
+  /// Whether the person's Pochi la Biashara of [institutionId] is an
+  /// account here: added, or made before it was asked about (decision 0026
+  /// item 5). Until it is, its messages wait to be asked about.
+  Future<bool> keepsPochi(String institutionId);
+
   /// The currency [accountId] counts in.
   Future<String> currencyOf(int accountId);
 
@@ -196,6 +201,18 @@ class DriftAccountsRepository implements AccountsRepository {
     if (type == AccountType.mpesa) await _adoptPochi(institutionId, id);
     return id;
   });
+
+  @override
+  Future<bool> keepsPochi(String institutionId) async =>
+      await (_db.select(_db.accounts)
+            ..where(
+              (a) =>
+                  a.institutionId.equals(institutionId) &
+                  a.reference.equals(pochiReference),
+            )
+            ..limit(1))
+          .getSingleOrNull() !=
+      null;
 
   /// Puts a Pochi la Biashara read before its wallet under [walletId], the
   /// first M-Pesa wallet of [institutionId] (decision 0026).

@@ -41,12 +41,15 @@ final savingsAccountProvider =
     });
 
 /// The question to ask under a payment in Activity, "Is this your Chumz
-/// savings?": null when there is nothing to ask, after "It's not mine",
-/// once the product is added, and in every space but Personal.
+/// savings?" or "You have Ziidi. Add it?": null when there is nothing to
+/// ask, after "It's not mine" or "Not now", and once the product is added.
+/// Savings apps are asked about in Personal only; the M-Pesa family
+/// (decision 0026 item 5) wherever its moves are read.
 final savingsPromptProvider = FutureProvider<SavingsPrompt?>((ref) async {
   ref.watch(savingsChangesProvider);
-  if (!ref.watch(savingsOfferedProvider)) return null;
-  return ref.watch(savingsRepositoryProvider).prompt();
+  return ref
+      .watch(savingsRepositoryProvider)
+      .prompt(apps: ref.watch(savingsOfferedProvider));
 });
 
 /// What the records show of a savings product, by product id, for the sheet
@@ -82,18 +85,23 @@ final savingsEntryProvider = FutureProvider.family<SavingsEntryLink?, int>((
 
 /// The savings products the person could add here: those the records show
 /// payments into, or that they said are not theirs, and not added yet.
+/// Savings apps in Personal only; an M-Pesa family member once it was
+/// answered "Not now" (decision 0026 item 5), wherever its moves are read.
 final savingsToAddProvider = FutureProvider<List<SavingsProduct>>((ref) async {
   ref.watch(savingsChangesProvider);
-  if (!ref.watch(savingsOfferedProvider)) return const [];
+  final apps = ref.watch(savingsOfferedProvider);
   final repository = ref.watch(savingsRepositoryProvider);
   final added = {for (final a in await repository.accounts()) a.productId};
   final declined = await repository.declined();
   return [
     for (final product in savingsProducts)
-      if (!product.keptOnItsOwn &&
-          !added.contains(product.id) &&
-          (declined.contains(product.id) ||
-              (await repository.discover(product)).found))
-        product,
+      if (!added.contains(product.id))
+        if (product.keptOnItsOwn
+            ? declined.contains(product.id) &&
+                  (await repository.discover(product)).found
+            : apps &&
+                  (declined.contains(product.id) ||
+                      (await repository.discover(product)).found))
+          product,
   ];
 });

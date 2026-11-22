@@ -35,8 +35,11 @@ abstract interface class SavingsRepository {
 
   /// The question to ask under a payment: the first known product the
   /// person has neither added nor said is not theirs that their records
-  /// show a payment into. Null when there is nothing to ask.
-  Future<SavingsPrompt?> prompt();
+  /// show a payment into. For an M-Pesa family member (decision 0026 item
+  /// 5) any move to or from it will do, the newest; without [apps], only
+  /// those are asked about, not savings apps such as Chumz. Null when there
+  /// is nothing to ask.
+  Future<SavingsPrompt?> prompt({bool apps = true});
 
   /// Adds [product] as a savings account called [name] (the product's name
   /// when not given), opened at [at] or at its first payment, and turns
@@ -56,8 +59,10 @@ abstract interface class SavingsRepository {
     int? promptedTransactionId,
   });
 
-  /// "It's not mine": never ask about [productId] again. Payments to it
-  /// stay as they are.
+  /// "It's not mine", or "Not now" for an M-Pesa family member: never ask
+  /// about [productId] again. Payments to it stay as they are, and a family
+  /// member's moves, which waited as own transfers, count as they did
+  /// before the family was read.
   Future<void> decline(String productId);
 
   /// The products the person said are not theirs, or removed.
@@ -268,6 +273,7 @@ class DriftSavingsRepository implements SavingsRepository {
     var skipped = 0;
     DateTime? first;
     TransactionRecord? latest;
+    TransactionRecord? latestMove;
     String latestCode = '';
     for (final p in found) {
       if (p.skipped) {
@@ -276,6 +282,7 @@ class DriftSavingsRepository implements SavingsRepository {
       }
       final r = p.record;
       if (first == null || r.occurredAt.isBefore(first)) first = r.occurredAt;
+      latestMove = r;
       switch (p.move) {
         case SavingsPayIn(:final code):
           payments++;
@@ -308,25 +315,15 @@ class DriftSavingsRepository implements SavingsRepository {
       firstAt: first,
       latestPayIn: latest == null
           ? null
-          : SavingsPrompt(
-              product: product,
-              transactionId: latest.id,
-              accountId: latest.accountId,
-              at: latest.occurredAt,
-              amountMinor: latest.amountMinor,
-              currency: latest.currency,
-              paidTo: savingsPayeeKey(
-                latest.counterpartyName ??
-                    latest.counterpartyValue?.split('#').first ??
-                    product.name,
-              ),
-              code: latestCode,
-            ),
+          : _promptOf(product, latest, latestCode),
+      latestMove: latestMove == null
+          ? null
+          : _promptOf(product, latestMove, ''),
     );
   }
 
   @override
-  Future<SavingsPrompt?> prompt() async {
+  Future<SavingsPrompt?> prompt({bool apps = true}) async {
     final no = await declined();
     final added = {
       for (final a in await (_db.select(
@@ -335,14 +332,60 @@ class DriftSavingsRepository implements SavingsRepository {
         a.product,
     };
     for (final product in products) {
-      // Kept without asking (decision 0026).
-      if (product.keptOnItsOwn) continue;
+      if (!apps && !product.keptOnItsOwn) continue;
       if (no.contains(product.id) || added.contains(product.id)) continue;
-      final ask = (await discover(product)).latestPayIn;
+      final found = await discover(product);
+      final ask = product.keptOnItsOwn
+          ? found.latestMove ?? await _latestOwn(product)
+          : found.latestPayIn;
       if (ask != null) return ask;
     }
     return null;
   }
+
+  /// The newest message of [product]'s own (Etica's notices), on the
+  /// account they landed on, for a question with no move from M-Pesa to
+  /// ask under.
+  Future<SavingsPrompt?> _latestOwn(SavingsProduct product) async {
+    final institution = product.institutionId;
+    if (institution == null) return null;
+    final a = _db.accounts;
+    final t = _db.transactions;
+    final row =
+        await (_db.select(t).join([innerJoin(a, a.id.equalsExp(t.accountId))])
+              ..where(
+                a.institutionId.equals(institution) &
+                    a.product.isNull() &
+                    t.kind.equalsValue(TransactionKind.correction).not(),
+              )
+              ..orderBy([
+                OrderingTerm.desc(t.occurredAt),
+                OrderingTerm.desc(t.id),
+              ])
+              ..limit(1))
+            .getSingleOrNull();
+    if (row == null) return null;
+    return _promptOf(product, row.readTable(t), '');
+  }
+
+  SavingsPrompt _promptOf(
+    SavingsProduct product,
+    TransactionRecord row,
+    String code,
+  ) => SavingsPrompt(
+    product: product,
+    transactionId: row.id,
+    accountId: row.accountId,
+    at: row.occurredAt,
+    amountMinor: row.amountMinor,
+    currency: row.currency,
+    paidTo: savingsPayeeKey(
+      row.counterpartyName ??
+          row.counterpartyValue?.split('#').first ??
+          product.name,
+    ),
+    code: code,
+  );
 
   @override
   Future<SavingsAdded> add(
@@ -353,25 +396,13 @@ class DriftSavingsRepository implements SavingsRepository {
     int? promptedTransactionId,
   }) async {
     final added = await _db.transaction(() async {
-      final existing =
-          await (_db.select(_db.accounts)
-                ..where((a) => a.product.equals(product.id))
-                ..orderBy([(a) => OrderingTerm.asc(a.id)])
-                ..limit(1))
-              .getSingleOrNull();
-      final accountId =
-          existing?.id ??
-          await _db
-              .into(_db.accounts)
-              .insert(
-                AccountsCompanion.insert(
-                  name: _name(name) ?? product.name,
-                  type: product.type,
-                  currency: Value(product.currency),
-                  openingDate: at,
-                  product: Value(product.id),
-                ),
-              );
+      final waiting = await FamilyHold.of(_db, products: products);
+      final accountId = await keepSavingsAccount(
+        _db,
+        product,
+        at: at,
+        name: _name(name),
+      );
       for (final draft in pockets) {
         final pocketName = _name(draft.name) ?? draft.code;
         if (pocketName.isEmpty) continue;
@@ -402,6 +433,11 @@ class DriftSavingsRepository implements SavingsRepository {
         accountId: accountId,
         products: products,
       );
+      // Moves that waited for the answer and were not linked (in another
+      // currency, say) count as they did before: posted again.
+      if (waiting != null && waiting.products.contains(product)) {
+        await touchHeldMoves(_db, waiting, product: product);
+      }
       if (promptedTransactionId != null) {
         final others = sync.linked.difference({promptedTransactionId});
         await _saveSetting(
@@ -432,12 +468,18 @@ class DriftSavingsRepository implements SavingsRepository {
   }
 
   @override
-  Future<void> decline(String productId) async {
+  Future<void> decline(String productId) => _db.transaction(() async {
+    final waiting = await FamilyHold.of(_db, products: products);
     final no = await declined();
-    if (no.add(productId)) {
-      await _saveSetting(savingsDeclinedKey, declinedProductsToJson(no));
-    }
-  }
+    if (!no.add(productId)) return;
+    await _saveSetting(savingsDeclinedKey, declinedProductsToJson(no));
+    // A family member's moves waited as own transfers: they count as they
+    // did before again, and the journal posts them so.
+    final product = savingsProductById(productId, products: products);
+    if (waiting == null || product == null) return;
+    if (!waiting.products.contains(product)) return;
+    await touchHeldMoves(_db, waiting, product: product);
+  });
 
   @override
   Future<Set<String>> declined() async =>

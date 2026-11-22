@@ -35,6 +35,7 @@ class SavingsDiscovery {
     this.skipped = 0,
     this.firstAt,
     this.latestPayIn,
+    this.latestMove,
   });
 
   final SavingsProduct product;
@@ -57,6 +58,10 @@ class SavingsDiscovery {
 
   /// The newest payment in, which the question is asked under.
   final SavingsPrompt? latestPayIn;
+
+  /// The newest move either way, which an M-Pesa family member's question
+  /// is asked under (decision 0026 item 5).
+  final SavingsPrompt? latestMove;
 
   /// Whether the records show any money paid in or back.
   bool get found => payments + moneyBack > 0;

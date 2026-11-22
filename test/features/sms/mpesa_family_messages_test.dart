@@ -3,15 +3,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/repositories/accounts_repository.dart';
 import 'package:pesaclarity/src/data/repositories/balances_repair.dart';
+import 'package:pesaclarity/src/data/repositories/journal_repository.dart';
 import 'package:pesaclarity/src/data/repositories/message_reads_repository.dart';
 import 'package:pesaclarity/src/data/repositories/review_inbox_repository.dart';
 import 'package:pesaclarity/src/data/repositories/savings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/transactions_repository.dart';
 import 'package:pesaclarity/src/domain/accounts/mpesa_family.dart';
+import 'package:pesaclarity/src/domain/books/book_account.dart';
+import 'package:pesaclarity/src/domain/books/journal_balances.dart';
 import 'package:pesaclarity/src/domain/ledger/ledger_entry.dart';
 import 'package:pesaclarity/src/domain/ledger/ledger_role.dart';
 import 'package:pesaclarity/src/domain/ledger/ledger_totals.dart';
 import 'package:pesaclarity/src/domain/savings/savings_product.dart';
+import 'package:pesaclarity/src/features/accounts/application/pochi_ask.dart';
 import 'package:pesaclarity/src/features/accounts/domain/institution.dart';
 import 'package:pesaclarity/src/features/sms/application/sms_ingestor.dart';
 import 'package:ujumbe/ujumbe.dart';
@@ -155,6 +159,8 @@ void main() {
     test('is an account of its own from its first message, in the M-Pesa '
         'family, and money moved is an own transfer', () async {
       await ingestor.ingest([_ziidiIn, _ziidiOut, _till], [_mpesa]);
+      expect((await savings.prompt())?.product, ziidi);
+      await savings.add(ziidi, at: _eat(20, 9));
       final ziidiAccount = await productAccount('ziidi');
       final mpesa = await wallet();
       expect(ziidiAccount.name, 'Ziidi');
@@ -170,13 +176,14 @@ void main() {
       final summary = (await savings.account(ziidiAccount.id))!;
       expect(summary.balanceMinor, 40000);
       expect(summary.pockets, hasLength(1));
-      // Not asked about, as Chumz is.
+      // Added: not asked about again.
       expect(await savings.prompt(), isNull);
     });
 
     test('a balance the person types is its value; the rest is returns, '
         'income under Interest', () async {
       await ingestor.ingest([_ziidiIn, _ziidiOut], [_mpesa]);
+      await savings.add(ziidi, at: _eat(20, 9));
       final id = (await productAccount('ziidi')).id;
       final pocket = (await savings.account(id))!.pockets.single;
       await savings.updateBalances(
@@ -197,6 +204,7 @@ void main() {
   group('M-Shwari', () {
     test("M-Pesa's message sets its balance", () async {
       await ingestor.ingest([_shwariIn, _shwariOut], [_mpesa]);
+      await savings.add(mshwari, at: _eat(20, 9));
       final shwari = await productAccount('mshwari');
       expect(shwari.name, 'M-Shwari');
       expect(shwari.familyOf, (await wallet()).id);
@@ -218,6 +226,7 @@ void main() {
 
     test('reading the messages again changes nothing', () async {
       await ingestor.ingest([_shwariIn, _shwariOut], [_mpesa]);
+      await savings.add(mshwari, at: _eat(20, 9));
       final before = await rows();
       final again = await ingestor.ingest(
         [_shwariIn, _shwariOut],
@@ -262,11 +271,17 @@ void main() {
         'first', () async {
       await ingestor.ingest([_eticaNotice], [_mpesa, _etica]);
       await ingestor.ingest([_eticaIn, _eticaBack], [_mpesa, _etica]);
+      expect((await savings.prompt())?.product, eticaMmf);
+      await savings.add(eticaMmf, at: _eat(20, 9));
+      await expectOneMove();
+      // New messages join the account added.
+      await ingestor.ingest([_eticaNotice], [_mpesa, _etica], again: true);
       await expectOneMove();
     });
 
     test('its notice and the M-Pesa receipt are one move, the receipt '
         'first', () async {
+      await savings.add(eticaMmf, at: _eat(9, 9));
       await ingestor.ingest([_eticaIn, _eticaBack], [_mpesa, _etica]);
       await ingestor.ingest([_eticaNotice], [_mpesa, _etica]);
       await expectOneMove();
@@ -274,12 +289,36 @@ void main() {
   });
 
   group('Pochi la Biashara', () {
-    test('is its own account with the balance its message prints, never '
-        "the wallet's", () async {
+    PochiAsk pochiAsk() => PochiAsk(db, ingestor: ingestor, mpesa: _mpesa);
+
+    Future<List<ReviewItem>> waiting() =>
+        (db.select(db.reviewItems)..where((r) => r.resolvedAt.isNull())).get();
+
+    test('waits to be asked about, off the records and the wallet, until '
+        'Add makes it its own account with the balance its message '
+        'prints', () async {
       await ingestor.ingest([_till, _pochi], [_mpesa]);
-      final all = await accounts();
-      final pochi = all.singleWhere((a) => isPochiReference(a.reference));
+      // No account before the answer: the message waits, as it is.
+      expect(
+        (await accounts()).where((a) => isPochiReference(a.reference)),
+        isEmpty,
+      );
+      final held = await waiting();
+      expect(held.single.reason, pochiAskReason);
+      expect(held.single.body, _pochi.body);
       final mpesa = await wallet();
+      expect((await rows()).map((r) => r.receiptNo), ['TJA0000040']);
+      final ask = pochiAsk();
+      expect((await ask.waiting())!.payments, 1);
+      expect((await ask.waiting())!.declined, isFalse);
+      // Reading the messages again keeps it waiting, once.
+      await ingestor.ingest([_till, _pochi], [_mpesa], again: true);
+      expect(await waiting(), hasLength(1));
+
+      expect(await ask.add(), 1);
+      final pochi = (await accounts()).singleWhere(
+        (a) => isPochiReference(a.reference),
+      );
       expect(pochi.name, pochiName);
       expect(pochi.familyOf, mpesa.id);
       final sale = (await rows(accountId: pochi.id)).single;
@@ -288,6 +327,191 @@ void main() {
       expect((await rows(accountId: mpesa.id)).map((r) => r.receiptNo), [
         'TJA0000040',
       ]);
+      expect(await waiting(), isEmpty);
+      expect(await ask.waiting(), isNull);
+    });
+
+    test('Not now is kept, never asked again, and the payments keep waiting '
+        'for Add later', () async {
+      await ingestor.ingest([_till, _pochi], [_mpesa]);
+      final ask = pochiAsk();
+      await ask.decline();
+      expect((await ask.waiting())!.declined, isTrue);
+      await ingestor.ingest([_pochi], [_mpesa], again: true);
+      expect((await ask.waiting())!.declined, isTrue);
+      expect(
+        (await accounts()).where((a) => isPochiReference(a.reference)),
+        isEmpty,
+      );
+      // The wallet holds only its own money.
+      expect((await rows()).map((r) => r.receiptNo), ['TJA0000040']);
+      // Added later, from Add or remove accounts.
+      expect(await ask.add(), 1);
+      expect(await ask.waiting(), isNull);
+    });
+
+    test('made before it was asked about: no question', () async {
+      final mpesa = await DriftAccountsRepository(db).accountForInstitution(
+        'mpesa',
+        name: 'M-Pesa',
+        type: AccountType.mpesa,
+        openingDate: _eat(1, 9),
+        currency: 'KES',
+      );
+      await DriftAccountsRepository(db).accountForInstitution(
+        'mpesa',
+        name: pochiName,
+        type: AccountType.other,
+        openingDate: _eat(1, 9),
+        currency: 'KES',
+        reference: pochiReference,
+      );
+      await ingestor.ingest([_pochi], [_mpesa]);
+      expect(await pochiAsk().waiting(), isNull);
+      final pochi = (await accounts()).singleWhere(
+        (a) => isPochiReference(a.reference),
+      );
+      expect(pochi.familyOf, mpesa);
+      expect(await rows(accountId: pochi.id), hasLength(1));
+    });
+  });
+
+  group('asked before adding (0026 item 5)', () {
+    Future<JournalBalances> books() async {
+      final journal = JournalRepository(db, clock: () => _eat(21, 9));
+      await journal.sync();
+      return journal.read();
+    }
+
+    Future<int> walletBooks() async => (await books()).balanceOf(
+      BookAccount.money((await wallet()).id),
+      currency: 'KES',
+    );
+
+    test('no account exists before the answer, and the moves wait as own '
+        'transfers with the wallet as its messages print it', () async {
+      await ingestor.ingest([_ziidiIn, _ziidiOut, _shwariIn], [_mpesa]);
+      expect((await accounts()).where((a) => a.product != null), isEmpty);
+      expect((await accounts()).map((a) => a.type), [AccountType.mpesa]);
+      for (final receipt in ['TJA0000030', 'TJA0000031', 'TJA0000016']) {
+        expect(await roleFor(receipt), LedgerRole.ownTransfer, reason: receipt);
+      }
+      final sums = await totals();
+      expect(sums.incomeMinor, 0);
+      expect(sums.spendingMinor, 0);
+      // Asked about one at a time, M-Shwari first, in its own words.
+      final first = (await savings.prompt())!;
+      expect(first.product, mshwari);
+      expect(mshwari.askedAs, 'M-Shwari savings');
+      expect(
+        first.transactionId,
+        (await rows()).singleWhere((r) => r.receiptNo == 'TJA0000016').id,
+      );
+      // Only the family is asked outside Personal.
+      expect((await savings.prompt(apps: false))?.product, mshwari);
+      // The wallet as its last message prints it: Ksh650.00.
+      expect(await walletBooks(), 65000);
+    });
+
+    test('Add makes the account and turns every past move into a '
+        'transfer', () async {
+      await ingestor.ingest([_ziidiIn, _ziidiOut], [_mpesa]);
+      final before = await walletBooks();
+      final added = await savings.add(
+        ziidi,
+        at: _eat(20, 9),
+        promptedTransactionId: (await savings.prompt())!.transactionId,
+      );
+      expect(added.linked, 2);
+      final account = await productAccount('ziidi');
+      expect(account.familyOf, (await wallet()).id);
+      final moves = await rows(accountId: (await wallet()).id);
+      expect(moves.every((r) => r.transferAccountId == account.id), isTrue);
+      expect(moves.every((r) => r.transferPairId != null), isTrue);
+      expect((await savings.account(account.id))!.balanceMinor, 40000);
+      expect(await savings.prompt(), isNull);
+      expect((await savings.addedNotice())!.updated, 1);
+      expect(await walletBooks(), before);
+      // Ziidi holds what was moved; nothing else changed.
+      expect(
+        (await books()).balanceOf(
+          BookAccount.money(account.id),
+          currency: 'KES',
+        ),
+        40000,
+      );
+    });
+
+    test('Not now keeps the old categorisation and never asks again', () async {
+      await ingestor.ingest([_ziidiIn, _ziidiOut], [_mpesa]);
+      final before = await walletBooks();
+      await savings.decline('ziidi');
+      // As before the family was read: a send, and money from someone not
+      // named yet.
+      expect(await roleFor('TJA0000030'), LedgerRole.spending);
+      expect(await roleFor('TJA0000031'), LedgerRole.awaitingPayee);
+      final sums = await totals();
+      expect(sums.spendingMinor, 100000);
+      expect((await accounts()).where((a) => a.product != null), isEmpty);
+      expect(await savings.prompt(), isNull);
+      // New moves do not bring the question back.
+      await ingestor.ingest([_ziidiIn, _ziidiOut], [_mpesa], again: true);
+      expect(await savings.prompt(), isNull);
+      expect(await walletBooks(), before);
+      // The journal posts the answer: the send is spending there too.
+      expect(
+        (await books()).balanceOf(BookAccount.ownTransfers, currency: 'KES'),
+        0,
+      );
+    });
+
+    test('a category the person chose stays theirs while it waits', () async {
+      await ingestor.ingest([_ziidiIn], [_mpesa]);
+      final category = await db
+          .into(db.categories)
+          .insert(
+            CategoriesCompanion.insert(
+              name: 'Rainy day',
+              type: CategoryType.expense,
+            ),
+          );
+      await (db.update(db.transactions)
+            ..where((t) => t.receiptNo.equals('TJA0000030')))
+          .write(TransactionsCompanion(categoryOverrideId: Value(category)));
+      expect(await roleFor('TJA0000030'), LedgerRole.spending);
+    });
+
+    test('the upgrade from accounts made without asking keeps them, as '
+        'added, and asks nothing', () async {
+      // As the first version of the family left them: accounts made from
+      // the messages, before the question was asked.
+      await ingestor.ingest([_ziidiIn, _shwariIn], [_mpesa]);
+      final mpesa = (await wallet()).id;
+      for (final product in [ziidi, mshwari]) {
+        await db
+            .into(db.accounts)
+            .insert(
+              AccountsCompanion.insert(
+                name: product.name,
+                type: product.type,
+                openingDate: _eat(1, 9),
+                product: Value(product.id),
+                familyOf: Value(mpesa),
+              ),
+            );
+      }
+      await repairBalances(db);
+      expect(await savings.prompt(), isNull);
+      expect(await roleFor('TJA0000030'), LedgerRole.ownTransfer);
+      expect(await roleFor('TJA0000016'), LedgerRole.ownTransfer);
+      expect(
+        (await rows())
+            .where((r) => r.receiptNo == 'TJA0000030')
+            .single
+            .transferAccountId,
+        (await productAccount('ziidi')).id,
+      );
+      expect(await walletBooks(), 5000);
     });
   });
 
@@ -319,8 +543,9 @@ void main() {
           ),
         );
 
-    test('plain sends and receipts to ZIIDI, M-Shwari and ETICA become '
-        'transfers, once, and what the person set stays', () async {
+    test('plain sends and receipts to ZIIDI, M-Shwari and ETICA make no '
+        'account; each waits for its question, then becomes a transfer on '
+        'Add, and what the person set stays', () async {
       final mpesa = await db
           .into(db.accounts)
           .insert(
@@ -390,9 +615,24 @@ void main() {
 
       final repaired = await repairBalancesOnce(db);
       expect(repaired, isNotNull);
+      expect((await accounts()).where((a) => a.product != null), isEmpty);
+      for (final receipt in ['TJB0000002', 'TJB0000003']) {
+        expect(
+          await roleFor(receipt, accountId: mpesa),
+          LedgerRole.ownTransfer,
+          reason: receipt,
+        );
+      }
+      // The person's own category stays theirs.
+      expect(
+        await roleFor('TJB0000001', accountId: mpesa),
+        LedgerRole.spending,
+      );
+
+      for (final product in [ziidi, mshwari, eticaMmf]) {
+        await savings.add(product, at: _eat(20, 9));
+      }
       final ziidiAccount = await productAccount('ziidi');
-      await productAccount('mshwari');
-      await productAccount('etica');
       for (final receipt in ['TJB0000001', 'TJB0000002', 'TJB0000003']) {
         expect(
           await roleFor(receipt, accountId: mpesa),
