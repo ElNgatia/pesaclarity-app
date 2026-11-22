@@ -134,17 +134,22 @@ class SpaceDatabases {
   /// one space only: the one that read it first, or the one the person
   /// moved it to. A space that cannot be opened is skipped, so reading
   /// never stops for it.
-  Future<Set<String>> heldElsewhere(Set<String> hashes) async {
+  Future<Set<String>> heldElsewhere(Set<String> hashes) =>
+      heldOutside(_ref.read(activeSpaceIdProvider), hashes);
+
+  /// Which of [hashes] a space on the list other than [spaceId] already
+  /// holds, as [heldElsewhere] tells for the open space: for reading into a
+  /// space that is not open.
+  Future<Set<String>> heldOutside(String spaceId, Set<String> hashes) async {
     if (hashes.isEmpty) return const {};
-    final open = _ref.read(activeSpaceIdProvider);
     final others = [
       for (final space in await listed())
-        if (space.id != open) space.id,
+        if (space.id != spaceId) space.id,
     ];
     final found = <String>{};
     for (final id in others) {
       try {
-        final (db, close) = await this.open(id);
+        final (db, close) = await open(id);
         try {
           found.addAll(await heldIn(db, hashes));
         } finally {
