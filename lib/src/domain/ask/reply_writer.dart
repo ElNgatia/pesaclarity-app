@@ -318,6 +318,10 @@ class TemplateReplyWriter implements ReplyWriter {
       'Paid in charges {period}, Fuliza included.',
       'What charges took {period}, with Fuliza.',
     ],
+    ReplyKind.feesNoFuliza: [
+      'Paid in charges {period}.',
+      'What charges took {period}.',
+    ],
     ReplyKind.profit: [
       'Profit {period}, after costs.',
       'What is left {period} once costs are paid.',

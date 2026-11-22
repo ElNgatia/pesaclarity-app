@@ -7,6 +7,7 @@ import '../../../core/money/money_format.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/categories_repository.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/ledger/balance_check.dart';
 import '../../../domain/time/calendar.dart';
@@ -45,9 +46,14 @@ enum MissingKind {
   /// Whether it is money out.
   final bool out;
 
-  static List<MissingKind> forDirection({required bool out}) => [
+  /// The kinds for money [out] or in; a Fuliza repayment only while the
+  /// space shows [fuliza].
+  static List<MissingKind> forDirection({
+    required bool out,
+    bool fuliza = true,
+  }) => [
     for (final k in values)
-      if (k.out == out) k,
+      if (k.out == out && (fuliza || k != fulizaRepayment)) k,
   ];
 }
 
@@ -90,6 +96,8 @@ class _AddMissingSheetState extends ConsumerState<AddMissingSheet> {
   var _saving = false;
 
   String get _currency => widget.balance.opening.currency;
+
+  bool get _fuliza => ref.read(fulizaTrackingProvider).value?.shown ?? false;
 
   @override
   void initState() {
@@ -148,12 +156,14 @@ class _AddMissingSheetState extends ConsumerState<AddMissingSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuilt when the space starts or stops showing Fuliza.
+    ref.watch(fulizaTrackingProvider);
     final theme = Theme.of(context);
     final today = CalendarDate.local(ref.watch(clockProvider)());
     final gap = widget.gap;
     String when(DateTime t) =>
         '${dayHeading(CalendarDate.local(t), today: today)} ${formatTime(t)}';
-    final kinds = MissingKind.forDirection(out: _out);
+    final kinds = MissingKind.forDirection(out: _out, fuliza: _fuliza);
     return Form(
       key: _form,
       child: SheetBody(
@@ -168,7 +178,10 @@ class _AddMissingSheetState extends ConsumerState<AddMissingSheet> {
             selected: _out,
             onChanged: (value) => setState(() {
               _out = value;
-              _kind = MissingKind.forDirection(out: value).first;
+              _kind = MissingKind.forDirection(
+                out: value,
+                fuliza: _fuliza,
+              ).first;
             }),
           ),
           const SizedBox(height: 16),

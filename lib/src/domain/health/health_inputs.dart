@@ -43,7 +43,8 @@ class HealthInputs {
   ///   count.
   /// - Essentials are the month's planned expense, debt and tax lines, or,
   ///   with no plan, the actual spending, fees, tax and debt payments.
-  /// - Overdraft days are days with at least one Fuliza draw.
+  /// - Overdraft days are days with at least one Fuliza draw; none while
+  ///   the [journal] does not show Fuliza.
   /// - Leakages are spending with a payee leak type, plus every fee.
   ///
   /// With the space's [journal], fees count Fuliza charges as the journal has
@@ -102,10 +103,13 @@ class HealthInputs {
           totals.debtRepaymentMinor;
     }
 
-    final overdraftDays = {
-      for (final e in inMonth)
-        if (e.kind == TransactionKind.fulizaDraw) e.date,
-    }.length;
+    // Not tracking Fuliza, the person is not scored or told about it.
+    final overdraftDays = journal?.fulizaShown == false
+        ? 0
+        : {
+            for (final e in inMonth)
+              if (e.kind == TransactionKind.fulizaDraw) e.date,
+          }.length;
 
     var leakage = breakdown?.totalMinor ?? totals.feesMinor;
     if (breakdown == null) {

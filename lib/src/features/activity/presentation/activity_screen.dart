@@ -8,6 +8,7 @@ import '../../../core/money/money_format.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../domain/accounts/mpesa_family.dart';
 import '../../../domain/categoriser/suggester.dart';
 import '../../../domain/ledger/activity_feed.dart';
@@ -158,8 +159,12 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
 
     final inWindow = _filter.copyWith(from: () => _filter.from ?? from);
     final tagId = ref.watch(activityTagFilterProvider);
+    // With Fuliza not tracked, its draws and repayments leave the list; the
+    // week's money in and out still counts every entry, as before.
+    final fulizaRows = ref.watch(fulizaTrackingProvider).value?.shown ?? true;
     final shown = entries.where(
       (e) =>
+          (fulizaRows || !isFulizaKind(e.kind)) &&
           matchesTagFilter(e, tagId) &&
           inWindow.matches(
             e,

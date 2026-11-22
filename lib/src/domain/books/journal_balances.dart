@@ -9,7 +9,10 @@ import 'journal.dart';
 /// or from the records with [JournalBalances.ofRecords].
 class JournalBalances {
   /// Reads [entries], in any order.
-  JournalBalances(Iterable<JournalEntry> entries) {
+  JournalBalances(Iterable<JournalEntry> entries)
+    : _lines = {},
+      _running = Expando<List<int>>(),
+      fulizaShown = true {
     for (final e in entries) {
       for (final l in e.lines) {
         (_lines[(l.account, e.currency)] ??= []).add((e.at, l.amountMinor));
@@ -35,8 +38,25 @@ class JournalBalances {
     postJournal(accounts: accounts, history: history, categories: categories),
   );
 
-  final _lines = <(BookAccount, String), List<(DateTime, int)>>{};
-  final _running = Expando<List<int>>();
+  JournalBalances._view(
+    this._lines,
+    this._running, {
+    required this.fulizaShown,
+  });
+
+  final Map<(BookAccount, String), List<(DateTime, int)>> _lines;
+  final Expando<List<int>> _running;
+
+  /// Whether the space shows Fuliza (see `FulizaTracking`). Hidden, the
+  /// postings stay as they are, but Fuliza owed reads as nothing, so each
+  /// M-Pesa account is worth its wallet: the balance M-Pesa reports.
+  final bool fulizaShown;
+
+  /// These balances with Fuliza [shown] or hidden, read from the same
+  /// postings.
+  JournalBalances withFuliza({required bool shown}) => shown == fulizaShown
+      ? this
+      : JournalBalances._view(_lines, _running, fulizaShown: shown);
 
   /// Debit-positive total of [account] in [currency] from postings dated
   /// before [at], or all of them.
@@ -86,9 +106,9 @@ class JournalBalances {
   );
 
   /// Fuliza owed on [account] just before [at]; nothing for accounts that
-  /// cannot owe Fuliza.
+  /// cannot owe Fuliza, or while Fuliza is hidden.
   int fulizaOwedAt(AccountOpening account, {required DateTime at}) =>
-      account.canOweFuliza
+      account.canOweFuliza && fulizaShown
       ? balanceOf(
           BookAccount.fulizaOwed(account.id),
           currency: account.currency,

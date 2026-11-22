@@ -229,6 +229,47 @@ void main() {
     expect(parts.last.suffix, 'repay');
   });
 
+  test('Fuliza not tracked: no liability; the draw comes from outside and '
+      'the repayment goes there, M-Pesa moving exactly as before', () {
+    final draw = _entry(
+      TransactionKind.fulizaDraw,
+      TransactionDirection.inflow,
+      80000,
+      fee: 800,
+    );
+    final repay = _entry(
+      TransactionKind.fulizaRepayment,
+      TransactionDirection.outflow,
+      80000,
+      id: 8,
+    );
+    final drawn = fireflyWithoutFuliza(
+      _parts(draw, money: 80000, fuliza: 80800),
+    );
+    final repaid = fireflyWithoutFuliza(
+      _parts(repay, money: -80800, fuliza: -80800),
+    );
+    final all = [...drawn, ...repaid];
+    for (final p in all) {
+      for (final a in p.accounts) {
+        expect(a.kind, isNot(FireflyAccountKind.liability), reason: '$p');
+        expect(a.name, isNot(contains('Fuliza')), reason: '$p');
+      }
+      expect(p.description, isNot(contains('Fuliza')), reason: '$p');
+    }
+    // The access fee only added to what was owed: nothing own moved, so
+    // it is left out, and paid with the repayment.
+    expect(drawn, hasLength(1));
+    expect(drawn.single.type, FireflyPartType.deposit);
+    expect(drawn.single.source, FireflyAccountSpec.revenue(fireflyOverdraft));
+    expect(
+      repaid.first.destination,
+      FireflyAccountSpec.expense(fireflyOverdraft),
+    );
+    expect(fireflyDeltas(drawn), {'money:1': 80000});
+    expect(fireflyDeltas(repaid), {'money:1': -80800});
+  });
+
   test('a loan from a lender is a liability named after it', () {
     final loan = _entry(
       TransactionKind.received,

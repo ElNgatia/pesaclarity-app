@@ -10,6 +10,7 @@ import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/balance_records_repository.dart';
 import '../../../data/repositories/balances_repair.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/ledger_history.dart';
 import '../../../data/repositories/own_moves.dart';
@@ -206,8 +207,10 @@ final balancesOverviewProvider = FutureProvider<BalancesOverview>((ref) async {
 
 /// What M-Pesa's balances show Fuliza did with no message of its own, by
 /// the entry whose balance shows it, for Activity.
+/// Empty while the space does not show Fuliza.
 final fulizaAutoProvider = FutureProvider<Map<int, FulizaAuto>>((ref) async {
   final overview = await ref.watch(balancesOverviewProvider.future);
+  if (!await fulizaShown(ref)) return const {};
   return {
     for (final a in overview.accounts)
       if (a.opening.canOweFuliza)

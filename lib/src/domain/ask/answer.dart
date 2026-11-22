@@ -66,6 +66,9 @@ enum ReplyKind {
   noLowStock,
   fees,
 
+  /// Charges, for a space that does not show Fuliza: Fuliza is not named.
+  feesNoFuliza,
+
   /// Nothing came in, said as that rather than "no payments like this".
   nothingIn,
 

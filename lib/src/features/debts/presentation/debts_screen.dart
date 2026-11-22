@@ -75,7 +75,7 @@ class DebtsScreen extends ConsumerWidget {
               ),
               children: [
                 if (overview.debts.isEmpty)
-                  const _NoDebtsYet()
+                  _NoDebtsYet(fuliza: overview.fulizaShown)
                 else ...[
                   _RemainingCard(overview),
                   const SizedBox(height: Layout.cardGap),
@@ -107,15 +107,21 @@ class DebtsScreen extends ConsumerWidget {
 }
 
 class _NoDebtsYet extends StatelessWidget {
-  const _NoDebtsYet();
+  const _NoDebtsYet({required this.fuliza});
+
+  /// Whether Fuliza is named among the examples: only for people who use
+  /// it.
+  final bool fuliza;
 
   @override
   Widget build(BuildContext context) {
-    return const HeroFigureCard(
+    return HeroFigureCard(
       label: 'Debt-free by',
-      caption:
-          'Add loans, cards, Fuliza or money from family to see the '
-          'month you will be debt-free.',
+      caption: fuliza
+          ? 'Add loans, cards, Fuliza or money from family to see the '
+                'month you will be debt-free.'
+          : 'Add loans, cards or money from family to see the month you '
+                'will be debt-free.',
     );
   }
 }

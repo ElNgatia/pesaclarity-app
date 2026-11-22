@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/categories_repository.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../domain/categories/default_categories.dart';
 import '../../../domain/export/export_tables.dart';
 import '../../../shared/adaptive/adaptive.dart';
@@ -145,9 +146,16 @@ class _CategoryPickerState extends ConsumerState<CategoryPicker> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Fuliza repayment only for people who use Fuliza and track it, or
+    // when it is the one already chosen.
+    final fuliza = ref.watch(fulizaTrackingProvider).value?.shown ?? false;
     final all = [
       for (final c in ref.watch(categoriesProvider).value ?? const <Category>[])
-        if (widget.allowType?.call(c.type) ?? true) c,
+        if ((widget.allowType?.call(c.type) ?? true) &&
+            (fuliza ||
+                c.key != fulizaRepaymentCategoryKey ||
+                c.id == widget.selectedId))
+          c,
     ];
     final usage = ref.watch(categoryUsageProvider).value ?? const {};
     final query = _query.text.trim();

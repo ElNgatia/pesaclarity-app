@@ -84,6 +84,12 @@ class _Source implements AskDataSource {
   List<AskLine> accounts;
   final learned = <AskShortcut>[];
 
+  /// Whether the space shows Fuliza.
+  bool fuliza = true;
+
+  @override
+  Future<bool> fulizaShown() async => fuliza;
+
   @override
   Future<List<AskEntity>> entities() async => const [
     AskEntity(SlotKind.category, 'c:1', 'Food'),

@@ -374,6 +374,7 @@ class FireflyTransactionFacts {
     this.gapMinor = 0,
     this.heldFor,
     this.journalHeldMinor = 0,
+    this.fulizaShown = true,
   });
 
   final LedgerEntry entry;
@@ -411,6 +412,10 @@ class FireflyTransactionFacts {
 
   /// What it moves [heldFor] by: more held is positive.
   final int journalHeldMinor;
+
+  /// Whether the space shows Fuliza (see `FulizaTracking`). When it does
+  /// not, no Fuliza liability is sent: see [fireflyWithoutFuliza].
+  final bool fulizaShown;
 }
 
 /// The Firefly III transactions [facts] becomes, for a space named by
@@ -904,7 +909,67 @@ List<FireflyPart> fireflyParts(
       category: fireflyNotYetSorted,
     );
   }
-  return parts;
+  return facts.fulizaShown ? parts : fireflyWithoutFuliza(parts);
+}
+
+/// Where money Fuliza lent comes from, and where repaying it goes, in
+/// Firefly III for a space that does not track Fuliza: a revenue and an
+/// expense account outside the person's own accounts, never a liability.
+const fireflyOverdraft = 'M-Pesa overdraft';
+
+/// [parts] without the Fuliza liability, for a space that does not track
+/// Fuliza. Every own account still moves exactly as before, so each ends
+/// at the balance the app shows: M-Pesa at its wallet, the balance M-Pesa
+/// reports. Money Fuliza put into M-Pesa comes from [fireflyOverdraft]'s
+/// revenue account, and money M-Pesa repaid goes to its expense account,
+/// access fee and daily charges included. A part that moved only the
+/// liability, such as the access fee added to what was owed, moves no own
+/// account once the liability is gone, and is left out. Fuliza's charges
+/// are fees like any other.
+List<FireflyPart> fireflyWithoutFuliza(List<FireflyPart> parts) {
+  bool isFuliza(FireflyAccountSpec a) => a.key.startsWith('fuliza:');
+  String plain(String text) => switch (text) {
+    fireflyFulizaCharges || 'Fuliza access fee' => fireflyFees,
+    _ when text.startsWith('Fuliza') => fireflyOverdraft,
+    _ => text,
+  };
+  FireflyAccountSpec outside(FireflyAccountSpec a, {required bool from}) {
+    if (isFuliza(a)) {
+      return from
+          ? FireflyAccountSpec.revenue(fireflyOverdraft)
+          : FireflyAccountSpec.expense(fireflyOverdraft);
+    }
+    if (a.name == fireflyFulizaCharges) {
+      return from
+          ? FireflyAccountSpec.revenue(fireflyFees)
+          : FireflyAccountSpec.expense(fireflyFees);
+    }
+    return a;
+  }
+
+  return [
+    for (final p in parts)
+      if (p.source.isOwn && !isFuliza(p.source) ||
+          p.destination.isOwn && !isFuliza(p.destination))
+        FireflyPart(
+          suffix: p.suffix,
+          type: p.type,
+          at: p.at,
+          amountMinor: p.amountMinor,
+          currency: p.currency,
+          foreignAmountMinor: p.foreignAmountMinor,
+          foreignCurrency: p.foreignCurrency,
+          source: outside(p.source, from: true),
+          destination: outside(p.destination, from: false),
+          description: plain(p.description),
+          category: switch (p.category) {
+            final c? => plain(c),
+            null => null,
+          },
+          tags: p.tags,
+          notes: p.notes,
+        ),
+  ];
 }
 
 /// [minor] units of [currency] as Firefly III reads an amount: `450.00`.

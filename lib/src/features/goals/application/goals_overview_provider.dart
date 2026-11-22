@@ -22,6 +22,7 @@ class GoalsOverview {
     required this.goals,
     required this.netWorth,
     required this.lending,
+    this.fulizaShown = true,
   });
 
   final CalendarDate today;
@@ -32,6 +33,10 @@ class GoalsOverview {
   final List<SavingsGoal> goals;
   final NetWorth netWorth;
   final LendingOverview lending;
+
+  /// Whether the space shows Fuliza (see `FulizaTracking`): until then it
+  /// is not named among the examples of debts.
+  final bool fulizaShown;
 }
 
 final goalsOverviewProvider = FutureProvider<GoalsOverview>((ref) async {
@@ -49,11 +54,12 @@ final goalsOverviewProvider = FutureProvider<GoalsOverview>((ref) async {
   );
 
   final accounts = await ref.watch(accountsRepositoryProvider).openings();
+  final journal = await readJournal(ref);
 
   final netWorth = NetWorth.at(
     now: now,
     accounts: accounts,
-    balances: await readJournal(ref),
+    balances: journal,
     debtsOwedMinor: progress.remainingMinor,
     debtsRepaidThisMonthMinor: await debtsRepository.repaidBetween(
       month.startInstant,
@@ -73,6 +79,7 @@ final goalsOverviewProvider = FutureProvider<GoalsOverview>((ref) async {
     goals: await ref.watch(goalsRepositoryProvider).goals(),
     netWorth: netWorth,
     lending: lending,
+    fulizaShown: journal.fulizaShown,
   );
 });
 

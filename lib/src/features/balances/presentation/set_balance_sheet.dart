@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/time/clock.dart';
 import '../../../data/repositories/balances_repository.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../shared/adaptive/adaptive.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/app_sheet.dart';
@@ -48,7 +49,11 @@ class _SetBalanceSheetState extends ConsumerState<SetBalanceSheet> {
 
   String get _currency => _balance.opening.currency;
 
-  bool get _canOweFuliza => _balance.opening.canOweFuliza;
+  /// Only while the space shows Fuliza: not tracking it, M-Pesa's balance
+  /// is never below zero.
+  bool get _canOweFuliza =>
+      _balance.opening.canOweFuliza &&
+      (ref.read(fulizaTrackingProvider).value?.shown ?? false);
 
   /// What the person says it holds, below zero when they owe Fuliza.
   int? get _stated {
@@ -90,6 +95,8 @@ class _SetBalanceSheetState extends ConsumerState<SetBalanceSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuilt when the space starts or stops showing Fuliza.
+    ref.watch(fulizaTrackingProvider);
     final theme = Theme.of(context);
     final colors = PesaColors.of(context);
     final stated = _stated;
