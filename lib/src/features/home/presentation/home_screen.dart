@@ -41,6 +41,7 @@ import '../../balances/presentation/on_hand_sheet.dart';
 import '../../business_insights/application/business_report_providers.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../goals/presentation/goals_aside_text.dart';
+import '../../habits/presentation/habits_home_cards.dart';
 import '../../hours/application/hours_providers.dart';
 import '../../hours/presentation/log_hours_sheet.dart';
 import '../../income/application/income_providers.dart';
@@ -267,6 +268,8 @@ class HomeScreen extends ConsumerWidget {
                   const _WhatWasThisCard(),
                   if (untilNext != null) _MoneyInCard(untilNext, today: today),
                   if (untilNext != null && sources.irregular) const _WeekCard(),
+                  const SundayCheckInCard(),
+                  const NoSpendCard(),
                   FigureRow(
                     children: [
                       if (untilNext != null)

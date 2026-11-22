@@ -5,7 +5,15 @@ import '../time/calendar.dart';
 import 'recurring_charges.dart';
 import 'reminder_settings.dart';
 
-enum ReminderKind { bill, cardCharge, payday, safeToSpend, collect, tax }
+enum ReminderKind {
+  bill,
+  cardCharge,
+  payday,
+  safeToSpend,
+  collect,
+  tax,
+  weeklyCheckIn,
+}
 
 /// One local notification to show at [at].
 class Reminder {
