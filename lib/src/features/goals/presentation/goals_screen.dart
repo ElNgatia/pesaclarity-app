@@ -121,9 +121,10 @@ class GoalsScreen extends ConsumerWidget {
         _GoalGrid(goals: overview.goals, today: overview.today),
         const SizedBox(height: Layout.cardGap),
       ],
-      _NetWorthCard(overview.netWorth),
-      const SizedBox(height: Layout.cardGap),
+      // Under the goals, where it is seen before net worth.
       _LendingCard(overview.lending),
+      const SizedBox(height: Layout.cardGap),
+      _NetWorthCard(overview.netWorth),
     ];
   }
 }
@@ -481,6 +482,7 @@ class _LendingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     String kes(int minor) => shownMoney(context, minor, withCurrency: false);
     return _LinkCard(
+      key: const Key('goals-lending'),
       title: 'Lent and borrowed',
       subtitle: lending.isEmpty
           ? 'Keep track of money between you, friends and family.'
@@ -496,6 +498,7 @@ class _LinkCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    super.key,
   });
 
   final String title;
