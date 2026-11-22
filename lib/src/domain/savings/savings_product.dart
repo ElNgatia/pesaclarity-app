@@ -19,6 +19,7 @@ class SavingsProduct {
     this.goalsByCode = true,
     this.balanceInMessages = false,
     this.institutionId,
+    this.askName,
   });
 
   /// Kept on the account (`Accounts.product`), so it is never renamed.
@@ -44,10 +45,12 @@ class SavingsProduct {
   final AccountType type;
   final String currency;
 
-  /// Kept without asking, from its first payment (decision 0026): an
-  /// M-Pesa product, or a fund whose own messages are read. A savings app
-  /// such as Chumz is asked about first (0028), as its paybill may serve
-  /// other products.
+  /// One of the M-Pesa family the app knows from M-Pesa's own words (decision
+  /// 0026): an M-Pesa product, or a fund whose own messages are read, rather
+  /// than a paybill that may serve other products, as Chumz's may (0028).
+  /// Like Chumz it is asked about before it is added ("You have Ziidi. Add
+  /// it?", 0026 item 5), but until the person answers, its moves wait as own
+  /// transfers, never income or spending (see `FamilyHold`).
   final bool keptOnItsOwn;
 
   /// One of the M-Pesa family of accounts (decision 0026), shown under
@@ -69,6 +72,13 @@ class SavingsProduct {
   /// The institution whose own messages are about this account, such as
   /// `etica`: its account is the one those messages land on.
   final String? institutionId;
+
+  /// What the question calls it, when not its [name]: "You have M-Shwari
+  /// savings. Add it?".
+  final String? askName;
+
+  /// The name the question asks about: [askName], else [name].
+  String get askedAs => askName ?? name;
 
   /// Whether paying in to [printed] is paying into this product.
   bool takesPayIn(String? printed) => _fits(printed, payeeNames);
@@ -107,6 +117,7 @@ const mshwari = SavingsProduct(
   inMpesaFamily: true,
   goalsByCode: false,
   balanceInMessages: true,
+  askName: 'M-Shwari savings',
 );
 
 /// Ziidi, M-Pesa's money market fund (decision 0026). No message prints its

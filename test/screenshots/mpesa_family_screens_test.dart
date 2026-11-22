@@ -1,6 +1,8 @@
 // The M-Pesa family of accounts (decision 0026), for the accessibility
 // check (tool/accessibility.sh): My accounts with M-Pesa closed and opened,
-// What you own and owe, Ziidi's and M-Shwari's pages and Activity, each at
+// What you own and owe, Ziidi's and M-Shwari's pages, Activity, and
+// Activity asking "You have M-Shwari savings. Add it?" and about Pochi
+// before the person answers, each at
 // every text size, in light, dark and high contrast. Not marketing
 // screenshots, so tool/screenshots.sh skips them. Made-up records
 // (mpesa_family_records.dart).
@@ -26,10 +28,13 @@ import 'mpesa_family_records.dart';
 
 Future<void> _pump(
   WidgetTester tester,
-  Widget Function(FamilySeeded seeded) home,
-) async {
+  Widget Function(FamilySeeded seeded) home, {
+  bool answered = true,
+}) async {
   final db = openTestDatabase();
-  final seeded = await tester.runAsync(() => FamilyRecords(db).seed());
+  final seeded = await tester.runAsync(
+    () => FamilyRecords(db).seed(answered: answered),
+  );
   await tester.pumpWidget(_scope(db, home(seeded!)));
   await settleFrames(tester);
   await tester.pumpAndSettle();
@@ -81,13 +86,33 @@ void main() {
   });
 
   screenshot('mpesa-family-ziidi', (tester) async {
-    await _pump(tester, (s) => SavingsAccountScreen(accountId: s.ziidi));
+    await _pump(tester, (s) => SavingsAccountScreen(accountId: s.ziidi!));
     await snap(tester);
   });
 
   screenshot('mpesa-family-mshwari', (tester) async {
-    await _pump(tester, (s) => SavingsAccountScreen(accountId: s.mshwari));
+    await _pump(tester, (s) => SavingsAccountScreen(accountId: s.mshwari!));
     await snap(tester);
+  });
+
+  // Before the person answers (decision 0026 item 5): Pochi's question on
+  // top, and "You have M-Shwari savings. Add it?" under its newest move.
+  screenshot('mpesa-family-prompt', (tester) async {
+    await _pump(
+      tester,
+      (_) => tabShell(const ActivityScreen(), tabs: personalTabs, index: 1),
+      answered: false,
+    );
+    expect(find.byKey(const Key('pochi-prompt')), findsOneWidget);
+    await snap(tester);
+    final prompt = find.byKey(const Key('savings-prompt'));
+    await tester.scrollUntilVisible(
+      prompt,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('You have M-Shwari savings. Add it?'), findsOneWidget);
   });
 
   screenshot('mpesa-family-activity', (tester) async {

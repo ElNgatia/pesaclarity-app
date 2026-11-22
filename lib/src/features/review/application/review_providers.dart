@@ -7,6 +7,7 @@ import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/reader_templates_repository.dart';
 import '../../../data/repositories/review_inbox_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/accounts/mpesa_family.dart' show pochiAskReason;
 import '../../../domain/accounts/mpesa_lines.dart' show whichLineReason;
 import '../../../domain/reader/fuliza_wording.dart';
 import '../../../domain/reader/message_reading.dart';
@@ -53,19 +54,21 @@ final messageReaderProvider = FutureProvider<MessageReader>((ref) async {
 /// Messages waiting to be checked, oldest first.
 ///
 /// A message whose M-Pesa line could not be told waits for "Which line was
-/// this?" instead, unless the person asked not to be asked.
+/// this?" instead, unless the person asked not to be asked. A message into
+/// a Pochi la Biashara not added yet waits for its question (decision 0026
+/// item 5), never here.
 final pendingReviewProvider = StreamProvider<List<ReviewItem>>((ref) {
   final asking = ref.watch(askWhichLineProvider).value ?? true;
   return ref
       .watch(reviewInboxRepositoryProvider)
       .watchPending()
       .map(
-        (items) => asking
-            ? [
-                for (final item in items)
-                  if (item.reason != whichLineReason) item,
-              ]
-            : items,
+        (items) => [
+          for (final item in items)
+            if (item.reason != pochiAskReason &&
+                (!asking || item.reason != whichLineReason))
+              item,
+        ],
       );
 });
 

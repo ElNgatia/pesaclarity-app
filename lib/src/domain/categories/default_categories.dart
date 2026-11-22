@@ -140,6 +140,11 @@ const interestEarnedSeed = CategorySeed(
 /// The key of the seeded category money moved into savings counts under.
 const savingsCategoryKey = 'savings';
 
+/// The seeded category of money moved between the person's own accounts:
+/// what an M-Pesa family member's moves wait under until its question is
+/// answered (decision 0026 item 5).
+const ownTransferCategoryKey = 'own_transfer';
+
 /// An existing category as seeding sees it.
 typedef ExistingCategory = ({String? key, String name});
 

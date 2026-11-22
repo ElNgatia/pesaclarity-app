@@ -9,6 +9,9 @@ import 'package:pesaclarity/src/data/repositories/message_reads_repository.dart'
 import 'package:pesaclarity/src/data/repositories/review_inbox_repository.dart';
 import 'package:pesaclarity/src/data/repositories/savings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/transactions_repository.dart';
+import 'package:pesaclarity/src/domain/savings/savings_product.dart'
+    as products;
+import 'package:pesaclarity/src/features/accounts/application/pochi_ask.dart';
 import 'package:pesaclarity/src/features/accounts/domain/institution.dart';
 import 'package:pesaclarity/src/features/sms/application/sms_ingestor.dart';
 import 'package:ujumbe/ujumbe.dart';
@@ -32,8 +35,9 @@ String _when(DateTime at, {bool withAt = true}) {
 class FamilySeeded {
   const FamilySeeded({required this.ziidi, required this.mshwari});
 
-  final int ziidi;
-  final int mshwari;
+  /// The accounts, once added; null while their question is open.
+  final int? ziidi;
+  final int? mshwari;
 }
 
 class FamilyRecords {
@@ -108,8 +112,10 @@ class FamilyRecords {
 
   /// A month of M-Pesa with money moved to and from Ziidi and M-Shwari,
   /// one payment into Etica MMF, a sale into the Pochi, and Ziidi's value
-  /// typed twice, which shows its returns.
-  Future<FamilySeeded> seed() async {
+  /// typed twice, which shows its returns. Each is added, as the person
+  /// answered Add (decision 0026 item 5); with [answered] false, none is,
+  /// so Activity asks about M-Shwari and Pochi.
+  Future<FamilySeeded> seed({bool answered = true}) async {
     final transactions = DriftTransactionsRepository(db);
     final ingestor = SmsIngestor(
       accounts: DriftAccountsRepository(db),
@@ -160,10 +166,19 @@ class FamilyRecords {
       [mpesa],
     );
 
+    if (!answered) return const FamilySeeded(ziidi: null, mshwari: null);
+    final savings = DriftSavingsRepository(db);
+    for (final product in [
+      products.mshwari,
+      products.ziidi,
+      products.eticaMmf,
+    ]) {
+      await savings.add(product, at: familyNow);
+    }
+    await PochiAsk(db, ingestor: ingestor, mpesa: mpesa).add();
     final accounts = await db.select(db.accounts).get();
     final ziidi = accounts.singleWhere((a) => a.product == 'ziidi').id;
     final mshwari = accounts.singleWhere((a) => a.product == 'mshwari').id;
-    final savings = DriftSavingsRepository(db);
     final pocket = (await savings.account(ziidi))!.pockets.single.id;
     await savings.updateBalances(
       ziidi,

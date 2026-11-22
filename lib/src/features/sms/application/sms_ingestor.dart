@@ -352,6 +352,11 @@ class SmsIngestor {
     // M-Shwari's balance, which M-Pesa's message moving money to or from
     // it prints, by message (decision 0026).
     final otherBalances = <String, int>{};
+    // Each message read, by its hash, for one that waits as it is.
+    final messageOf = <String, SmsMessage>{
+      for (final (i, result) in results.indexed)
+        if (result is ParsedTransaction) result.rawHash: messages[i],
+    };
     final parsedByPack = <String, List<ParsedTransaction>>{};
     final readByPack = <String, List<(ReviewDraft, SmsMessage, String)>>{};
     final templates = <String, List<ReadingTemplate>>{};
@@ -502,10 +507,30 @@ class SmsIngestor {
     }
     final keys = pending.keys.toList()
       ..sort((a, b) => firstSeen[a]!.compareTo(firstSeen[b]!));
+    // Messages into a Pochi la Biashara that is not an account here yet
+    // wait, as they are, to be asked about (decision 0026 item 5).
+    final waitingPochi = <int>{};
     for (final key in keys) {
       final (packId, reference, currency) = key;
       final institution = institutions[packId]!;
       final pochi = isPochiReference(reference);
+      if (pochi && !await _accounts.keepsPochi(institution.id)) {
+        for (final item in pending[key]!) {
+          if (item is! ParsedTransaction) continue;
+          final message = messageOf[item.rawHash];
+          if (message == null) continue;
+          if (inReview[item.rawHash] case (final id, _)) waitingPochi.add(id);
+          await _reviewInbox.addIfNew(
+            institutionId: item.packId,
+            sender: message.sender,
+            receivedAt: message.receivedAt,
+            messageHash: item.rawHash,
+            body: message.body,
+            reason: pochiAskReason,
+          );
+        }
+        continue;
+      }
       final accountId = await _accounts.accountForInstitution(
         institution.id,
         name: pochi ? pochiName : institution.name,
@@ -570,6 +595,7 @@ class SmsIngestor {
       }
     }
     for (final id in leavingReview) {
+      if (waitingPochi.contains(id)) continue;
       await _reviewInbox.resolve(id);
     }
 

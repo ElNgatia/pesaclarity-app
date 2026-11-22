@@ -9,9 +9,11 @@ import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/repositories/balances_repair.dart';
 import 'package:pesaclarity/src/data/repositories/category_seeds.dart';
 import 'package:pesaclarity/src/data/repositories/restore_check.dart';
+import 'package:pesaclarity/src/data/repositories/savings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/space_move_repository.dart';
 import 'package:pesaclarity/src/domain/firefly/firefly_mapping.dart';
 import 'package:pesaclarity/src/domain/firefly/firefly_server.dart';
+import 'package:pesaclarity/src/domain/savings/savings_product.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/domain/spaces/space_categories.dart';
 import 'package:pesaclarity/src/features/firefly/application/firefly_sender.dart';
@@ -398,6 +400,12 @@ void main() {
         const TransactionsCompanion(balanceAfterMinor: Value(620000)),
       );
       await repairBalancesOnce(p);
+      // The person said Add to each (decision 0026 item 5).
+      final savings = DriftSavingsRepository(p);
+      for (final product in [ziidi, mshwari]) {
+        await savings.add(product, at: eat(2026, 11, 20));
+      }
+      await savings.dispose();
       await sender().sendSpace(month.personal, p);
       expect([
         for (final d in await sender().checkBalances(month.personal, p))

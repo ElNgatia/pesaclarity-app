@@ -33,7 +33,9 @@ import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../accounts/application/mpesa_lines_providers.dart';
+import '../../accounts/application/pochi_ask.dart';
 import '../../accounts/domain/institution.dart';
+import '../../accounts/presentation/pochi_prompt_card.dart';
 import '../../ask/presentation/ask_entry.dart';
 import '../../ask/presentation/ask_strings.dart';
 import '../../balances/application/balances_providers.dart';
@@ -236,11 +238,22 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     // line that confirms it was added, under the same payment.
     final prompt = ref.watch(savingsPromptProvider).value;
     _added ??= ref.watch(savingsAddedNoticeProvider).value;
+    // Pochi la Biashara's question is about payments that wait off the
+    // records, so it is asked above them (decision 0026 item 5).
+    final pochi = switch (ref.watch(pochiWaitingProvider).value) {
+      final w? when !w.declined => w,
+      _ => null,
+    };
     final added = _added;
+    // An M-Pesa family member's move waits as an own transfer while it is
+    // asked about (decision 0026 item 5).
     bool asked(ActivityLine line) =>
         prompt != null &&
-        line is EntryLine &&
-        line.entry.id == prompt.transactionId;
+        switch (line) {
+          EntryLine(:final entry) => entry.id == prompt.transactionId,
+          OwnTransferLine(:final shown) => shown.id == prompt.transactionId,
+          _ => false,
+        };
     bool confirmed(ActivityLine line) =>
         added != null &&
         switch (line) {
@@ -254,6 +267,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     // Each day's heading, then its lines. Only the rows on screen are
     // built: months of history are thousands of rows.
     final feed = <Object>[
+      ?pochi,
       if (!(loaded.isLoading && !loaded.hasValue))
         for (final day in days) ...[
           (day, null),
@@ -288,6 +302,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
       ),
       // Outside the rows, so a long press never chooses them.
       final SavingsPrompt p => SavingsPromptCard(p),
+      final PochiWaiting w => PochiPromptCard(w),
       final SavingsAddedNotice n => SavingsAddedLine(
         n,
         name: accounts[n.accountId]?.name ?? 'Savings',

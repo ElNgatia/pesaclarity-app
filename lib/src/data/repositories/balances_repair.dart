@@ -27,8 +27,10 @@ const balancesRepairKey = 'ledger.balancesRepaired';
 
 /// The version of [repairBalances]: raised when it learns something new to
 /// put right. Version 2 matches own transfers by decision 0030's rules;
-/// version 3 makes M-Shwari, Ziidi and Etica MMF accounts of their own
-/// (decision 0026), so money moved to and from them is an own transfer.
+/// version 3 brings the savings accounts in step with every payment, so
+/// money moved to and from M-Shwari, Ziidi or Etica MMF, once the person
+/// added it (decision 0026 item 5), is an own transfer. The accounts it
+/// made before that was asked stay, as added.
 const balancesRepairVersion = 3;
 
 /// The readers' versions as one text, such as `0.4.0 kcb@0.4.2,mpesa@0.5.0`:
@@ -50,8 +52,9 @@ String readersVersion(String engine, Map<String, String> packs) {
 /// * own transfers paired by amount and time that what the messages print
 ///   now rules out ([unpairRuledOutMoves]);
 /// * money sent to or received from M-Shwari, Ziidi or Etica, stored as
-///   plain payments: each becomes an own transfer with that product's
-///   account, made for it ([syncSavingsAccounts]). Payments the person
+///   plain payments: once the person added that product, each becomes an
+///   own transfer with its account ([syncSavingsAccounts]); until they
+///   answer, each waits as one (see `FamilyHold`). Payments the person
 ///   matched by hand or said went elsewhere stay as they are.
 ///
 /// Then matches own transfers again over the whole history, with what the
@@ -124,8 +127,8 @@ Future<BalancesRepair> repairBalances(AppDatabase db) async {
       unpaired: await unpairRuledOutMoves(db),
     ),
   );
-  // Also makes the M-Pesa family's accounts (decision 0026) and turns the
-  // money moved to and from them into own transfers.
+  // Turns the money moved to and from the M-Pesa family's accounts the
+  // person has (decision 0026) into own transfers.
   await syncSavingsAccounts(db);
   final paired = await DriftTransactionsRepository(db).pairOwnTransfers();
   await JournalRepository.markForRebuild(db);
