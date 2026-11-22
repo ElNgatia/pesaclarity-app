@@ -165,6 +165,9 @@ void main() {
 
     await tester.tap(find.text('School fees'));
     await settle(tester);
+    // Below the Keep it aside switch: scrolled into view first.
+    await tester.ensureVisible(find.text('Delete goal'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Delete goal'));
     await settle(tester);
     await tester.tap(find.widgetWithText(TextButton, 'Delete'));

@@ -16,6 +16,7 @@ import '../../../data/repositories/plan_repository.dart';
 import '../../../data/repositories/subscriptions_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/budget/budget_alerts.dart';
+import '../../../domain/habits/check_in_reminder.dart';
 import '../../../domain/people/people.dart';
 import '../../../domain/plan/month_plan.dart';
 import '../../../domain/reminders/recurring_charges.dart';
@@ -26,6 +27,7 @@ import '../../../domain/subscriptions/subscriptions.dart';
 import '../../../domain/tax/tax_estimate.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../shared/format/date_labels.dart';
+import '../../habits/application/habits_providers.dart';
 import '../../home/application/safe_to_spend_provider.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../../tax/application/tax_providers.dart';
@@ -273,7 +275,18 @@ class ReminderSync {
     );
     final collect = await _collect(now);
     final tax = await _tax(now);
-    return [...planned, ?collect, ?tax];
+    final checkIn = await _checkIn(now);
+    return [...planned, ?collect, ?tax, ?checkIn];
+  }
+
+  /// The Sunday check-in, in a personal space, when it is on (Profile ›
+  /// Habits). Nothing private: no amounts and no categories.
+  Future<Reminder?> _checkIn(DateTime now) async {
+    if (_ref.read(activeSpaceProvider).kind != SpaceKind.personal) return null;
+    return checkInReminder(
+      now: now,
+      settings: await _ref.read(habitSettingsProvider.future),
+    );
   }
 
   /// A few days before a business's next tax date, when it may owe some.

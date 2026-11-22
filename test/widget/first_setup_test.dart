@@ -238,7 +238,9 @@ void main() {
 
     _expectHome();
     expect(find.text('Safe to spend today'), findsOneWidget);
-    // On hand adds up what the balances in the messages say.
+    // On hand adds up what the balances in the messages say. The habit
+    // cards above it can push it below the fold.
+    await scrollTo(tester, find.byKey(const Key('home-on-hand')));
     expect(find.byKey(const Key('home-on-hand')), findsOneWidget);
     // No rates yet (nothing fetched, none set): no second figure.
     expect(find.textContaining('≈ USD'), findsNothing);

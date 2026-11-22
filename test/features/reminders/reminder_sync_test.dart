@@ -74,6 +74,12 @@ void main() {
       (ReminderKind.payday, eat(2026, 10, 30, 9), 'Payday: Salary'),
       (ReminderKind.bill, eat(2026, 10, 31, 9), 'Rent is due tomorrow'),
       (ReminderKind.payday, eat(2026, 11, 30, 9), 'Payday: Salary'),
+      // The Sunday check-in (Profile › Habits), on by default.
+      (
+        ReminderKind.weeklyCheckIn,
+        DateTime(2026, 11, 1, 18).toUtc(),
+        'Your week in three lines is ready',
+      ),
     ]);
     expect(notifications.scheduled[1].body, contains('KES 25,000'));
   });
@@ -126,6 +132,7 @@ void main() {
       'Payday: Salary',
       'Rent is due today',
       'Payday: Salary',
+      'Your week in three lines is ready',
     ]);
 
     await addRecurring('Internet', CategoryType.expense, 28, 3000);

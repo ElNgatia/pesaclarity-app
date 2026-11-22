@@ -12,6 +12,7 @@ enum ReminderKind {
   safeToSpend,
   collect,
   tax,
+  weeklyCheckIn,
   budget,
 }
 
