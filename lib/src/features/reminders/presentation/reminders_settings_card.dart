@@ -7,6 +7,7 @@ import '../../../shared/widgets/choice_menu.dart';
 import '../../../shared/widgets/sections.dart';
 import '../../../shared/widgets/states.dart';
 import '../application/reminders_controller.dart';
+import 'budget_share.dart';
 
 /// The Reminders section of Profile: what to be reminded about, how early,
 /// and when the daily safe-to-spend notification shows.
@@ -98,6 +99,7 @@ class RemindersSettingsCard extends ConsumerWidget {
             ],
           ),
         ),
+        if (settings != null) _BudgetAlertsSection(settings, set),
       ],
     );
   }
@@ -137,4 +139,81 @@ class RemindersSettingsCard extends ConsumerWidget {
 
   static TimeOfDay _timeOf(int minuteOfDay) =>
       TimeOfDay(hour: minuteOfDay ~/ 60, minute: minuteOfDay % 60);
+}
+
+/// Budget alerts: when a Plan category nears its plan. The card in Plan and
+/// on Home follows this switch; notifications also need Reminders on.
+class _BudgetAlertsSection extends StatelessWidget {
+  const _BudgetAlertsSection(this.settings, this.set);
+
+  final ReminderSettings settings;
+  final void Function(ReminderSettings Function(ReminderSettings)) set;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final percent = settings.budgetAlertPercent;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SectionLabel('Budget alerts'),
+        Card(
+          child: Column(
+            children: [
+              SwitchListTile.adaptive(
+                key: const Key('budget-alerts'),
+                title: const Text('Budget alerts'),
+                subtitle: const Text('When a Plan category nears its plan'),
+                value: settings.budgetAlerts,
+                onChanged: (on) => set((s) => s.copyWith(budgetAlerts: on)),
+              ),
+              if (settings.budgetAlerts) ...[
+                const Divider(height: 1),
+                ChoiceTile<int>(
+                  title: const Text('Warn me at'),
+                  trailing: shareMenu(
+                    context,
+                    key: const Key('budget-alert-share'),
+                    options: shareChoices(percent),
+                    value: percent,
+                    shownAs: (p) => '$p%',
+                    onChanged: (p) =>
+                        set((s) => s.copyWith(budgetAlertPercent: p)),
+                  ),
+                ),
+                const Divider(height: 1),
+                SwitchListTile.adaptive(
+                  title: const Text('Again when over'),
+                  subtitle: const Text('One more alert when it passes 100%'),
+                  value: settings.budgetAlertAgainWhenOver,
+                  onChanged: (on) =>
+                      set((s) => s.copyWith(budgetAlertAgainWhenOver: on)),
+                ),
+                const Divider(height: 1),
+                SwitchListTile.adaptive(
+                  key: const Key('budget-alert-amounts'),
+                  title: const Text('Amounts on lock screen'),
+                  subtitle: const Text(
+                    'Off: names the category and the share only',
+                  ),
+                  value: settings.budgetAlertAmountsOnLockScreen,
+                  onChanged: (on) => set(
+                    (s) => s.copyWith(budgetAlertAmountsOnLockScreen: on),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (settings.budgetAlerts)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+            child: Text(
+              'A category can have its own share: tap it in Plan.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+      ],
+    );
+  }
 }

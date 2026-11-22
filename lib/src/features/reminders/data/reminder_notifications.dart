@@ -15,6 +15,10 @@ abstract interface class ReminderNotifications {
   Future<void> replaceAll(List<Reminder> reminders);
 
   Future<void> cancelAll();
+
+  /// Shows [reminder] now, apart from the scheduled ones, such as a budget
+  /// alert.
+  Future<void> show(Reminder reminder);
 }
 
 /// [ReminderNotifications] on flutter_local_notifications, with inexact
@@ -28,7 +32,8 @@ class LocalReminderNotifications implements ReminderNotifications {
     android: AndroidNotificationDetails(
       'reminders',
       'Reminders',
-      channelDescription: 'Bills, card charges, payday and safe-to-spend',
+      channelDescription:
+          'Bills, card charges, payday, budget alerts and safe-to-spend',
       icon: _icon,
     ),
   );
@@ -74,6 +79,18 @@ class LocalReminderNotifications implements ReminderNotifications {
         body: reminder.body,
       );
     }
+  }
+
+  @override
+  Future<void> show(Reminder reminder) async {
+    if (!_supported) return;
+    await _initialise();
+    await _plugin.show(
+      id: reminder.id,
+      title: reminder.title,
+      body: reminder.body,
+      notificationDetails: _details,
+    );
   }
 
   @override

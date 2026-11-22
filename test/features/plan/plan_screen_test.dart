@@ -165,6 +165,7 @@ void main() {
     expect(find.text('15,000 of 15,000'), findsOneWidget);
     expect(find.text('6,420 of 5,000'), findsOneWidget);
 
+    await tester.scrollUntilVisible(find.text('Surplus 149,600'), 200);
     expect(find.text('Surplus 149,600'), findsOneWidget);
     expect(find.text('All to savings'), findsOneWidget);
 
