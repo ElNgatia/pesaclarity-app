@@ -1,4 +1,5 @@
 import '../../core/money/money.dart';
+import '../books/journal_balances.dart';
 import '../ledger/ledger_entry.dart';
 import '../ledger/ledger_role.dart';
 import '../ledger/ledger_totals.dart';
@@ -23,11 +24,14 @@ Iterable<LedgerEntry> withTag(Iterable<LedgerEntry> entries, int tagId) =>
 /// Spending net of refunds per category for entries in [currency] whose time
 /// is in `[from, to)`. The null key is Uncategorised, so nothing drops out:
 /// the values add up to [LedgerTotals.spendingMinor] for the same entries.
+/// With the space's [journal], each entry's spending is what its journal
+/// entry posts to its category (see [LedgerTotals.of]).
 Map<int?, int> spendingByCategory(
   Iterable<LedgerEntry> entries, {
   required DateTime from,
   required DateTime to,
   String? currency,
+  JournalBalances? journal,
 }) {
   currency ??= BaseCurrency.code;
   final totals = <int?, int>{};
@@ -37,10 +41,9 @@ Map<int?, int> spendingByCategory(
         !entry.occurredAt.isBefore(to)) {
       continue;
     }
-    final amount = switch (roleOf(entry)) {
-      LedgerRole.spending => entry.amountMinor,
-      LedgerRole.reversal when entry.isInflow => -entry.amountMinor,
-      _ => 0,
+    final amount = switch (journal?.partsOf(entry)) {
+      final posted? => posted.spendingMinor,
+      null => _spendingOf(entry),
     };
     if (amount != 0) {
       totals[entry.categoryId] = (totals[entry.categoryId] ?? 0) + amount;
@@ -48,6 +51,13 @@ Map<int?, int> spendingByCategory(
   }
   return totals;
 }
+
+/// [entry]'s spending net of refunds, as it reads alone.
+int _spendingOf(LedgerEntry entry) => switch (roleOf(entry)) {
+  LedgerRole.spending => entry.amountMinor,
+  LedgerRole.reversal when entry.isInflow => -entry.amountMinor,
+  _ => 0,
+};
 
 /// Totals for one tag, for Insights.
 class TagSummary {
@@ -73,6 +83,7 @@ Map<int, TagSummary> tagTotals(
   required DateTime from,
   required DateTime to,
   String? currency,
+  JournalBalances? journal,
 }) {
   currency ??= BaseCurrency.code;
   final byTag = <int, List<LedgerEntry>>{};
@@ -91,12 +102,19 @@ Map<int, TagSummary> tagTotals(
       tag: TagSummary(
         tagId: tag,
         entryCount: tagged.length,
-        totals: LedgerTotals.of(tagged, from: from, to: to, currency: currency),
+        totals: LedgerTotals.of(
+          tagged,
+          from: from,
+          to: to,
+          currency: currency,
+          journal: journal,
+        ),
         spendingByCategory: spendingByCategory(
           tagged,
           from: from,
           to: to,
           currency: currency,
+          journal: journal,
         ),
       ),
   };

@@ -18,6 +18,7 @@ class LeakageBreakdown {
     this.familyMinor = 0,
     this.feesMinor = 0,
     this.fulizaMinor = 0,
+    this.fulizaShown = true,
   });
 
   /// Leakages in entries in [currency] whose time is in `[from, to)`.
@@ -28,7 +29,8 @@ class LeakageBreakdown {
   /// With the space's [journal], Fuliza fees are its Fuliza charges: access
   /// fees, daily charges and what repayments took beyond what was owed,
   /// including those only the balances show. Without it they are the fee
-  /// share of repayment messages alone.
+  /// share of repayment messages alone. While the [journal] does not show
+  /// Fuliza, its charges are fees like any other and Fuliza is not named.
   factory LeakageBreakdown.of(
     Iterable<LedgerEntry> history, {
     required DateTime from,
@@ -81,6 +83,7 @@ class LeakageBreakdown {
             LedgerRole.awaitingPayee ||
             LedgerRole.correction ||
             LedgerRole.betweenSpaces ||
+            LedgerRole.lending ||
             LedgerRole.reversal:
           break;
       }
@@ -93,12 +96,14 @@ class LeakageBreakdown {
         to: to,
       );
     }
+    final shown = journal?.fulizaShown ?? true;
     return LeakageBreakdown(
       lifestyleMinor: lifestyle,
       friendsMinor: friends,
       familyMinor: family,
-      feesMinor: fees,
-      fulizaMinor: fulizaFees,
+      feesMinor: shown ? fees : fees + fulizaFees,
+      fulizaMinor: shown ? fulizaFees : 0,
+      fulizaShown: shown,
     );
   }
 
@@ -112,6 +117,10 @@ class LeakageBreakdown {
   /// What Fuliza charged (see [LeakageBreakdown.of]).
   final int fulizaMinor;
 
+  /// Whether Fuliza fees are a group of their own; when not, they are in
+  /// [feesMinor].
+  final bool fulizaShown;
+
   int get totalMinor =>
       lifestyleMinor + friendsMinor + familyMinor + feesMinor + fulizaMinor;
 
@@ -121,7 +130,7 @@ class LeakageBreakdown {
     LeakageGroup('Friends', friendsMinor),
     LeakageGroup('Family', familyMinor),
     LeakageGroup('Fees', feesMinor),
-    LeakageGroup('Fuliza fees', fulizaMinor),
+    if (fulizaShown) LeakageGroup('Fuliza fees', fulizaMinor),
   ];
 }
 

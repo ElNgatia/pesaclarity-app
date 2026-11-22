@@ -9,6 +9,7 @@ import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/institutions_repository.dart';
 import '../../../data/repositories/space_move_repository.dart';
+import '../../../domain/accounts/mpesa_family.dart';
 import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/kept_data.dart';
 import '../../../domain/spaces/line_routing.dart';
@@ -292,9 +293,18 @@ class SharedLineRouter {
       for (final key in rules.sharedLines.keys)
         if (lineOfSelection(key) case final id?) lineReference(id),
     ];
+    // The owner's Pochi la Biashara goes with any shared M-Pesa line: its
+    // money decides by its channel (decision 0027, section 4).
+    final mpesaShared = [
+      for (final key in rules.sharedLines.keys)
+        if (key == mpesaInstitutionId || lineOfSelection(key) != null) key,
+    ];
     final shared =
         a.institutionId.isIn(rules.sharedLines.keys) |
-        (a.institutionId.equals(mpesaInstitutionId) & a.reference.isIn(lines));
+        (a.institutionId.equals(mpesaInstitutionId) & a.reference.isIn(lines)) |
+        (a.institutionId.equals(mpesaInstitutionId) &
+            a.reference.equals(pochiReference) &
+            Constant(mpesaShared.isNotEmpty));
     final rows =
         await (_personal.select(t).join([
                 innerJoin(a, a.id.equalsExp(t.accountId)),
@@ -307,6 +317,11 @@ class SharedLineRouter {
               ..orderBy([OrderingTerm.desc(t.occurredAt)]))
             .get();
     String? ruleOf(Account account) {
+      if (isPochiReference(account.reference)) {
+        return rules.sharedLines.containsKey(mpesaInstitutionId)
+            ? mpesaInstitutionId
+            : mpesaShared.firstOrNull;
+      }
       final line = lineOfReference(account.reference);
       final key = line == null ? null : lineSelectionId(line);
       return rules.sharedLines.containsKey(key)
@@ -340,6 +355,12 @@ class SharedLineRouter {
                   isInflow: tx.direction.name == 'inflow',
                   kind: tx.kind ?? TransactionKind.bank,
                   counterpartyKind: tx.counterpartyKind,
+                  // Money into the owner's own Pochi (decision 0026).
+                  channel:
+                      isPochiReference(row.readTable(a).reference) &&
+                          tx.direction.name == 'inflow'
+                      ? const ReceivedThrough(ChannelKind.ownPochi)
+                      : null,
                 ),
               ),
               rules.sharedLines[rule]!,

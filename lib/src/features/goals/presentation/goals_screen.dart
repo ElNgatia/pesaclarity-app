@@ -97,8 +97,11 @@ class GoalsScreen extends ConsumerWidget {
       // See debts above is the one way in, so an empty list only says what
       // will show, as Saving for does.
       if (open.isEmpty)
-        const EmptyNote(
-          'Debts show here, such as loans, cards, Fuliza and family loans.',
+        EmptyNote(
+          overview.fulizaShown
+              ? 'Debts show here, such as loans, cards, Fuliza and family '
+                    'loans.'
+              : 'Debts show here, such as loans, cards and family loans.',
         )
       else
         _DebtsCard(
@@ -121,9 +124,10 @@ class GoalsScreen extends ConsumerWidget {
         _GoalGrid(goals: overview.goals, today: overview.today),
         const SizedBox(height: Layout.cardGap),
       ],
-      _NetWorthCard(overview.netWorth),
-      const SizedBox(height: Layout.cardGap),
+      // Under the goals, where it is seen before net worth.
       _LendingCard(overview.lending),
+      const SizedBox(height: Layout.cardGap),
+      _NetWorthCard(overview.netWorth),
     ];
   }
 }
@@ -146,9 +150,11 @@ class _DebtFreeCard extends StatelessWidget {
     if (!hasDebts) {
       label = 'Debt-free by';
       figure = null;
-      caption =
-          'Add loans, cards, Fuliza or money from family to see the month '
-          'you will be debt-free.';
+      caption = overview.fulizaShown
+          ? 'Add loans, cards, Fuliza or money from family to see the month '
+                'you will be debt-free.'
+          : 'Add loans, cards or money from family to see the month you '
+                'will be debt-free.';
     } else if (debts.remainingMinor == 0) {
       label = 'Debts';
       figure = 'Debt-free';
@@ -481,6 +487,7 @@ class _LendingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     String kes(int minor) => shownMoney(context, minor, withCurrency: false);
     return _LinkCard(
+      key: const Key('goals-lending'),
       title: 'Lent and borrowed',
       subtitle: lending.isEmpty
           ? 'Keep track of money between you, friends and family.'
@@ -496,6 +503,7 @@ class _LinkCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    super.key,
   });
 
   final String title;

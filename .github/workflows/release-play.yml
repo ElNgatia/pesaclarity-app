@@ -1,11 +1,18 @@
 name: Release to Google Play
 
-# Builds a signed play-flavour App Bundle and uploads it to Google Play.
+# Builds a signed play-flavour App Bundle and uploads it to Google Play,
+# with the release's plain notes as Play's "What's new" (tool/release_notes).
 # Runs by hand from the Actions tab, when release-please tags a release, or
 # on a version tag such as v0.2.0 (releases and tags use the PLAY_TAG_TRACK
 # and PLAY_TAG_STATUS variables). Tests run before each push
 # (tool/check, from the pre-push hook), not here.
 #
+# Uploads from a release or a tag are paused until the PLAY_UPLOADS_ENABLED
+# repository variable is "true" (set it once Google approves the app); until
+# then those runs skip the upload job and say so in the run summary. Runs by
+# hand always build and upload.
+#
+# Runs in the "production" environment; its secrets and variables are used.
 # Secrets: PLAY_UPLOAD_KEYSTORE_BASE64, PLAY_UPLOAD_KEYSTORE_PASSWORD,
 # PLAY_UPLOAD_KEY_ALIAS, PLAY_UPLOAD_KEY_PASSWORD, PLAY_SERVICE_ACCOUNT_JSON.
 # Variables (required): PLAY_PACKAGE_NAME, PLAY_VERSION_CODE_OFFSET, and for
@@ -42,6 +49,8 @@ on:
 
 permissions:
   contents: read
+  # tool/release_notes reads the merged pull requests' notes.
+  pull-requests: read
 
 concurrency:
   group: release-play
@@ -55,10 +64,34 @@ env:
   STATUS: ${{ inputs.status || vars.PLAY_TAG_STATUS }}
 
 jobs:
+  # A job-level `if` sees repository and organisation variables only, not
+  # the production environment's, so the switch is a repository variable.
+  uploads:
+    name: Play uploads on?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          ENABLED: ${{ vars.PLAY_UPLOADS_ENABLED }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$GITHUB_EVENT_NAME" = pull_request ] ||
+            [ "$ENABLED" = true ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Google Play uploads are paused; set the PLAY_UPLOADS_ENABLED variable to true to turn them on (README, Releasing to Google Play)."
+            echo "Google Play uploads are paused until the \`PLAY_UPLOADS_ENABLED\` variable is \`true\`; run this workflow by hand to upload." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   release:
     name: Build and upload
+    needs: uploads
+    if: needs.uploads.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
-    environment: ${{ github.event_name != 'pull_request' && 'play-store' || '' }}
+    environment: ${{ github.event_name != 'pull_request' && 'production' || '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -94,6 +127,27 @@ jobs:
 
       - name: Generate code
         run: dart run build_runner build --delete-conflicting-outputs
+
+      # Play's "What's new", built here on every run (by hand too) for the
+      # version in pubspec.yaml, from the pull requests merged since the
+      # previous release tag. Kept in the artifact below, to paste into Play
+      # Console when uploading by hand.
+      - name: Write the release notes
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(sed -n 's/^version: *\([^+]*\).*/\1/p' pubspec.yaml)
+          tool/release_notes --version "$version" --to "$GITHUB_SHA" \
+            --whatsnew-dir distribution/whatsnew
+          {
+            echo "### What's new on Google Play"
+            echo
+            echo '```'
+            cat distribution/whatsnew/whatsnew-en-US
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # key.properties and the keystore stay on the runner; both are gitignored.
       - name: Set up signing
@@ -164,6 +218,20 @@ jobs:
           keytool -printcert -jarfile build/app/outputs/bundle/playRelease/app-play-release.aab \
             | grep -q "Android Debug" && { echo "::error::Signed with the debug key"; exit 1; } || true
 
+      # Kept before the upload, so the bundle is there to upload by hand when
+      # Play refuses the API (the app's first release must be uploaded in
+      # Play Console).
+      - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
+        with:
+          name: pesaclarity-play-release
+          path: |
+            build/app/outputs/bundle/playRelease/app-play-release.aab
+            build/app/outputs/mapping/playRelease/mapping.txt
+            build/symbols
+            distribution/whatsnew
+          retention-days: 30
+
       - name: Upload to Google Play
         if: github.event_name != 'pull_request'
         uses: r0adkll/upload-google-play@v1
@@ -174,16 +242,7 @@ jobs:
           track: ${{ env.TRACK }}
           status: ${{ env.STATUS }}
           mappingFile: build/app/outputs/mapping/playRelease/mapping.txt
-
-      - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
-        with:
-          name: pesaclarity-play-release
-          path: |
-            build/app/outputs/bundle/playRelease/app-play-release.aab
-            build/app/outputs/mapping/playRelease/mapping.txt
-            build/symbols
-          retention-days: 30
+          whatsNewDirectory: distribution/whatsnew
 
       - name: Remove signing files
         if: always()

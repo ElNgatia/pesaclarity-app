@@ -6,6 +6,7 @@ import '../../../core/money/currency_data.dart';
 import '../../../core/money/money.dart';
 import '../../../data/database/app_database.dart' hide Tag;
 import '../../../data/database/database_providers.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../domain/accounts/account_reference.dart';
 import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/space.dart';
@@ -20,10 +21,12 @@ import '../../activity/application/activity_providers.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../savings/presentation/savings_accounts_card.dart';
 import '../../spaces/application/spaces_providers.dart';
+import '../application/mpesa_family_providers.dart';
 import '../application/mpesa_lines_providers.dart';
 import '../domain/institution.dart';
 import 'account_currency_screen.dart';
 import 'line_questions.dart';
+import 'mpesa_family_card.dart';
 import 'mpesa_lines_sheet.dart';
 
 /// Profile › My accounts: each account and the currency it counts in, the
@@ -43,11 +46,29 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
     final hidden = ref.watch(hiddenLineAccountsProvider);
     final lines = ref.watch(mpesaLinesProvider).value ?? MpesaLines.empty;
     final readsMpesa = ref.watch(readsMpesaHereProvider).value ?? false;
+    final fuliza =
+        ref.watch(fulizaTrackingProvider).value ?? FulizaTracking.unseen;
+    // M-Pesa with linked accounts is a group of its own (decision 0026).
+    final families = <MpesaFamily>[
+      for (final f
+          in ref.watch(mpesaFamiliesProvider).value ?? const <MpesaFamily>[])
+        if (f.hasMembers && !hidden.contains(f.wallet.account.id)) f,
+    ];
+    final grouped = {
+      for (final f in families) ...[
+        f.wallet.account.id,
+        for (final b in f.business) b.account.id,
+      ],
+    };
+    final named = withLineNames({...?loaded.value}, lineAccounts);
     // Savings apps, such as Chumz, have a card of their own. A line given
     // to another space leaves an empty account here, not shown.
     final accounts = [
-      for (final a in withLineNames({...?loaded.value}, lineAccounts).values)
-        if (a.product == null && !hidden.contains(a.id)) a,
+      for (final a in named.values)
+        if (a.product == null &&
+            !hidden.contains(a.id) &&
+            !grouped.contains(a.id))
+          a,
     ]..sort((a, b) => a.id.compareTo(b.id));
     final institutions = {
       for (final i in ref.watch(institutionCatalogueProvider)) i.id: i,
@@ -70,6 +91,10 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
           : ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               children: [
+                if (families.isNotEmpty) ...[
+                  OwnAndOweCard(families: families),
+                  const SizedBox(height: 16),
+                ],
                 Text(
                   'Each amount keeps the currency its message shows. Totals add '
                   'them up in your base currency, $base.',
@@ -81,8 +106,15 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
                   const SizedBox(height: 16),
                   const _SplitOffer(),
                 ],
-                if (accounts.isNotEmpty) ...[
+                for (final f in families) ...[
                   const SizedBox(height: 16),
+                  MpesaFamilyCard(
+                    family: f,
+                    name: named[f.wallet.account.id]?.name ?? 'M-Pesa',
+                  ),
+                ],
+                if (accounts.isNotEmpty) ...[
+                  SizedBox(height: families.isEmpty ? 16 : Layout.cardGap),
                   Card(
                     child: Column(
                       children: [
@@ -123,6 +155,12 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
                     children: [
                       if (lines.twoSeen) ...[
                         _LinesRow(lines: lines),
+                        const Divider(height: 1),
+                      ],
+                      // Only for people who use Fuliza: kept with the space
+                      // its messages are read in.
+                      if (fuliza.seen) ...[
+                        _TrackFulizaRow(tracked: fuliza.tracked),
                         const Divider(height: 1),
                       ],
                       Semantics(
@@ -250,6 +288,29 @@ class _LinesRow extends ConsumerWidget {
       onTap: () => showMpesaLinesSheet(context),
     );
   }
+}
+
+/// "Track Fuliza": on, Fuliza shows as a debt on M-Pesa; off, it is hidden
+/// everywhere and M-Pesa shows the balance M-Pesa reports. Nothing is lost
+/// either way.
+class _TrackFulizaRow extends ConsumerWidget {
+  const _TrackFulizaRow({required this.tracked});
+
+  final bool tracked;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => SwitchListTile.adaptive(
+    key: const Key('track-fuliza'),
+    value: tracked,
+    onChanged: (track) =>
+        ref.read(fulizaTrackedProvider.notifier).setTracked(track),
+    title: const Text('Track Fuliza'),
+    subtitle: Text(
+      tracked
+          ? 'What you owe Fuliza shows as a debt on M-Pesa'
+          : 'Hidden. M-Pesa shows the balance its messages report',
+    ),
+  );
 }
 
 class _AccountRow extends StatelessWidget {

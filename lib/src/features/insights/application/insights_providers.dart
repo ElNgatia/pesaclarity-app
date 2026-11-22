@@ -13,8 +13,10 @@ import '../../../domain/time/calendar.dart';
 import '../../sms/application/scan_range_provider.dart';
 
 /// This Nairobi month's leakages, its change on last month, and the
-/// six-month spending trend.
+/// six-month spending trend. Updates as the ledger changes, so a tab opened
+/// before the first messages or statement were read fills once they are.
 final insightsSummaryProvider = FutureProvider<InsightsSummary>((ref) async {
+  ref.watch(ledgerChangesProvider);
   final month = CalendarDate.local(ref.watch(clockProvider)()).yearMonth;
   // A month before the trend's first month lets Fuliza repayments find their
   // draws.
@@ -43,6 +45,7 @@ final tagNamesProvider = StreamProvider<Map<int, String>>(
 /// read, up to the end of today. Every message reads from the first
 /// transaction found.
 final firstInsightProvider = FutureProvider<FirstInsight>((ref) async {
+  ref.watch(ledgerChangesProvider);
   final today = CalendarDate.local(ref.watch(clockProvider)());
   final range = await ref.watch(scanRangeProvider.future);
   final to = today.addDays(1).startInstant;
@@ -88,7 +91,12 @@ final spendingChartProvider = FutureProvider<SpendingChart>((ref) async {
   final entries = await ref
       .watch(transactionsRepositoryProvider)
       .ledgerEntries(from: from, to: window.end.startInstant);
-  return SpendingChart.of(entries, period: period, today: today);
+  return SpendingChart.of(
+    entries,
+    period: period,
+    today: today,
+    journal: await readJournal(ref),
+  );
 });
 
 /// Category names by id.
@@ -111,5 +119,5 @@ final findingsProvider = FutureProvider<List<Finding>>((ref) async {
         from: today.yearMonth.addMonths(-2).startInstant,
         to: today.addDays(1).startInstant,
       );
-  return findingsFor(entries, today: today);
+  return findingsFor(entries, today: today, journal: await readJournal(ref));
 });

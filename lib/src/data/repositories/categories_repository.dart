@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/categories/default_categories.dart';
 import '../database/app_database.dart';
 import '../database/database_providers.dart';
+import 'loan_links_repository.dart';
 
 /// Categories: the seeded Kenyan set plus any the user adds.
 abstract interface class CategoriesRepository {
@@ -93,17 +94,29 @@ class DriftCategoriesRepository implements CategoriesRepository {
   });
 
   @override
-  Future<void> setOverride(int transactionId, int? categoryId) async {
-    final updated =
-        await (_db.update(
+  Future<void> setOverride(int transactionId, int? categoryId) =>
+      _db.transaction(() async {
+        // Another category takes it out of its loan in Lent and borrowed.
+        final tx = await (_db.select(
           _db.transactions,
-        )..where((t) => t.id.equals(transactionId))).write(
-          TransactionsCompanion(categoryOverrideId: Value(categoryId)),
-        );
-    if (updated == 0) {
-      throw ArgumentError.value(transactionId, 'transactionId', 'not found');
-    }
-  }
+        )..where((t) => t.id.equals(transactionId))).getSingleOrNull();
+        if (tx != null && await leavesLoan(_db, tx, categoryId)) {
+          await unlinkLoan(_db, transactionId);
+        }
+        final updated =
+            await (_db.update(
+              _db.transactions,
+            )..where((t) => t.id.equals(transactionId))).write(
+              TransactionsCompanion(categoryOverrideId: Value(categoryId)),
+            );
+        if (updated == 0) {
+          throw ArgumentError.value(
+            transactionId,
+            'transactionId',
+            'not found',
+          );
+        }
+      });
 
   @override
   Future<Category?> byKey(String key) => (_db.select(

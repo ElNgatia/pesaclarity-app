@@ -3,8 +3,11 @@ name: Release
 # On every push to main, release-please keeps a release pull request open
 # with the next version (from the Conventional Commit titles merged since the
 # last release) and the changelog. Merging it tags vX.Y.Z and makes a GitHub
-# release with the changelog as its notes; test-apk.yml adds the APKs to it,
-# and release-play.yml uploads to Google Play once that is set up.
+# release with the changelog as its notes; the notes job then rewrites them
+# as plain notes for people (tool/release_notes), keeping the changelog
+# folded underneath. test-apk.yml adds the APKs to it, and release-play.yml
+# uploads to Google Play once that is set up and PLAY_UPLOADS_ENABLED is
+# true.
 #
 # release-please opens its pull request with the workflow token, so the
 # organisation and the repository must allow GitHub Actions to create pull
@@ -27,6 +30,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       released: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v5
         id: release
@@ -34,15 +39,50 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # Plain notes from each merged pull request's "Release note" (or its title,
+  # made plain), grouped under New, Improved and Fixed, above release-please's
+  # changelog. Running it again writes the same notes. Play's "What's new"
+  # text is kept as the release-notes artifact.
+  notes:
+    name: Write the release notes
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dart-lang/setup-dart@v1
+      - name: Rewrite the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          tool/release_notes --version "$VERSION" --to "$TAG" \
+            --whatsnew-dir distribution/whatsnew --publish
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: distribution/whatsnew
+          retention-days: 90
+
   # Waits for the Play Console setup (README, Releasing to Google Play): until
   # PLAY_PACKAGE_NAME is set, releases go to GitHub only, with their APKs
-  # (test-apk.yml).
+  # (test-apk.yml). Until PLAY_UPLOADS_ENABLED is true, release-play.yml
+  # skips its upload job and says so in the run summary.
   play:
     name: Upload to Google Play
     needs: release-please
     if: needs.release-please.outputs.released == 'true' && vars.PLAY_PACKAGE_NAME != ''
     permissions:
       contents: read
+      pull-requests: read
     uses: ./.github/workflows/release-play.yml
     secrets: inherit
 

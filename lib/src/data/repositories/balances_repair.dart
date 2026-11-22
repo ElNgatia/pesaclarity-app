@@ -26,8 +26,12 @@ typedef BalancesRepair = ({
 const balancesRepairKey = 'ledger.balancesRepaired';
 
 /// The version of [repairBalances]: raised when it learns something new to
-/// put right. Version 2 matches own transfers by decision 0030's rules.
-const balancesRepairVersion = 2;
+/// put right. Version 2 matches own transfers by decision 0030's rules;
+/// version 3 brings the savings accounts in step with every payment, so
+/// money moved to and from M-Shwari, Ziidi or Etica MMF, once the person
+/// added it (decision 0026 item 5), is an own transfer. The accounts it
+/// made before that was asked stay, as added.
+const balancesRepairVersion = 3;
 
 /// The readers' versions as one text, such as `0.4.0 kcb@0.4.2,mpesa@0.5.0`:
 /// the engine's [engine] and each pack's in [packs], by pack id, in order.
@@ -46,7 +50,12 @@ String readersVersion(String engine, Map<String, String> packs) {
 ///   the wallet: merged as new messages now merge ([mergeStoredWalletCredits]);
 /// * rows made twice from one message ([removeMessageCopies]);
 /// * own transfers paired by amount and time that what the messages print
-///   now rules out ([unpairRuledOutMoves]).
+///   now rules out ([unpairRuledOutMoves]);
+/// * money sent to or received from M-Shwari, Ziidi or Etica, stored as
+///   plain payments: once the person added that product, each becomes an
+///   own transfer with its account ([syncSavingsAccounts]); until they
+///   answer, each waits as one (see `FamilyHold`). Payments the person
+///   matched by hand or said went elsewhere stay as they are.
 ///
 /// Then matches own transfers again over the whole history, with what the
 /// readers now read, and reposts the whole journal from the records, which
@@ -118,9 +127,9 @@ Future<BalancesRepair> repairBalances(AppDatabase db) async {
       unpaired: await unpairRuledOutMoves(db),
     ),
   );
-  if (fixed.copies > 0 || fixed.walletCredits > 0) {
-    await syncSavingsAccounts(db);
-  }
+  // Turns the money moved to and from the M-Pesa family's accounts the
+  // person has (decision 0026) into own transfers.
+  await syncSavingsAccounts(db);
   final paired = await DriftTransactionsRepository(db).pairOwnTransfers();
   await JournalRepository.markForRebuild(db);
   await JournalRepository(db).sync();
@@ -262,6 +271,7 @@ Future<void> _removeInto(
       item: Value(now.item ?? copy.item),
       goalId: Value(now.goalId ?? copy.goalId),
       debtId: Value(now.debtId ?? copy.debtId),
+      lentLoanId: Value(now.lentLoanId ?? copy.lentLoanId),
       transferAccountId: Value(now.transferAccountId ?? copy.transferAccountId),
     ),
   );

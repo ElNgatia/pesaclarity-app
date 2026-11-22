@@ -11,8 +11,11 @@ import '../../../data/repositories/message_reads_repository.dart';
 import '../../../data/repositories/reader_templates_repository.dart';
 import '../../../data/repositories/review_inbox_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/accounts/mpesa_family.dart';
 import '../../../domain/accounts/mpesa_lines.dart';
+import '../../../domain/enums.dart' show AccountType;
 import '../../../domain/reader/reading_template.dart';
+import '../../../domain/savings/savings_product.dart' show mshwariBalanceIn;
 import '../../accounts/domain/institution.dart';
 import '../../review/application/review_draft.dart';
 import '../data/sms_source.dart';
@@ -169,6 +172,9 @@ bool readsDifferently(TransactionRecord row, TransactionsCompanion fresh) =>
     row.dedupeKey != fresh.dedupeKey.value ||
     row.balanceAfterMinor != fresh.balanceAfterMinor.value ||
     row.owedAfterMinor != fresh.owedAfterMinor.value ||
+    (fresh.otherBalanceMinor.present &&
+        fresh.otherBalanceMinor.value != null &&
+        row.otherBalanceMinor != fresh.otherBalanceMinor.value) ||
     !_sameMoment(row.owedDueAt, fresh.owedDueAt.value);
 
 bool _sameMoment(DateTime? a, DateTime? b) =>
@@ -320,8 +326,11 @@ class SmsIngestor {
       final order = <int>[];
       final facts = <LineFacts>[];
       for (final (i, result) in results.indexed) {
+        // Pochi la Biashara prints its own balance, not the line's: it is
+        // its own account.
         if (result is! ParsedTransaction ||
             accountOn(result) != mpesaInstitutionId ||
+            isPochiOwnAccount(result.ownAccount) ||
             (!again && settled(result.rawHash))) {
           continue;
         }
@@ -340,6 +349,14 @@ class SmsIngestor {
     // Stored transactions read again onto a line, to move there.
     final moves = <(StoredReading, String, ParsedTransaction)>[];
 
+    // M-Shwari's balance, which M-Pesa's message moving money to or from
+    // it prints, by message (decision 0026).
+    final otherBalances = <String, int>{};
+    // Each message read, by its hash, for one that waits as it is.
+    final messageOf = <String, SmsMessage>{
+      for (final (i, result) in results.indexed)
+        if (result is ParsedTransaction) result.rawHash: messages[i],
+    };
     final parsedByPack = <String, List<ParsedTransaction>>{};
     final readByPack = <String, List<(ReviewDraft, SmsMessage, String)>>{};
     final templates = <String, List<ReadingTemplate>>{};
@@ -351,12 +368,22 @@ class SmsIngestor {
     for (final (i, result) in results.indexed) {
       switch (result) {
         case ParsedTransaction(:final rawHash):
+          if (result.ruleId.startsWith('mshwari_')) {
+            if (mshwariBalanceIn(messages[i].body) case final balance?) {
+              otherBalances[rawHash] = balance;
+            }
+          }
           final line = lineReads[i];
           if (settled(rawHash)) {
             settledCount++;
             final row = known[rawHash];
             if (again && row != null && reads != null) {
-              if (await _readAgain(reads, row, result)) {
+              if (await _readAgain(
+                reads,
+                row,
+                result,
+                otherBalance: otherBalances[rawHash],
+              )) {
                 updated++;
                 changes.add(
                   ReadChange(
@@ -470,22 +497,44 @@ class SmsIngestor {
         final currency = p.ownAccount == null
             ? institutions[on]!.pack.currency
             : p.currency;
-        // An M-Pesa line's message is on that line's account.
+        // An M-Pesa line's message is on that line's account; Pochi la
+        // Biashara's on its own.
         final reference = lineReferences.containsKey(p.rawHash)
             ? lineReferences[p.rawHash]
-            : p.ownAccount;
+            : ownAccountReference(p.ownAccount);
         note((on, reference, currency), p.time, p);
       }
     }
     final keys = pending.keys.toList()
       ..sort((a, b) => firstSeen[a]!.compareTo(firstSeen[b]!));
+    // Messages into a Pochi la Biashara that is not an account here yet
+    // wait, as they are, to be asked about (decision 0026 item 5).
+    final waitingPochi = <int>{};
     for (final key in keys) {
       final (packId, reference, currency) = key;
       final institution = institutions[packId]!;
+      final pochi = isPochiReference(reference);
+      if (pochi && !await _accounts.keepsPochi(institution.id)) {
+        for (final item in pending[key]!) {
+          if (item is! ParsedTransaction) continue;
+          final message = messageOf[item.rawHash];
+          if (message == null) continue;
+          if (inReview[item.rawHash] case (final id, _)) waitingPochi.add(id);
+          await _reviewInbox.addIfNew(
+            institutionId: item.packId,
+            sender: message.sender,
+            receivedAt: message.receivedAt,
+            messageHash: item.rawHash,
+            body: message.body,
+            reason: pochiAskReason,
+          );
+        }
+        continue;
+      }
       final accountId = await _accounts.accountForInstitution(
         institution.id,
-        name: institution.name,
-        type: institution.type,
+        name: pochi ? pochiName : institution.name,
+        type: pochi ? AccountType.other : institution.type,
         openingDate: firstSeen[key]!,
         currency: currency,
         reference: reference,
@@ -493,10 +542,11 @@ class SmsIngestor {
       final rows = [
         for (final item in pending[key]!)
           switch (item) {
-            ParsedTransaction() => transactionFromParsed(
-              item,
-              accountId: accountId,
-            ).copyWith(readBy: Value(readByOf(item))),
+            ParsedTransaction() =>
+              transactionFromParsed(item, accountId: accountId).copyWith(
+                readBy: Value(readByOf(item)),
+                otherBalanceMinor: Value(otherBalances[item.rawHash]),
+              ),
             (
               final ReviewDraft draft,
               final SmsMessage message,
@@ -545,6 +595,7 @@ class SmsIngestor {
       }
     }
     for (final id in leavingReview) {
+      if (waitingPochi.contains(id)) continue;
       await _reviewInbox.resolve(id);
     }
 
@@ -563,11 +614,15 @@ class SmsIngestor {
   Future<bool> _readAgain(
     MessageReadsRepository reads,
     StoredReading stored,
-    ParsedTransaction parsed,
-  ) async {
+    ParsedTransaction parsed, {
+    int? otherBalance,
+  }) async {
     final row = stored.record;
     if (stored.touched || row.currency != parsed.currency) return false;
-    final fresh = transactionFromParsed(parsed, accountId: row.accountId);
+    final fresh = transactionFromParsed(
+      parsed,
+      accountId: row.accountId,
+    ).copyWith(otherBalanceMinor: Value(otherBalance));
     final readBy = readByOf(parsed);
     if (!readsDifferently(row, fresh)) {
       if (row.readBy != readBy) await reads.stamp(row.id, readBy);

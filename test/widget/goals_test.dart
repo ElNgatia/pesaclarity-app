@@ -73,11 +73,51 @@ void main() {
     expect(find.text('30,000 a month to Dec 2026'), findsOneWidget);
     expect(find.text('0 of 300,000'), findsOneWidget);
 
-    await tester.scrollUntilVisible(find.text('Lent and borrowed'), 200);
-    expect(find.text('Net worth'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Net worth'), 200);
     // 50,000 in M-Pesa less 82,300 and 21,000 owed.
     expect(find.text('-53,300'), findsOneWidget);
     expect(find.text('Owed to you 0 · you owe 21,000'), findsOneWidget);
+  });
+
+  testAppWidgets('Lent and borrowed sits under the goals, above net worth', (
+    tester,
+  ) async {
+    final db = openTestDatabase();
+    await tester.runAsync(() => seed(db));
+    await pumpGoals(tester, db: db);
+
+    final lending = find.byKey(const Key('goals-lending'));
+    await tester.scrollUntilVisible(find.text('Net worth'), 200);
+    expect(lending, findsOneWidget);
+    // The same card and wording as before.
+    expect(
+      find.descendant(of: lending, matching: find.text('Lent and borrowed')),
+      findsOneWidget,
+    );
+    double top(Finder f) => tester.getTopLeft(f).dy;
+    expect(top(find.text('New laptop')), lessThan(top(lending)));
+    expect(top(lending), lessThan(top(find.text('Net worth'))));
+  });
+
+  testAppWidgets('with no goals, Lent and borrowed still comes before net '
+      'worth', (tester) async {
+    final db = openTestDatabase();
+    await pumpGoals(tester, db: db);
+    final lending = find.byKey(const Key('goals-lending'));
+    await tester.scrollUntilVisible(find.text('Net worth'), 200);
+    expect(
+      find.descendant(
+        of: lending,
+        matching: find.text(
+          'Keep track of money between you, friends and family.',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester.getTopLeft(lending).dy,
+      lessThan(tester.getTopLeft(find.text('Net worth')).dy),
+    );
   });
 
   testAppWidgets('adds, edits and deletes a goal', (tester) async {
@@ -86,7 +126,8 @@ void main() {
 
     expect(
       find.text(
-        'Debts show here, such as loans, cards, Fuliza and family loans.',
+        // No Fuliza message yet, so Fuliza is not among the examples.
+        'Debts show here, such as loans, cards and family loans.',
       ),
       findsOneWidget,
     );

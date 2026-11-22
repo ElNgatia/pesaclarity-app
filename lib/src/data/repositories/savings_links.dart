@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../domain/categories/default_categories.dart';
@@ -5,6 +7,7 @@ import '../../domain/ledger/ledger_entry.dart';
 import '../../domain/ledger/own_transfers.dart';
 import '../../domain/savings/savings_pockets.dart';
 import '../../domain/savings/savings_product.dart';
+import '../../domain/savings/savings_prompt.dart';
 import '../../domain/time/calendar.dart';
 import '../database/app_database.dart';
 import 'category_seeds.dart';
@@ -251,14 +254,19 @@ Future<void> settleSavingsReadings(
 /// A savings account the app keeps, with the product it is when this app
 /// knows it.
 class _Kept {
-  _Kept(this.account, this.product);
+  _Kept(this.account, this.product, {this.primary = true});
 
   final Account account;
   final SavingsProduct? product;
 
+  /// Whether payments naming the product are mirrored here: on the first
+  /// account of the product only, so a second fund account that its own
+  /// messages made (two Etica accounts, say) never takes them twice.
+  final bool primary;
+
   /// What [row], on another account, is to this one's product.
   SavingsMove? moveOf(TransactionRecord row) =>
-      product == null ? null : _moveOf(row, product!);
+      product == null || !primary ? null : _moveOf(row, product!);
 
   /// Whether [row], on another account, may belong here: it names the
   /// product, or the person said it moved to or from this account.
@@ -267,27 +275,244 @@ class _Kept {
       (row.transferAccountId == account.id || moveOf(row) != null);
 }
 
-SavingsMove? _moveOf(TransactionRecord row, SavingsProduct product) =>
-    savingsMoveOf(
-      kind: row.kind,
-      direction: row.direction,
-      counterpartyKind: row.counterpartyKind,
-      counterpartyValue: row.counterpartyValue,
-      counterpartyName: row.counterpartyName,
-      products: [product],
-    );
+SavingsMove? _moveOf(
+  TransactionRecord row,
+  SavingsProduct? product, {
+  List<SavingsProduct>? products,
+}) => savingsMoveOf(
+  kind: row.kind,
+  direction: row.direction,
+  counterpartyKind: row.counterpartyKind,
+  counterpartyValue: row.counterpartyValue,
+  counterpartyName: row.counterpartyName,
+  products: products ?? [?product],
+);
 
 Future<List<_Kept>> _keptAccounts(
   AppDatabase db,
   List<SavingsProduct> products,
-) async => [
-  for (final a
-      in await (db.select(db.accounts)
-            ..where((a) => a.product.isNotNull())
-            ..orderBy([(a) => OrderingTerm.asc(a.id)]))
-          .get())
-    _Kept(a, savingsProductById(a.product, products: products)),
-];
+) async {
+  final seen = <String>{};
+  return [
+    for (final a
+        in await (db.select(db.accounts)
+              ..where((a) => a.product.isNotNull())
+              ..orderBy([(a) => OrderingTerm.asc(a.id)]))
+            .get())
+      _Kept(
+        a,
+        savingsProductById(a.product, products: products),
+        primary: seen.add(a.product!),
+      ),
+  ];
+}
+
+/// The account [product] is kept on once the person said Add (decision
+/// 0026 item 5), made or taken on in one step, and its id. A product with
+/// messages of its own (Etica MMF) takes on the account those messages
+/// landed on; otherwise a new account is made, named [name] or after the
+/// product, opened at [at] and, for an M-Pesa family member, under the
+/// wallet its first move was on. A product kept already keeps its account.
+Future<int> keepSavingsAccount(
+  AppDatabase db,
+  SavingsProduct product, {
+  required DateTime at,
+  String? name,
+}) => db.transaction(() async {
+  final accounts = await (db.select(
+    db.accounts,
+  )..orderBy([(a) => OrderingTerm.asc(a.id)])).get();
+  for (final a in accounts) {
+    if (a.product == product.id) return a.id;
+  }
+  if (product.institutionId case final institution?) {
+    for (final a in accounts) {
+      if (a.institutionId != institution ||
+          a.product != null ||
+          a.type.isBetweenSpaces) {
+        continue;
+      }
+      await (db.update(db.accounts)..where((t) => t.id.equals(a.id))).write(
+        AccountsCompanion(
+          product: Value(product.id),
+          type: Value(product.type),
+          // Named after the fund rather than the company its messages are
+          // from, unless the person named it.
+          name: name != null
+              ? Value(name)
+              : a.name == product.provider
+              ? Value(product.name)
+              : const Value.absent(),
+        ),
+      );
+      return a.id;
+    }
+  }
+  final byId = {for (final a in accounts) a.id: a};
+  TransactionRecord? first;
+  for (final r in await _named(db, product).get()) {
+    final on = byId[r.accountId];
+    if (on == null || on.product != null || on.type.isBetweenSpaces) continue;
+    if (_moveOf(r, product) != null) {
+      first = r;
+      break;
+    }
+  }
+  final from = first == null ? null : byId[first.accountId];
+  return db
+      .into(db.accounts)
+      .insert(
+        AccountsCompanion.insert(
+          name: name ?? product.name,
+          type: product.type,
+          currency: Value(product.currency),
+          openingDate: first != null && first.occurredAt.isBefore(at)
+              ? first.occurredAt
+              : at,
+          product: Value(product.id),
+          institutionId: Value(product.institutionId),
+          familyOf: Value(
+            product.inMpesaFamily && from?.type == AccountType.mpesa
+                ? from!.id
+                : null,
+          ),
+        ),
+      );
+});
+
+/// The M-Pesa family members (decision 0026: M-Shwari, Ziidi, Etica MMF)
+/// whose question is still open: neither added nor answered "Not now".
+/// While it is, each of their moves waits as an own transfer, never income
+/// or spending (0026 item 5), and the M-Pesa side keeps its message's
+/// amount, so the wallet's balance stays as its messages print it. Nothing
+/// is written for it: once the person answers, the moves are linked to the
+/// account they added, or count again as they did before the family was
+/// read (a send to M-Shwari as saving, money back as money received).
+class FamilyHold {
+  FamilyHold._(this.products, this._kept, this._ownProduct);
+
+  /// The members waiting for an answer.
+  final List<SavingsProduct> products;
+
+  /// Accounts a moving payment is never on: savings accounts the app keeps
+  /// and accounts kept for money between spaces.
+  final Set<int> _kept;
+
+  /// Accounts a waiting member's own messages landed on (Etica's): the
+  /// member's product id, by account id.
+  final Map<int, String> _ownProduct;
+
+  Iterable<int> get _own => _ownProduct.keys;
+
+  /// Whether [record] is a move of a member waiting for an answer: on the
+  /// account its own messages landed on, or between a day-to-day account
+  /// and the member, by the name it prints. Moves the person matched or
+  /// said went elsewhere are theirs, and do not wait.
+  bool holds(TransactionRecord record) {
+    if (record.transferPairId != null || record.transferAccountId != null) {
+      return false;
+    }
+    if (record.kind == TransactionKind.correction) return false;
+    if (_ownProduct.containsKey(record.accountId)) return true;
+    if (_kept.contains(record.accountId)) return false;
+    return _moveOf(record, null, products: products) != null;
+  }
+
+  /// The products still waiting for an answer in [db], and what each holds;
+  /// null when none is, which costs the ledger nothing.
+  static Future<FamilyHold?> of(
+    AppDatabase db, {
+    List<SavingsProduct> products = savingsProducts,
+  }) async {
+    final family = [
+      for (final p in products)
+        if (p.keptOnItsOwn) p,
+    ];
+    if (family.isEmpty) return null;
+    final accounts = await db.select(db.accounts).get();
+    final declined = await declinedSavingsProducts(db);
+    final waiting = [
+      for (final p in family)
+        if (!declined.contains(p.id) && !accounts.any((a) => a.product == p.id))
+          p,
+    ];
+    if (waiting.isEmpty) return null;
+    final institutions = {for (final p in waiting) ?p.institutionId: p.id};
+    return FamilyHold._(
+      waiting,
+      {
+        for (final a in accounts)
+          if (a.product != null || a.type.isBetweenSpaces) a.id,
+      },
+      {
+        for (final a in accounts)
+          if (a.product == null &&
+              !a.type.isBetweenSpaces &&
+              institutions.containsKey(a.institutionId))
+            a.id: institutions[a.institutionId]!,
+      },
+    );
+  }
+}
+
+/// Writes the moves [hold] holds (of [product] only, when given) again as
+/// they are, so the journal posts them again and every screen reads them
+/// afresh: an answer changes how they count without changing them.
+Future<void> touchHeldMoves(
+  AppDatabase db,
+  FamilyHold hold, {
+  SavingsProduct? product,
+}) async {
+  final ids = <int>{};
+  for (final p in hold.products) {
+    if (product != null && p.id != product.id) continue;
+    for (final r in await _named(db, p).get()) {
+      if (hold.holds(r)) ids.add(r.id);
+    }
+  }
+  final own = [
+    for (final id in hold._own)
+      if (product == null || hold._ownProduct[id] == product.id) id,
+  ];
+  if (own.isNotEmpty) {
+    for (final r in await (db.select(
+      db.transactions,
+    )..where((t) => t.accountId.isIn(own))).get()) {
+      if (hold.holds(r)) ids.add(r.id);
+    }
+  }
+  final list = ids.toList();
+  for (var i = 0; i < list.length; i += 500) {
+    final chunk = list.sublist(
+      i,
+      i + 500 > list.length ? list.length : i + 500,
+    );
+    await db.customUpdate(
+      'UPDATE transactions SET account_id = account_id '
+      'WHERE id IN (${List.filled(chunk.length, '?').join(', ')})',
+      variables: [for (final id in chunk) Variable.withInt(id)],
+      updates: {db.transactions},
+      updateKind: UpdateKind.update,
+    );
+  }
+}
+
+/// The products the person said are not theirs, removed, or answered "Not
+/// now" about (see [savingsDeclinedKey]).
+Future<Set<String>> declinedSavingsProducts(AppDatabase db) async {
+  final row = await (db.select(
+    db.appSettings,
+  )..where((s) => s.key.equals(savingsDeclinedKey))).getSingleOrNull();
+  if (row == null) return {};
+  try {
+    final decoded = jsonDecode(row.value);
+    return declinedProductsFromJson(
+      decoded is Map<String, Object?> ? decoded : null,
+    );
+  } on FormatException {
+    return {};
+  }
+}
 
 Future<Map<int, TransactionRecord>> _rowsById(
   AppDatabase db,
@@ -330,7 +555,7 @@ SimpleSelectStatement<$TransactionsTable, TransactionRecord> _named(
             t.counterpartyValue.like('%$word%');
       }
       return names &
-          ((t.kind.equalsValue(TransactionKind.paybill) &
+          ((t.kind.isInValues([TransactionKind.paybill, TransactionKind.sent]) &
                   t.direction.equalsValue(TransactionDirection.outflow)) |
               (t.kind.equalsValue(TransactionKind.received) &
                   t.direction.equalsValue(TransactionDirection.inflow)));
@@ -420,6 +645,25 @@ Future<SavingsSync> _sync(
       for (final r in only)
         if (r.accountId != account.id) r,
     ];
+    // A message of the account's own (Etica's notice) is the other side of
+    // the payment that prints its code: that payment is looked at again,
+    // so the notice takes its mirror's place.
+    final codes = {
+      for (final r in only)
+        if (r.accountId == account.id) ...[?r.receiptNo, ?r.linkedReceiptNo],
+    };
+    if (codes.isNotEmpty) {
+      final have = {for (final r in candidates) r.id};
+      for (final r
+          in await (db.select(t)..where(
+                (t) =>
+                    t.accountId.equals(account.id).not() &
+                    (t.receiptNo.isIn(codes) | t.linkedReceiptNo.isIn(codes)),
+              ))
+              .get()) {
+        if (have.add(r.id)) candidates.add(r);
+      }
+    }
   } else {
     final own = db.alias(t, 'own');
     final found = <int, TransactionRecord>{
@@ -572,9 +816,47 @@ Future<SavingsSync> _sync(
     }
 
     final paidIn = row.direction == TransactionDirection.outflow;
+
+    // The account's own message for this money (decision 0030: the same
+    // code on both sides): it is the other side, and no mirror is needed.
+    final real = await _ownSideOf(db, account, row);
+    if (real != null) {
+      await (db.update(t)..where((t) => t.id.equals(row.id))).write(
+        TransactionsCompanion(
+          transferPairId: Value(real.id),
+          transferAccountId: const Value(null),
+        ),
+      );
+      if (mirror != null) {
+        await (db.update(t)
+              ..where((t) => t.transferPairId.equals(mirror.row.id)))
+            .write(const TransactionsCompanion(transferPairId: Value(null)));
+        await (db.delete(t)..where((t) => t.id.equals(mirror.row.id))).go();
+        mirrorOf.remove(row.id);
+      }
+      await (db.update(t)..where((t) => t.id.equals(real.id))).write(
+        TransactionsCompanion(transferPairId: Value(row.id)),
+      );
+      await db
+          .into(db.savingsEntries)
+          .insertOnConflictUpdate(
+            SavingsEntriesCompanion.insert(
+              transactionId: Value(real.id),
+              kind: paidIn
+                  ? SavingsEntryKind.paidIn
+                  : SavingsEntryKind.takenOut,
+            ),
+          );
+      wanted.add(row.id);
+      if (row.transferPairId != real.id) linked.add(row.id);
+      continue;
+    }
+
     int? pocketId;
     var coded = false;
-    if (move is SavingsPayIn && move.code.isNotEmpty) {
+    if (move is SavingsPayIn &&
+        move.code.isNotEmpty &&
+        kept.product?.goalsByCode != false) {
       final pocket = await pocketFor(move.code);
       // Not the person's own goal: its payments stay as they were.
       if (pocket.ignored) continue;
@@ -691,6 +973,9 @@ Future<SavingsSync> _sync(
   }
 
   await _assignPockets(db, account);
+  if (kept.product?.balanceInMessages ?? false) {
+    await _readingsFromMessages(db, account, wanted, full: only == null);
+  }
   await _settle(db, kept);
   return SavingsSync(
     linked: linked,
@@ -698,6 +983,96 @@ Future<SavingsSync> _sync(
     removed: removed,
     skipped: skipped,
   );
+}
+
+/// The message on [account] itself that is the other side of [row], a
+/// payment on another account: the opposite way, the same amount and
+/// currency, and the same code printed on both (decision 0030), not paired
+/// with anything else. Null when there is none, as for money paid in from
+/// M-Pesa, which only M-Pesa's message tells of.
+Future<TransactionRecord?> _ownSideOf(
+  AppDatabase db,
+  Account account,
+  TransactionRecord row,
+) async {
+  final codes = {?row.receiptNo, ?row.linkedReceiptNo};
+  if (codes.isEmpty) return null;
+  final t = db.transactions;
+  final found =
+      await (db.select(t)
+            ..where(
+              (t) =>
+                  t.accountId.equals(account.id) &
+                  t.source.equalsValue(TransactionSource.manual).not() &
+                  t.direction.equalsValue(row.direction).not() &
+                  t.amountMinor.equals(row.amountMinor) &
+                  t.currency.equals(row.currency) &
+                  (t.receiptNo.isIn(codes) | t.linkedReceiptNo.isIn(codes)) &
+                  (t.transferPairId.isNull() | t.transferPairId.equals(row.id)),
+            )
+            ..orderBy([(t) => OrderingTerm.asc(t.id)])
+            ..limit(1))
+          .getSingleOrNull();
+  return found;
+}
+
+/// Sets [account]'s balance from the messages that print it (M-Shwari's,
+/// in M-Pesa's message moving money to or from it): one reading of its
+/// one pocket at the time of each linked payment in [linked] that prints
+/// one. With [full], readings from messages whose payment is no longer
+/// linked go. What the person typed stays as it is.
+Future<void> _readingsFromMessages(
+  AppDatabase db,
+  Account account,
+  Set<int> linked, {
+  required bool full,
+}) async {
+  final pocket = (await savingsPocketsOf(
+    db,
+    account.id,
+  )).where((p) => !p.ignored).firstOrNull;
+  if (pocket == null) return;
+  final printed = <int, (DateTime, int)>{};
+  for (final r in (await _rowsById(db, linked)).values) {
+    final balance = r.otherBalanceMinor;
+    if (balance == null) continue;
+    printed[r.occurredAt.millisecondsSinceEpoch ~/ 1000] = (
+      r.occurredAt,
+      balance,
+    );
+  }
+  final readings = db.savingsReadings;
+  final existing = await (db.select(
+    readings,
+  )..where((r) => r.pocketId.equals(pocket.id))).get();
+  final byTime = {
+    for (final r in existing) r.at.millisecondsSinceEpoch ~/ 1000: r,
+  };
+  for (final MapEntry(key: second, value: (at, balance)) in printed.entries) {
+    final had = byTime[second];
+    if (had == null) {
+      await db
+          .into(readings)
+          .insert(
+            SavingsReadingsCompanion.insert(
+              pocketId: pocket.id,
+              at: at,
+              balanceMinor: balance,
+              fromMessage: const Value(true),
+            ),
+          );
+    } else if (had.fromMessage && had.balanceMinor != balance) {
+      await (db.update(readings)..where((r) => r.id.equals(had.id))).write(
+        SavingsReadingsCompanion(balanceMinor: Value(balance)),
+      );
+    }
+  }
+  if (!full) return;
+  for (final r in existing) {
+    if (!r.fromMessage) continue;
+    if (printed.containsKey(r.at.millisecondsSinceEpoch ~/ 1000)) continue;
+    await (db.delete(readings)..where((x) => x.id.equals(r.id))).go();
+  }
 }
 
 /// [accountId]'s pockets, in the order they were first seen.
@@ -902,7 +1277,8 @@ Future<void> _settle(AppDatabase db, _Kept kept) async {
             source: TransactionSource.manual,
             counterpartyName: Value(
               interest
-                  ? '${kept.product?.name ?? account.name} interest'
+                  ? '${kept.product?.name ?? account.name} '
+                        '${kept.product?.invested ?? false ? 'returns' : 'interest'}'
                   : null,
             ),
             categoryOverrideId: Value(interest ? interestCategory : null),

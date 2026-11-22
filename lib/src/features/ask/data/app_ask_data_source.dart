@@ -7,6 +7,7 @@ import '../../../data/database/app_database.dart';
 import '../../../data/database/database_providers.dart';
 import '../../../data/repositories/ask_repository.dart';
 import '../../../data/repositories/debts_repository.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../data/repositories/goals_repository.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/stock_repository.dart';
@@ -224,6 +225,9 @@ class AppAskDataSource implements AskDataSource {
     );
     return leakage.feesMinor + leakage.fulizaMinor;
   }
+
+  @override
+  Future<bool> fulizaShown() async => (await readFulizaTracking(_db)).shown;
 
   @override
   Future<List<AskLine>> lowStock() async => [

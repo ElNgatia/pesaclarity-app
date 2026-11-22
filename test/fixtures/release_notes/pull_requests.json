@@ -1,0 +1,87 @@
+[
+  {
+    "number": 364,
+    "title": "feat(spaces): money between spaces (decision 0027)",
+    "body": "Builds decision 0027, stages 2-6.\n\n- **Books:** a balance record keeps a switched payment's wallet part."
+  },
+  {
+    "number": 365,
+    "title": "fix(firefly): send Held for another space, so a switch adds up there (a8f1d56)",
+    "body": ""
+  },
+  {
+    "number": 368,
+    "title": "feat(ledger): one rule that stops double entries for every account (0030)",
+    "body": "Builds decision 0030 (pesaclarity/docs#91).\n\n## Release note\n\nA payment that two of your accounts both report now counts once, not twice.\n\n## Tests\n\n- flutter test"
+  },
+  {
+    "number": 370,
+    "title": "chore: promote dev to main for 0.5.5",
+    "body": ""
+  },
+  {
+    "number": 371,
+    "title": "docs: describe money between spaces in the README",
+    "body": ""
+  },
+  {
+    "number": 372,
+    "title": "test(spaces): the rest of decision 0027",
+    "body": "## Release note\nScreens checked."
+  },
+  {
+    "number": 373,
+    "title": "ci: cache the Gradle build",
+    "body": ""
+  },
+  {
+    "number": 374,
+    "title": "build(deps): read with ujumbe dev f2a9916",
+    "body": ""
+  },
+  {
+    "number": 375,
+    "title": "fix(sms): keep the reader's cache warm",
+    "body": "## Release note\r\n\r\nnone\r\n"
+  },
+  {
+    "number": 376,
+    "title": "perf(home): open Today faster (#123)",
+    "body": ""
+  },
+  {
+    "number": 377,
+    "title": "refactor(ask): one place for answers, app#358",
+    "body": "## Release note\n<!-- For people using the app. -->\n<one or two plain sentences for users, or \"none\">\n"
+  },
+  {
+    "number": 378,
+    "title": "feat(spaces): Money between spaces",
+    "body": ""
+  },
+  {
+    "number": 379,
+    "title": "fix: 🐛 stop the crash on start [PC-42]",
+    "body": ""
+  },
+  {
+    "number": 380,
+    "title": "feat(accounts): split, name and move M-Pesa lines",
+    "body": "## Release notes\n- you can now give each M-Pesa line its own name\n- move a payment to the right line\n\n## Screens"
+  },
+  {
+    "number": 381,
+    "title": "feat!: sign in with email only",
+    "body": ""
+  },
+  {
+    "number": 382,
+    "title": "Revert \"feat: show savings\"",
+    "body": ""
+  },
+  {
+    "number": 383,
+    "title": "ux(today): clearer buttons on Today",
+    "body": ""
+  }
+]

@@ -6,11 +6,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/network/pinned_http_client.dart';
 import 'package:pesaclarity/src/core/network/trusted_roots.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
+import 'package:pesaclarity/src/data/repositories/app_settings_repository.dart';
+import 'package:pesaclarity/src/data/repositories/balances_repair.dart';
 import 'package:pesaclarity/src/data/repositories/category_seeds.dart';
+import 'package:pesaclarity/src/data/repositories/fuliza_tracking.dart';
 import 'package:pesaclarity/src/data/repositories/restore_check.dart';
+import 'package:pesaclarity/src/data/repositories/savings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/space_move_repository.dart';
 import 'package:pesaclarity/src/domain/firefly/firefly_mapping.dart';
 import 'package:pesaclarity/src/domain/firefly/firefly_server.dart';
+import 'package:pesaclarity/src/domain/savings/savings_product.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/domain/spaces/space_categories.dart';
 import 'package:pesaclarity/src/features/firefly/application/firefly_sender.dart';
@@ -206,6 +211,44 @@ void main() {
       );
     });
 
+    test('Fuliza not tracked: no Fuliza liability, every account at its '
+        'balance here; tracked again, Fuliza is back', () async {
+      final p = month.personalDb;
+      await DriftAppSettingsRepository(p)
+          .writeJson(trackFulizaKey, {'track': false});
+      await sender().sendSpace(month.personal, p);
+      expect([
+        for (final d in await sender().checkBalances(month.personal, p))
+          '${d.name}: ${d.thereMinor} there, ${d.expectedMinor} here',
+      ], isEmpty);
+      expect([
+        for (final a in server.accounts.values)
+          if (a['type'] == 'liabilities') a['name'],
+      ], isEmpty);
+      // The draw is money in from outside the person's accounts, and its
+      // repayment money out, under a name that does not say Fuliza.
+      expect([
+        for (final a in server.accounts.values)
+          if (RegExp('fuliza', caseSensitive: false).hasMatch('${a['name']}'))
+            a['name'],
+      ], isEmpty);
+      expect({
+        for (final a in server.accounts.values) a['name'],
+      }, contains(fireflyOverdraft));
+
+      await DriftAppSettingsRepository(p)
+          .writeJson(trackFulizaKey, {'track': true});
+      await sender().sendSpace(month.personal, p);
+      expect([
+        for (final d in await sender().checkBalances(month.personal, p))
+          '${d.name}: ${d.thereMinor} there, ${d.expectedMinor} here',
+      ], isEmpty);
+      expect([
+        for (final a in server.accounts.values)
+          if (a['type'] == 'liabilities') a['name'],
+      ], contains(startsWith('Fuliza')));
+    });
+
     test('a lost record is rebuilt by external id: nothing twice', () async {
       await sender().sendSpace(month.personal, month.personalDb);
       final made = server.live.length;
@@ -330,6 +373,98 @@ void main() {
         expect(there.single['tags'], contains(month.business.name));
       },
     );
+
+    test('the M-Pesa family (decision 0026): M-Shwari, Ziidi and Pochi are '
+        'asset accounts there, each at its balance here', () async {
+      final p = month.personalDb;
+      await sender().sendSpace(month.personal, p);
+      // Money into Ziidi and back, read by older readers as plain sends.
+      await month.tx(
+        p,
+        month.mpesa,
+        eat(2026, 11, 5, 10),
+        300000,
+        TransactionDirection.outflow,
+        TransactionKind.sent,
+        receipt: 'TMZ0000001',
+        counterparty: 'ZIIDI',
+      );
+      await month.tx(
+        p,
+        month.mpesa,
+        eat(2026, 11, 12, 10),
+        100000,
+        TransactionDirection.inflow,
+        TransactionKind.received,
+        receipt: 'TMZ0000002',
+        counterparty: 'ZIIDI',
+      );
+      // Into M-Shwari, whose balance the message printed.
+      final shwari = await month.tx(
+        p,
+        month.mpesa,
+        eat(2026, 11, 6, 10),
+        50000,
+        TransactionDirection.outflow,
+        TransactionKind.paybill,
+        receipt: 'TMZ0000003',
+        counterparty: 'M-Shwari',
+      );
+      await (p.update(p.transactions)..where((t) => t.id.equals(shwari))).write(
+        const TransactionsCompanion(otherBalanceMinor: Value(150000)),
+      );
+      // A sale into the person's own Pochi, with the balance it printed.
+      final pochi = await p
+          .into(p.accounts)
+          .insert(
+            AccountsCompanion.insert(
+              name: 'Pochi la Biashara',
+              type: AccountType.other,
+              openingDate: eat(2026, 11, 1),
+              institutionId: const Value('mpesa'),
+              reference: const Value('pochi'),
+              familyOf: Value(month.mpesa),
+            ),
+          );
+      final sale = await month.tx(
+        p,
+        pochi,
+        eat(2026, 11, 7, 10),
+        120000,
+        TransactionDirection.inflow,
+        TransactionKind.received,
+        receipt: 'TMZ0000004',
+        counterparty: 'MADE-UP CUSTOMER',
+      );
+      await (p.update(p.transactions)..where((t) => t.id.equals(sale))).write(
+        const TransactionsCompanion(balanceAfterMinor: Value(620000)),
+      );
+      await repairBalancesOnce(p);
+      // The person said Add to each (decision 0026 item 5).
+      final savings = DriftSavingsRepository(p);
+      for (final product in [ziidi, mshwari]) {
+        await savings.add(product, at: eat(2026, 11, 20));
+      }
+      await savings.dispose();
+      await sender().sendSpace(month.personal, p);
+      expect([
+        for (final d in await sender().checkBalances(month.personal, p))
+          '${d.name}: ${d.thereMinor} there, ${d.expectedMinor} here',
+      ], isEmpty);
+      final types = {
+        for (final a in server.accounts.values) a['name']: a['type'],
+      };
+      expect(types['Ziidi · ${month.personal.name}'], 'asset');
+      expect(types['M-Shwari · ${month.personal.name}'], 'asset');
+      expect(types['Pochi la Biashara · ${month.personal.name}'], 'asset');
+      // Moved, never spent or earned: no expense or revenue for them.
+      expect([
+        for (final MapEntry(:key, :value) in types.entries)
+          if ((value == 'expense' || value == 'revenue') &&
+              RegExp('ziidi|shwari', caseSensitive: false).hasMatch('$key'))
+            key,
+      ], isEmpty);
+    });
 
     test('after a switch, every account there ends at its balance here, '
         'in both spaces', () async {

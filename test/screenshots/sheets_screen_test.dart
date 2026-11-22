@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/time/clock.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
+import 'package:pesaclarity/src/domain/lending/loan_link.dart';
 import 'package:pesaclarity/src/domain/savings/savings_account.dart';
 import 'package:pesaclarity/src/domain/savings/savings_product.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
@@ -21,6 +22,7 @@ import 'package:pesaclarity/src/features/debts/presentation/debt_sheet.dart';
 import 'package:pesaclarity/src/features/goals/presentation/goal_sheet.dart';
 import 'package:pesaclarity/src/features/home/presentation/add_menu.dart';
 import 'package:pesaclarity/src/features/lending/presentation/loan_sheet.dart';
+import 'package:pesaclarity/src/features/payees/presentation/category_picker.dart';
 import 'package:pesaclarity/src/features/plan/presentation/plan_item_sheet.dart';
 import 'package:pesaclarity/src/features/sales/presentation/records_sheets.dart';
 import 'package:pesaclarity/src/features/savings/presentation/add_savings_sheet.dart';
@@ -100,6 +102,34 @@ void main() {
   _sheet('goal-sheet', (c) => showGoalSheet(c, today: _today));
   _sheet('debt-sheet', (c) => showDebtSheet(c, today: _today));
   _sheet('loan-sheet', (c) => showLoanSheet(c, today: _today));
+  // "I lent this" from a transaction: the same sheet, as "I lent".
+  _sheet(
+    'loan-sheet-from-transaction',
+    (c) => showLoanSheet(
+      c,
+      today: _today,
+      fromTransaction: LentFromTransaction(
+        transactionId: 1,
+        amountMinor: 250000,
+        on: _today,
+        person: 'Test Grace',
+      ),
+    ),
+  );
+  // The category picker with Lent and borrowed's answers, for money out
+  // and money in.
+  _sheet(
+    'category-picker-lent',
+    (c) => pickCategory(
+      c,
+      loanLinks: LoanLink.forDirection(outflow: true),
+      selectedLink: LoanLink.lent,
+    ),
+  );
+  _sheet(
+    'category-picker-borrowed',
+    (c) => pickCategory(c, loanLinks: LoanLink.forDirection(outflow: false)),
+  );
   _sheet('plan-item', (c) => showPlanItemSheet(c, month: _today.yearMonth));
   _sheet('spaces-sheet', showSpaces);
   _sheet('update-check-sheet', showUpdateCheckSheet);

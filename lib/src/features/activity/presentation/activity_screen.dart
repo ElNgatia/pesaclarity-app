@@ -8,12 +8,15 @@ import '../../../core/money/money_format.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
+import '../../../domain/accounts/mpesa_family.dart';
 import '../../../domain/categoriser/suggester.dart';
 import '../../../domain/ledger/activity_feed.dart';
 import '../../../domain/ledger/activity_lines.dart';
 import '../../../domain/ledger/fuliza_debt.dart';
 import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/ledger/ledger_role.dart';
+import '../../../domain/lending/loan_link.dart';
 import '../../../domain/payees/payee_identifier.dart';
 import '../../../domain/savings/savings_prompt.dart';
 import '../../../domain/time/calendar.dart';
@@ -32,7 +35,9 @@ import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../accounts/application/mpesa_lines_providers.dart';
+import '../../accounts/application/pochi_ask.dart';
 import '../../accounts/domain/institution.dart';
+import '../../accounts/presentation/pochi_prompt_card.dart';
 import '../../ask/presentation/ask_entry.dart';
 import '../../ask/presentation/ask_strings.dart';
 import '../../balances/application/balances_providers.dart';
@@ -42,6 +47,7 @@ import '../../categoriser/application/categoriser_providers.dart';
 import '../../categoriser/presentation/category_suggestion_sheet.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../export/presentation/export_sheet.dart';
+import '../../lending/application/lending_providers.dart';
 import '../../payees/application/tag_filter.dart';
 import '../../payees/presentation/payee_sheet.dart';
 import '../../payees/presentation/transaction_sheet.dart';
@@ -154,16 +160,27 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
 
     String? categoryName(LedgerEntry e) =>
         e.categoryId == null ? null : categories[e.categoryId]?.name;
+    // A loan in Lent and borrowed reads as one: "Lent to Grace".
+    final loans = ref.watch(loanLinksProvider).value ?? const {};
+    String? loanLabel(LedgerEntry e) => switch (loans[e.id]) {
+      final loan? => loanLinkLabel(loan.link, loan.person),
+      null => null,
+    };
 
     final inWindow = _filter.copyWith(from: () => _filter.from ?? from);
     final tagId = ref.watch(activityTagFilterProvider);
+    // With Fuliza not tracked, its draws and repayments leave the list; the
+    // week's money in and out still counts every entry, as before.
+    final fulizaRows = ref.watch(fulizaTrackingProvider).value?.shown ?? true;
     final shown = entries.where(
       (e) =>
+          (fulizaRows || !isFulizaKind(e.kind)) &&
           matchesTagFilter(e, tagId) &&
           inWindow.matches(
             e,
             labels: [
               categoryName(e),
+              loanLabel(e),
               if (accounts[e.accountId] case final a?)
                 accountTag(a.name, a.type),
             ],
@@ -175,6 +192,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         (e) => _filter.accountId == null || e.accountId == _filter.accountId,
       ),
       today: today,
+      journal: ref.watch(activityJournalProvider).value,
     );
 
     final askFilter = askAboutFilter(_filter, categories, today);
@@ -234,11 +252,22 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     // line that confirms it was added, under the same payment.
     final prompt = ref.watch(savingsPromptProvider).value;
     _added ??= ref.watch(savingsAddedNoticeProvider).value;
+    // Pochi la Biashara's question is about payments that wait off the
+    // records, so it is asked above them (decision 0026 item 5).
+    final pochi = switch (ref.watch(pochiWaitingProvider).value) {
+      final w? when !w.declined => w,
+      _ => null,
+    };
     final added = _added;
+    // An M-Pesa family member's move waits as an own transfer while it is
+    // asked about (decision 0026 item 5).
     bool asked(ActivityLine line) =>
         prompt != null &&
-        line is EntryLine &&
-        line.entry.id == prompt.transactionId;
+        switch (line) {
+          EntryLine(:final entry) => entry.id == prompt.transactionId,
+          OwnTransferLine(:final shown) => shown.id == prompt.transactionId,
+          _ => false,
+        };
     bool confirmed(ActivityLine line) =>
         added != null &&
         switch (line) {
@@ -252,6 +281,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     // Each day's heading, then its lines. Only the rows on screen are
     // built: months of history are thousands of rows.
     final feed = <Object>[
+      ?pochi,
       if (!(loaded.isLoading && !loaded.hasValue))
         for (final day in days) ...[
           (day, null),
@@ -275,6 +305,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           accounts: accounts,
           transferNames: transferNames,
           categoryName: categoryName,
+          loanLabel: loanLabel,
           categories: categories,
           suggest: (e) => suggester?.suggest(e),
           onAccept: (e, s) => confirmCategory(ref, e, s.categoryId, s),
@@ -286,6 +317,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
       ),
       // Outside the rows, so a long press never chooses them.
       final SavingsPrompt p => SavingsPromptCard(p),
+      final PochiWaiting w => PochiPromptCard(w),
       final SavingsAddedNotice n => SavingsAddedLine(
         n,
         name: accounts[n.accountId]?.name ?? 'Savings',
@@ -517,6 +549,7 @@ class _ActivityRow extends StatelessWidget {
     required this.accounts,
     this.transferNames,
     required this.categoryName,
+    required this.loanLabel,
     required this.categories,
     required this.suggest,
     required this.onAccept,
@@ -546,6 +579,9 @@ class _ActivityRow extends StatelessWidget {
   /// its name alone. [accounts] when not given.
   final Map<int, Account>? transferNames;
   final String? Function(LedgerEntry) categoryName;
+
+  /// "Lent to Grace" for a transaction linked to a loan; null otherwise.
+  final String? Function(LedgerEntry) loanLabel;
   final Map<int, Category> categories;
   final CategorySuggestion? Function(LedgerEntry) suggest;
   final void Function(LedgerEntry, CategorySuggestion) onAccept;
@@ -601,6 +637,23 @@ class _ActivityRow extends StatelessWidget {
     TextStyle muted,
   ) {
     return switch (line) {
+      // Money into the person's own Pochi la Biashara is their business's
+      // (decision 0026): it reads as such, not as money from a person.
+      EntryLine(:final entry)
+          when entry.isInflow &&
+              isPochiReference(accounts[entry.accountId]?.reference) =>
+        _row(
+          context,
+          avatar: _Avatar.icon(Icons.storefront_outlined, colors: colors),
+          title: 'Received into your Pochi',
+          subtitle: DetailLine(
+            categoryName(entry) ?? 'Business',
+            _account(entry.accountId),
+            style: muted,
+          ),
+          amount: _entryAmount(context, entry),
+          onTap: () => showTransactionSheet(context, entry.id),
+        ),
       EntryLine(:final entry) when _canName(entry) => _row(
         context,
         avatar: _Avatar.text('?', colors: colors, warning: true),
@@ -726,6 +779,7 @@ class _ActivityRow extends StatelessWidget {
     if (roleOf(entry) == LedgerRole.awaitingPayee) {
       return 'Gift, loan or repayment?';
     }
+    if (loanLabel(entry) case final loan?) return loan;
     final name = categoryName(entry) ?? 'Uncategorised';
     if (entry.categoryIsAuto && entry.categoryId != null) {
       return '$name (Auto)';

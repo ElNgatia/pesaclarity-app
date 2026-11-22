@@ -1,6 +1,6 @@
 // iPhone: messages wait in one queue for the whole app until a scan reads
-// them. A scan lets go of only what it read, so the messages of accounts
-// another space reads wait for that space. Made-up data only.
+// them. A scan lets go of only what it read; each space's accounts are read
+// on start and on each return, whichever space is open. Made-up data only.
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
@@ -44,8 +44,8 @@ SmsMessage _kcbOut(DateTime at) => kcbSms(
 );
 
 void main() {
-  test('a message for an account only Personal reads is still read after '
-      'the app opened in the business first', () async {
+  test('a message for an account only Personal reads is read into '
+      'Personal while the business is open, and let go of once read', () async {
     final queue = ShortcutQueue();
     addTearDown(queue.close);
     final personal = openTestDatabase();
@@ -80,18 +80,19 @@ void main() {
     ];
     final shell = c.listen(liveSmsCaptureProvider, (_, _) {});
     addTearDown(shell.close);
-    await until(() async => (await receipts(shop)).isNotEmpty);
+    await until(() async => (await receipts(personal)).isNotEmpty);
     await settle();
     expect(await receipts(shop), ['KCB0000000501']);
-    // The shop let go of its own KCB message only.
-    expect(queue.released, ['KCB']);
-    expect([for (final m in queue.queue) m.sender], ['MPESA']);
+    // Personal read its M-Pesa message while the shop was open: each space
+    // let go of its own, once read.
+    expect(await receipts(personal), ['TJA0000501']);
+    expect(queue.released, ['KCB', 'MPESA']);
+    expect(queue.queue, isEmpty);
 
     await c.read(activeSpaceIdProvider.notifier).switchTo(personalSpaceId);
-    await until(() async => (await receipts(personal)).isNotEmpty);
-    expect(await receipts(personal), ['TJA0000501']);
     await settle();
-    expect(queue.queue, isEmpty);
+    expect(await receipts(personal), ['TJA0000501']);
+    expect(await receipts(shop), ['KCB0000000501']);
   });
 
   group('a scan lets go of', () {

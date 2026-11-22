@@ -92,17 +92,20 @@ class FirstInsightScreen extends ConsumerWidget {
         note: share == null ? null : '${percentLabel(share)} of income',
         highlight: true,
       ),
-      const SizedBox(height: 12),
-      _Figure(
-        label: 'Fuliza fees',
-        value: amount(insight.fulizaFeesMinor),
-        note: switch (insight.fulizaDays) {
-          0 => 'Clear of Fuliza',
-          1 => 'Fuliza used on 1 day',
-          final n => 'Fuliza used on $n days',
-        },
-        highlight: insight.fulizaFeesMinor > 0,
-      ),
+      // Only for people who use Fuliza: its fees are in Leakages otherwise.
+      if (insight.leakage.fulizaShown) ...[
+        const SizedBox(height: 12),
+        _Figure(
+          label: 'Fuliza fees',
+          value: amount(insight.fulizaFeesMinor),
+          note: switch (insight.fulizaDays) {
+            0 => 'Clear of Fuliza',
+            1 => 'Fuliza used on 1 day',
+            final n => 'Fuliza used on $n days',
+          },
+          highlight: insight.fulizaFeesMinor > 0,
+        ),
+      ],
       const SizedBox(height: 20),
       const _Body(
         'Leakages are fees plus money to people and places you mark as '

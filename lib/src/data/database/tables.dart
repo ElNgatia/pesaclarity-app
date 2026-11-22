@@ -33,6 +33,11 @@ class Accounts extends Table {
   /// every other account.
   TextColumn get product => text().withLength(min: 1, max: 40).nullable()();
 
+  /// For a member of the M-Pesa family of accounts (decision 0026), such as
+  /// M-Shwari, Ziidi or Pochi la Biashara: the M-Pesa wallet it belongs
+  /// to, so two lines keep two families. Null for every other account.
+  IntColumn get familyOf => integer().nullable()();
+
   /// For an account kept for money between spaces (decision 0027, see
   /// `AccountType.isBetweenSpaces`): the other space's id.
   TextColumn get linkedSpaceId => text().nullable()();
@@ -248,6 +253,10 @@ class SavingsReadings extends Table {
   /// still counts as interest only when the gap is small (see
   /// `setupGapIsInterest`).
   BoolColumn get gapIsInterest => boolean().withDefault(const Constant(true))();
+
+  /// Printed by a message, such as M-Shwari's balance in M-Pesa's message
+  /// (decision 0026), rather than typed. It follows its message.
+  BoolColumn get fromMessage => boolean().withDefault(const Constant(false))();
 }
 
 /// Money the user lent to a friend or relative. Money borrowed from them is
@@ -345,6 +354,12 @@ class Transactions extends Table {
       integer().nullable().references(Categories, #id)();
   IntColumn get goalId => integer().nullable().references(Goals, #id)();
   IntColumn get debtId => integer().nullable().references(Debts, #id)();
+
+  /// Money lent to a friend or relative that this transaction is: money out
+  /// that made the loan ("I lent this"), or money in that pays it back
+  /// ("Paying me back"). Never spending or income. Removing the loan
+  /// clears it (`LendingRepository.remove`).
+  IntColumn get lentLoanId => integer().nullable()();
   TextColumn get receiptNo => text().nullable()();
 
   /// The other side's code as this message prints it, when it prints one
@@ -369,6 +384,11 @@ class Transactions extends Table {
   /// The account balance the message reported after this transaction.
   /// Only a parser rule or a statement sets it: it is a checkpoint.
   IntColumn get balanceAfterMinor => integer().nullable()();
+
+  /// The balance of the person's other account that the message printed
+  /// besides this one's: M-Shwari's, in M-Pesa's message moving money to
+  /// or from it (decision 0026). It sets that account's balance.
+  IntColumn get otherBalanceMinor => integer().nullable()();
 
   /// A balance read by the on-phone reader or typed while checking a
   /// message. Used only when it agrees with the checkpoint before it and

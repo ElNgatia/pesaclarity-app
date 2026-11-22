@@ -4,7 +4,9 @@ import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/categories_repository.dart';
+import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/books/journal_balances.dart';
 import '../../../domain/ledger/activity_feed.dart';
 import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/time/calendar.dart';
@@ -28,6 +30,13 @@ final activityEntriesProvider =
             to: today.addDays(1).startInstant,
           );
     });
+
+/// The open space's journal, which Activity's week in and out read
+/// (decision 0018, stage 4), following every change to the ledger.
+final activityJournalProvider = FutureProvider<JournalBalances>((ref) {
+  ref.watch(ledgerChangesProvider);
+  return readJournal(ref);
+});
 
 /// Accounts by id, for filters and line labels.
 final activityAccountsProvider = StreamProvider<Map<int, Account>>(

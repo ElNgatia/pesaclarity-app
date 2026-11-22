@@ -13,6 +13,13 @@ class SavingsProduct {
     this.moneyBackNames,
     this.type = AccountType.moneyMarket,
     this.currency = 'KES',
+    this.keptOnItsOwn = false,
+    this.inMpesaFamily = false,
+    this.invested = false,
+    this.goalsByCode = true,
+    this.balanceInMessages = false,
+    this.institutionId,
+    this.askName,
   });
 
   /// Kept on the account (`Accounts.product`), so it is never renamed.
@@ -37,6 +44,41 @@ class SavingsProduct {
   /// The kind of account it is: one that holds savings.
   final AccountType type;
   final String currency;
+
+  /// One of the M-Pesa family the app knows from M-Pesa's own words (decision
+  /// 0026): an M-Pesa product, or a fund whose own messages are read, rather
+  /// than a paybill that may serve other products, as Chumz's may (0028).
+  /// Like Chumz it is asked about before it is added ("You have Ziidi. Add
+  /// it?", 0026 item 5), but until the person answers, its moves wait as own
+  /// transfers, never income or spending (see `FamilyHold`).
+  final bool keptOnItsOwn;
+
+  /// One of the M-Pesa family of accounts (decision 0026), shown under
+  /// M-Pesa in My accounts rather than as a savings app.
+  final bool inMpesaFamily;
+
+  /// Money invested, such as a money market fund, rather than saved. What
+  /// it earns is its returns.
+  final bool invested;
+
+  /// Whether each account code its payments carry is a goal of its own,
+  /// as in Chumz. Otherwise it holds one balance.
+  final bool goalsByCode;
+
+  /// Whether the M-Pesa messages that move money to and from it print its
+  /// balance, as M-Shwari's do. That balance then sets the account's.
+  final bool balanceInMessages;
+
+  /// The institution whose own messages are about this account, such as
+  /// `etica`: its account is the one those messages land on.
+  final String? institutionId;
+
+  /// What the question calls it, when not its [name]: "You have M-Shwari
+  /// savings. Add it?".
+  final String? askName;
+
+  /// The name the question asks about: [askName], else [name].
+  String get askedAs => askName ?? name;
 
   /// Whether paying in to [printed] is paying into this product.
   bool takesPayIn(String? printed) => _fits(printed, payeeNames);
@@ -63,9 +105,81 @@ const chumz = SavingsProduct(
   paidThrough: 'M-Pesa paybill NABO CAPITAL LTD',
 );
 
+/// M-Shwari savings (decision 0026): M-Pesa's messages move money to and
+/// from it and print its balance.
+const mshwari = SavingsProduct(
+  id: 'mshwari',
+  name: 'M-Shwari',
+  provider: 'M-Pesa',
+  payeeNames: ['M-SHWARI'],
+  paidThrough: 'M-Pesa',
+  keptOnItsOwn: true,
+  inMpesaFamily: true,
+  goalsByCode: false,
+  balanceInMessages: true,
+  askName: 'M-Shwari savings',
+);
+
+/// Ziidi, M-Pesa's money market fund (decision 0026). No message prints its
+/// value: it follows the money in and out and what the person types.
+const ziidi = SavingsProduct(
+  id: 'ziidi',
+  name: 'Ziidi',
+  provider: 'M-Pesa',
+  payeeNames: ['ZIIDI'],
+  paidThrough: 'M-Pesa',
+  keptOnItsOwn: true,
+  inMpesaFamily: true,
+  invested: true,
+  goalsByCode: false,
+);
+
+/// Etica Capital's money market fund. Its own messages (the `etica` pack)
+/// say when money leaves it for M-Pesa; money paid in from M-Pesa is
+/// mirrored on it. No message prints its value.
+const eticaMmf = SavingsProduct(
+  id: 'etica',
+  name: 'Etica MMF',
+  provider: 'Etica Capital',
+  payeeNames: ['ETICA'],
+  paidThrough: 'M-Pesa',
+  keptOnItsOwn: true,
+  invested: true,
+  goalsByCode: false,
+  institutionId: 'etica',
+);
+
 /// Every savings product the app knows. Another savings app, fund or SACCO
 /// is one more entry.
-const savingsProducts = <SavingsProduct>[chumz];
+const savingsProducts = <SavingsProduct>[chumz, mshwari, ziidi, eticaMmf];
+
+/// The product whose own messages [institutionId]'s are, such as Etica
+/// MMF for `etica`; null for any other institution.
+SavingsProduct? savingsProductOfInstitution(
+  String? institutionId, {
+  List<SavingsProduct> products = savingsProducts,
+}) {
+  if (institutionId == null) return null;
+  for (final product in products) {
+    if (product.institutionId == institutionId) return product;
+  }
+  return null;
+}
+
+/// The M-Shwari balance an M-Pesa message moving money to or from it
+/// prints ("New M-Shwari saving account balance is Ksh2,000.00", "M-Shwari
+/// balance is Ksh1,000.00"), in minor units; null when it prints none.
+/// The message readers read M-Pesa's balance only.
+int? mshwariBalanceIn(String body) {
+  final match = RegExp(
+    r'M-Shwari\s+(?:saving\s+account\s+)?balance\s+is\s+Ksh\s*([\d,]+)(?:\.(\d{2}))?',
+    caseSensitive: false,
+  ).firstMatch(body);
+  if (match == null) return null;
+  final major = int.tryParse(match.group(1)!.replaceAll(',', ''));
+  if (major == null) return null;
+  return major * 100 + int.parse(match.group(2) ?? '0');
+}
 
 /// The product with [id] among [products]; null when it is not one of them.
 SavingsProduct? savingsProductById(
@@ -148,6 +262,17 @@ SavingsMove? savingsMoveOf({
       if (product.takesPayIn(counterpartyName) ||
           product.takesPayIn(business)) {
         return SavingsPayIn(product, code);
+      }
+    }
+    return null;
+  }
+  // Older readers read money into an M-Pesa product as a plain send
+  // ("sent to ZIIDI"); a product the app keeps on its own takes it too.
+  if (kind == TransactionKind.sent &&
+      direction == TransactionDirection.outflow) {
+    for (final product in products) {
+      if (product.keptOnItsOwn && product.takesPayIn(counterpartyName)) {
+        return SavingsPayIn(product, '');
       }
     }
     return null;

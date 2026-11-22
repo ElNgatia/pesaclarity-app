@@ -137,8 +137,28 @@ const interestEarnedSeed = CategorySeed(
   CategoryType.income,
 );
 
+/// Money lent to a friend or relative, and their paying it back, as "I lent
+/// this" and "Paying me back" file it in Personal-style spaces. Made the
+/// first time it is used, so it stays out of [defaultCategories] and the
+/// categoriser's labels. A transaction in it is linked to its loan in Lent
+/// and borrowed and counts as neither spending nor income.
+const moneyLentSeed = CategorySeed(
+  'money_lent',
+  'Money lent',
+  CategoryType.debt,
+);
+
+/// The seeded category money borrowed from friends and family, and paying
+/// it back, is filed under.
+const loanCategoryKey = 'loan_repayment';
+
 /// The key of the seeded category money moved into savings counts under.
 const savingsCategoryKey = 'savings';
+
+/// The seeded category of money moved between the person's own accounts:
+/// what an M-Pesa family member's moves wait under until its question is
+/// answered (decision 0026 item 5).
+const ownTransferCategoryKey = 'own_transfer';
 
 /// An existing category as seeding sees it.
 typedef ExistingCategory = ({String? key, String name});

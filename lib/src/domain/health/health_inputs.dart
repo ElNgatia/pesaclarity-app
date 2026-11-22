@@ -43,7 +43,8 @@ class HealthInputs {
   ///   count.
   /// - Essentials are the month's planned expense, debt and tax lines, or,
   ///   with no plan, the actual spending, fees, tax and debt payments.
-  /// - Overdraft days are days with at least one Fuliza draw.
+  /// - Overdraft days are days with at least one Fuliza draw; none while
+  ///   the [journal] does not show Fuliza.
   /// - Leakages are spending with a payee leak type, plus every fee.
   ///
   /// With the space's [journal], fees count Fuliza charges as the journal has
@@ -67,9 +68,15 @@ class HealthInputs {
       from: month.startInstant,
       to: month.endInstant,
       currency: currency,
+      journal: journal,
     );
     final inMonth = entries.where((e) => month.contains(e.date)).toList();
-    final review = MonthReview.of(plan, inMonth, currency: currency);
+    final review = MonthReview.of(
+      plan,
+      inMonth,
+      currency: currency,
+      journal: journal,
+    );
     final judgedTo = asOf ?? month.lastDay;
 
     // Fees from the journal when there is one, so Fuliza charges match
@@ -87,7 +94,7 @@ class HealthInputs {
         ? totals.feesMinor
         : breakdown.feesMinor + breakdown.fulizaMinor;
 
-    final bills = _billsOnTime(plan, inMonth, judgedTo, currency);
+    final bills = _billsOnTime(plan, inMonth, judgedTo, currency, journal);
 
     final byType = plan.plannedByType;
     var essentials =
@@ -102,10 +109,13 @@ class HealthInputs {
           totals.debtRepaymentMinor;
     }
 
-    final overdraftDays = {
-      for (final e in inMonth)
-        if (e.kind == TransactionKind.fulizaDraw) e.date,
-    }.length;
+    // Not tracking Fuliza, the person is not scored or told about it.
+    final overdraftDays = journal?.fulizaShown == false
+        ? 0
+        : {
+            for (final e in inMonth)
+              if (e.kind == TransactionKind.fulizaDraw) e.date,
+          }.length;
 
     var leakage = breakdown?.totalMinor ?? totals.feesMinor;
     if (breakdown == null) {
@@ -168,6 +178,7 @@ class HealthInputs {
   List<LedgerEntry> inMonth,
   CalendarDate judgedTo,
   String currency,
+  JournalBalances? journal,
 ) {
   final byDueDate = <CalendarDate, List<PlanLine>>{};
   for (final line in plan.outgoingLines) {
@@ -188,6 +199,7 @@ class HealthInputs {
       plan,
       inMonth.where((e) => !e.date.isAfter(date)),
       currency: currency,
+      journal: journal,
     );
     final paid = Set<PlanLine>.identity()
       ..addAll([

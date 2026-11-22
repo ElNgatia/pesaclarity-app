@@ -7,6 +7,7 @@ import '../../../data/database/database_providers.dart';
 import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/savings_links.dart';
+import '../../../domain/accounts/mpesa_family.dart';
 import '../../accounts/domain/institution.dart';
 import '../data/sms_source.dart';
 import 'sms_capture_providers.dart';
@@ -120,15 +121,16 @@ class MessageRecheck {
             ? institution
             : _catalogue.where((i) => i.id == p.institution).firstOrNull;
         if (on == null) continue;
+        final pochi = isPochiOwnAccount(p.ownAccount);
         final accountId = await _accounts.accountForInstitution(
           on.id,
-          name: on.name,
-          type: on.type,
+          name: pochi ? pochiName : on.name,
+          type: pochi ? AccountType.other : on.type,
           openingDate: p.time,
           // As when first read: a message naming no account of its own is
           // on the account in the institution's currency.
           currency: p.ownAccount == null ? on.pack.currency : p.currency,
-          reference: p.ownAccount,
+          reference: ownAccountReference(p.ownAccount),
         );
         final currencyChanged = row.currency != p.currency;
         if (!currencyChanged && row.accountId == accountId) continue;

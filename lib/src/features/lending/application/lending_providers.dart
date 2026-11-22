@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/repositories/debts_repository.dart';
 import '../../../data/repositories/lending_repository.dart';
+import '../../../data/repositories/loan_links_repository.dart';
 import '../../../domain/debts/debt.dart';
 import '../../../domain/debts/family_loan.dart';
 import '../../../domain/lending/lent_loan.dart';
@@ -61,3 +62,9 @@ final lendingOverviewProvider = FutureProvider<LendingOverview>((ref) async {
     borrowed: borrowed,
   );
 });
+
+/// Each transaction linked to a loan in Lent and borrowed, by id: what it
+/// is ("I lent this", "A loan to me" ...) and the loan's name.
+final loanLinksProvider = StreamProvider<Map<int, LoanLinkOf>>(
+  (ref) => ref.watch(loanLinksRepositoryProvider).watchLinks(),
+);

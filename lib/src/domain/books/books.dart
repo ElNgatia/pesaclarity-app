@@ -1,7 +1,6 @@
 import '../../core/money/money.dart';
 import '../enums.dart';
 import '../ledger/balances.dart';
-import '../ledger/fuliza.dart';
 import '../ledger/ledger_entry.dart';
 import '../ledger/ledger_role.dart';
 import '../spaces/space_categories.dart';
@@ -51,6 +50,11 @@ enum JournalSource {
   /// the account lives (decision 0027): [JournalEntry.sourceId] is the
   /// balance record's id.
   balanceRecord,
+
+  /// In a business's books only, never stored in the journal: stock bought
+  /// to sell, moved from what the transaction spent to stock, which is
+  /// owned until it sells. [JournalEntry.sourceId] is the transaction's id.
+  restock,
 }
 
 /// One line of a journal entry. Positive is a debit, negative a credit.
@@ -210,25 +214,36 @@ const ownerCapitalCategoryKey = 'owner_capital';
 /// into one of the owner's businesses, never spending.
 const putIntoBusinessCategoryKey = 'put_into_business';
 
-/// A space's double-entry books, worked out from its transactions and
-/// accounts. Nothing here is stored: the books always follow the records.
+/// A space's double-entry books: a view over its journal (decision 0018,
+/// stage 4), with what only a business keeps on top. Nothing here is
+/// stored: the books always follow the records.
 ///
-/// Every transaction posts by its [LedgerRole], so the books agree with the
-/// totals the rest of the app shows. Where a reported balance differs from
-/// what the records add up to, a balance difference entry keeps each money
-/// account equal to [balanceAt]. A sale on credit counts as a sale when it
-/// is made, against what the customer owes, and their payment later clears
-/// it; stock or a cost bought on credit works the same way with suppliers.
-/// What an own transfer across currencies cost to exchange
-/// ([LedgerEntry.exchangeCostMinor]) is a cost, out of Money in transit,
-/// when the money arrives.
+/// The journal holds every transaction posted by its [LedgerRole], each
+/// account's opening, and every reported balance as a check: what the
+/// records do not reach stays in Not yet sorted until the person adds what
+/// is missing or confirms a correction, so no plug keeps an account equal
+/// to a figure. Fuliza is owed and charged as the balances show it, own
+/// transfers clear through Money in transit with their fees, and money
+/// between spaces posts as what it is (decision 0027).
+///
+/// On top of the journal: a sale on credit counts as a sale when it is
+/// made, against what the customer owes, and their payment later clears
+/// it; stock or a cost bought on credit works the same way with suppliers;
+/// stock bought to sell is owned until it sells; what was owed from before
+/// the records opens with the books; and tax a client withheld comes off
+/// what they owe.
 class Books {
   Books._(this.entries);
 
+  /// The books of [journal], the space's journal entries (the stored
+  /// journal in the app). Without it, the journal is posted from
+  /// [history], [accounts] and [categories] as the app would store it
+  /// ([postJournal]). [history] names the transactions in [restocks].
   factory Books.of(
     Iterable<LedgerEntry> history, {
     required Iterable<AccountOpening> accounts,
     required Map<int, BookCategory> categories,
+    Iterable<JournalEntry>? journal,
     Iterable<CreditSale> credits = const [],
     Iterable<CreditPurchase> purchases = const [],
     Iterable<OwedBefore> owedBefore = const [],
@@ -237,41 +252,35 @@ class Books {
     Iterable<WithheldTax> withheld = const [],
   }) {
     final all = history.toList();
-    final fuliza = FulizaLedger.of(all);
-    final out = <JournalEntry>[];
+    final out = <JournalEntry>[
+      ...journal ??
+          postJournal(accounts: accounts, history: all, categories: categories),
+    ];
     for (final e in all) {
-      out.add(
-        postEntry(
-          e,
-          categories: categories,
-          fulizaFee: fuliza.feeOf(e),
-          toStock: restocks.contains(e.id),
-        ),
-      );
-    }
-    for (final e in all) {
-      // What an own transfer across currencies cost to exchange leaves
-      // Money in transit when the money arrives, as a cost.
-      final cost = e.exchangeCostMinor;
-      if (cost == null || cost == 0) continue;
+      // Stock bought to sell is owned until it sells, not spent.
+      if (!restocks.contains(e.id) || roleOf(e) != LedgerRole.spending) {
+        continue;
+      }
+      final category = e.categoryId;
+      final account = category != null && categories.containsKey(category)
+          ? BookAccount.category(category, income: false)
+          : BookAccount.uncategorisedSpending;
+      final minor = e.isOutflow ? e.amountMinor : -e.amountMinor;
       out.add(
         JournalEntry(
-          source: JournalSource.exchange,
+          source: JournalSource.restock,
           sourceId: e.id,
           at: e.occurredAt,
           currency: e.currency,
           lines: [
-            JournalLine(BookAccount.exchangeCost, cost),
-            JournalLine(BookAccount.ownTransfers, -cost),
+            JournalLine(BookAccount.stock, minor),
+            JournalLine(account, -minor),
           ],
         ),
       );
     }
     for (final m in stock) {
       out.add(_stockEntry(m));
-    }
-    for (final account in accounts) {
-      out.addAll(_openingAndDifferences(account, all));
     }
     for (final c in credits) {
       out.add(
@@ -290,8 +299,8 @@ class Books {
         ),
       );
     }
-    // By time; at the same instant an opening comes first and a balance
-    // difference last, after the transaction that reported the balance.
+    // By time; at the same instant an opening comes first and a reported
+    // balance's gap last, after the transaction that reported the balance.
     int rank(JournalSource s) => switch (s) {
       JournalSource.opening ||
       JournalSource.owedBefore ||
@@ -301,7 +310,8 @@ class Books {
       JournalSource.creditPurchase ||
       JournalSource.withheld ||
       JournalSource.exchange ||
-      JournalSource.balanceRecord => 1,
+      JournalSource.balanceRecord ||
+      JournalSource.restock => 1,
       JournalSource.balanceDifference => 2,
     };
     for (final p in purchases) {
@@ -359,8 +369,7 @@ class Books {
       final byTime = a.at.compareTo(b.at);
       return byTime != 0 ? byTime : rank(a.source).compareTo(rank(b.source));
     });
-    // Money between spaces posts as what it is (decision 0027).
-    return Books._(List.unmodifiable(postedBetweenSpaces(out, accounts)));
+    return Books._(List.unmodifiable(out));
   }
 
   final List<JournalEntry> entries;
@@ -457,14 +466,11 @@ JournalEntry _stockEntry(StockEntry m) {
   );
 }
 
-/// Posts one transaction. [fulizaFee] is the fee share of a Fuliza
-/// repayment, from [FulizaLedger]. With [toStock], spending is stock bought
-/// to sell, owned until it sells.
+/// Posts one transaction by its own meaning, before what the journal reads
+/// into it from the account's balances ([postJournal]).
 JournalEntry postEntry(
   LedgerEntry e, {
   required Map<int, BookCategory> categories,
-  int fulizaFee = 0,
-  bool toStock = false,
 }) {
   final money = BookAccount.money(e.accountId);
   final amount = e.amountMinor;
@@ -522,10 +528,6 @@ JournalEntry postEntry(
       e.isInflow
           ? inFrom(incomeAccount(), amount)
           : outTo(incomeAccount(), amount);
-    case LedgerRole.spending when toStock:
-      e.isOutflow
-          ? outTo(BookAccount.stock, amount)
-          : inFrom(BookAccount.stock, amount);
     case LedgerRole.spending:
       e.isOutflow
           ? outTo(spendingAccount(), amount)
@@ -550,11 +552,16 @@ JournalEntry postEntry(
         // lender adds to what is owed.
         inFrom(BookAccount.borrowed, amount);
       } else {
-        outTo(BookAccount.borrowed, amount - fulizaFee);
-        if (fulizaFee > 0) outTo(BookAccount.fees, fulizaFee);
+        outTo(BookAccount.borrowed, amount);
       }
     case LedgerRole.awaitingPayee:
       inFrom(BookAccount.awaitingPayee, amount);
+    case LedgerRole.lending:
+      // Money lent is still the person's, owed back to them: it moves
+      // Owed to you, as a customer's credit does in a business.
+      e.isOutflow
+          ? outTo(BookAccount.owedToYou, amount)
+          : inFrom(BookAccount.owedToYou, amount);
     case LedgerRole.ownTransfer:
       final other = ownerPay && e.isOutflow
           ? BookAccount.ownerPay
@@ -564,8 +571,8 @@ JournalEntry postEntry(
       e.isInflow ? inFrom(other, amount) : outTo(other, amount);
     case LedgerRole.correction:
       e.isInflow
-          ? inFrom(BookAccount.balanceDifferences, amount)
-          : outTo(BookAccount.balanceDifferences, amount);
+          ? inFrom(BookAccount.balanceCorrections, amount)
+          : outTo(BookAccount.balanceCorrections, amount);
     case LedgerRole.betweenSpaces:
       // Another space's part set right: a balance correction on each side.
       e.isInflow
@@ -593,112 +600,4 @@ JournalEntry postEntry(
     currency: e.currency,
     lines: lines,
   );
-}
-
-/// The opening entry for [account], and balance difference entries that keep
-/// its book balance equal to [balanceAt] wherever a message reported one.
-List<JournalEntry> _openingAndDifferences(
-  AccountOpening account,
-  List<LedgerEntry> all,
-) {
-  final money = BookAccount.money(account.id);
-  final walk = WalletWalk.of(account, all);
-  // What [postEntry] moved the money account by.
-  int posted(LedgerEntry e) => e.kind == TransactionKind.fulizaDraw
-      ? e.signedMinor
-      : e.signedMinor - e.feeMinor;
-  int change(LedgerEntry e) => posted(e);
-  final mine = [
-    for (final e in all)
-      if (e.accountId == account.id && e.currency == account.currency) e,
-  ];
-  final own =
-      [
-        for (final e in mine)
-          if (!e.occurredAt.isBefore(account.openingDate)) e,
-      ]..sort((a, b) {
-        final byTime = a.occurredAt.compareTo(b.occurredAt);
-        return byTime != 0 ? byTime : a.order.compareTo(b.order);
-      });
-
-  JournalEntry adjust(
-    JournalSource source,
-    int sourceId,
-    DateTime at,
-    int minor,
-    BookAccount against,
-  ) => JournalEntry(
-    source: source,
-    sourceId: sourceId,
-    at: at,
-    currency: account.currency,
-    lines: [JournalLine(money, minor), JournalLine(against, -minor)],
-  );
-
-  final out = <JournalEntry>[
-    adjust(
-      JournalSource.opening,
-      account.id,
-      account.openingDate,
-      account.openingBalanceMinor,
-      BookAccount.openingBalances,
-    ),
-  ];
-
-  // [balanceAt] ignores entries before the opening date, and with a reported
-  // balance it walks back from the first one, so the books start the account
-  // from the same figure.
-  final before = mine
-      .where((e) => e.occurredAt.isBefore(account.openingDate))
-      .fold(0, (s, e) => s + change(e));
-  var running = account.openingBalanceMinor + before;
-  var start = account.openingBalanceMinor;
-  final first = own.indexWhere(walk.isCheckpoint);
-  if (first >= 0) {
-    final upToFirst = own.take(first + 1).fold(0, (s, e) => s + walk.change(e));
-    start = walk.checkpoints[own[first].id]! - upToFirst;
-  }
-  if (start != running) {
-    out.add(
-      adjust(
-        JournalSource.balanceDifference,
-        account.id,
-        account.openingDate,
-        start - running,
-        BookAccount.balanceDifferences,
-      ),
-    );
-    running = start;
-  }
-  for (final e in own) {
-    running += change(e);
-    // A Fuliza draw that funded a payment already in its reported balance.
-    final unposted = walk.change(e) - change(e);
-    if (unposted != 0) {
-      out.add(
-        adjust(
-          JournalSource.balanceDifference,
-          e.id,
-          e.occurredAt,
-          unposted,
-          BookAccount.balanceDifferences,
-        ),
-      );
-      running += unposted;
-    }
-    final reported = walk.checkpoints[e.id];
-    if (reported != null && reported != running) {
-      out.add(
-        adjust(
-          JournalSource.balanceDifference,
-          e.id,
-          e.occurredAt,
-          reported - running,
-          BookAccount.balanceDifferences,
-        ),
-      );
-      running = reported;
-    }
-  }
-  return out;
 }

@@ -85,7 +85,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 44;
+  int get schemaVersion => 46;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -369,6 +369,26 @@ class AppDatabase extends _$AppDatabase {
           transactions,
           transactions.linkedReceiptNo,
         );
+      }
+      // The M-Pesa family of accounts (decision 0026): a member's wallet,
+      // M-Shwari's balance as M-Pesa's message prints it, and balances
+      // from messages.
+      if (from < 45) {
+        await _addColumnIfMissing(m, accounts, accounts.familyOf);
+        await _addColumnIfMissing(
+          m,
+          transactions,
+          transactions.otherBalanceMinor,
+        );
+        await _addColumnIfMissing(
+          m,
+          savingsReadings,
+          savingsReadings.fromMessage,
+        );
+      }
+      // Money lent from a transaction, and money in that pays it back.
+      if (from < 46) {
+        await _addColumnIfMissing(m, transactions, transactions.lentLoanId);
       }
       // Plain English names: the seeded giving category, unless renamed.
       if (from < 17) {

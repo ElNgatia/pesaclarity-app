@@ -1,4 +1,5 @@
 import '../../core/money/money.dart';
+import '../books/journal_balances.dart';
 import '../ledger/fuliza.dart';
 import '../ledger/ledger_entry.dart';
 import '../ledger/ledger_role.dart';
@@ -99,6 +100,7 @@ class SpendingChart {
     required CalendarDate today,
     String? currency,
     int maxSlices = 6,
+    JournalBalances? journal,
   }) {
     currency ??= BaseCurrency.code;
     final all = history.where((e) => e.currency == currency).toList();
@@ -113,7 +115,7 @@ class SpendingChart {
       final date = entry.date;
       final inWindow = window.contains(date);
       if (!inWindow && !before.contains(date)) continue;
-      final parts = spendingPartsOf(entry, fuliza);
+      final parts = spendingPartsOf(entry, fuliza, journal: journal);
       if (parts.isEmpty) continue;
       if (inWindow) {
         final day = window.start.daysUntil(date);
@@ -184,17 +186,30 @@ class SpendingChart {
 }
 
 /// The spending in [entry], split into fees and the rest, as Insights counts
-/// it: spending net of refunds, plus every fee.
-List<(SliceKey, int)> spendingPartsOf(LedgerEntry entry, FulizaLedger fuliza) {
+/// it: spending net of refunds, plus every fee. With the space's [journal]
+/// (decision 0018, stage 4), both are what [entry]'s journal entry posts:
+/// its category's spending, and every fee and Fuliza charge in it.
+List<(SliceKey, int)> spendingPartsOf(
+  LedgerEntry entry,
+  FulizaLedger fuliza, {
+  JournalBalances? journal,
+}) {
+  final category = entry.categoryId == null
+      ? const UncategorisedSlice()
+      : CategorySlice(entry.categoryId!);
+  if (journal?.partsOf(entry) case final posted?) {
+    final fees = posted.allFeesMinor + (entry.exchangeCostMinor ?? 0);
+    return [
+      if (fees != 0) (const FeesSlice(), fees),
+      if (posted.spendingMinor != 0) (category, posted.spendingMinor),
+    ];
+  }
   final parts = <(SliceKey, int)>[];
   if (entry.feeMinor > 0) parts.add((const FeesSlice(), entry.feeMinor));
   // What an own transfer across currencies cost to exchange; a gain lowers
   // fees.
   final exchange = entry.exchangeCostMinor ?? 0;
   if (exchange != 0) parts.add((const FeesSlice(), exchange));
-  final category = entry.categoryId == null
-      ? const UncategorisedSlice()
-      : CategorySlice(entry.categoryId!);
   switch (roleOf(entry)) {
     case LedgerRole.spending:
       parts.add((category, entry.amountMinor));

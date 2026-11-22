@@ -134,6 +134,11 @@ class MessageReadsRepository {
         balanceAfterMinor: fresh.balanceAfterMinor,
         owedAfterMinor: fresh.owedAfterMinor,
         owedDueAt: fresh.owedDueAt,
+        otherBalanceMinor:
+            fresh.otherBalanceMinor.present &&
+                fresh.otherBalanceMinor.value != null
+            ? fresh.otherBalanceMinor
+            : const Value.absent(),
         readBy: Value(readBy),
       ),
     );

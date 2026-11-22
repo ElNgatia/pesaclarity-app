@@ -9,6 +9,7 @@ class DedupeFields {
     this.receipt,
     this.counterparty,
     this.dedupeKey,
+    this.dayOnly = false,
   });
 
   final int amountMinor;
@@ -23,6 +24,10 @@ class DedupeFields {
 
   /// ujumbe's receipt, amount and minute key.
   final String? dedupeKey;
+
+  /// Whether [occurredAt] is only a date, as on a statement that prints no
+  /// times (KCB's): the transaction happened some time that day.
+  final bool dayOnly;
 }
 
 /// A transaction already in the ledger.
@@ -42,13 +47,19 @@ const defaultDedupeWindow = Duration(minutes: 10);
 /// transaction it duplicates, or null when it is new.
 ///
 /// A line matches, in order of preference: the same dedupe key; the same
-/// receipt, amount and direction; or, when the receipts do not contradict
-/// each other, the same amount, direction and counterparty within [window].
-/// Each existing transaction matches at most one line.
+/// receipt, amount and direction; when the receipts do not contradict
+/// each other, the same amount, direction and counterparty within [window];
+/// or, for a line with only a date ([DedupeFields.dayOnly]), the same
+/// amount and direction on that day, at [dayOffset] from UTC, with no
+/// receipt of the same shape that differs. A bank's SMS often names
+/// neither the statement's reference nor its counterparty ("Pesalink
+/// Outgoing"), or prints a reference of another kind. Each existing
+/// transaction matches at most one line.
 List<int?> matchStatementLines(
   List<DedupeFields> lines,
   List<LedgerCandidate> existing, {
   Duration window = defaultDedupeWindow,
+  Duration dayOffset = Duration.zero,
 }) {
   final used = <int>{};
   final result = List<int?>.filled(lines.length, null);
@@ -88,7 +99,29 @@ List<int?> matchStatementLines(
         _distance(a, b) <= window &&
         _sameParty(a.counterparty, b.counterparty),
   );
+  pass(
+    (a, b) =>
+        a.dayOnly &&
+        !_sameShapeReceiptsDiffer(a, b) &&
+        a.amountMinor == b.amountMinor &&
+        a.direction == b.direction &&
+        _dayOf(a.occurredAt, dayOffset) == _dayOf(b.occurredAt, dayOffset),
+  );
   return result;
+}
+
+DateTime _dayOf(DateTime time, Duration offset) {
+  final t = time.toUtc().add(offset);
+  return DateTime.utc(t.year, t.month, t.day);
+}
+
+/// Two receipts of one kind (the same length, such as two FT references)
+/// that differ: two transactions. Receipts of different kinds, such as a
+/// statement's FT reference and an SMS's long transfer code, can be the
+/// same money.
+bool _sameShapeReceiptsDiffer(DedupeFields a, DedupeFields b) {
+  final ra = _normalReceipt(a.receipt), rb = _normalReceipt(b.receipt);
+  return ra != null && rb != null && ra.length == rb.length && ra != rb;
 }
 
 Duration _distance(DedupeFields a, DedupeFields b) =>

@@ -546,6 +546,7 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
                     payeeId: const Value(null),
                     goalId: const Value(null),
                     debtId: const Value(null),
+                    lentLoanId: const Value(null),
                     transferPairId: const Value(null),
                     transferAccountId: const Value(null),
                     categoryOverrideId: Value(
@@ -618,6 +619,7 @@ class DriftSpaceMoveRepository implements SpaceMoveRepository {
                     // Its goal and debt stay in the space it leaves.
                     goalId: const Value(null),
                     debtId: const Value(null),
+                    lentLoanId: const Value(null),
                     transferPairId: const Value(null),
                     transferAccountId: const Value(null),
                     categoryOverrideId: Value(

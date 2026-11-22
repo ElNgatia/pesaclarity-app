@@ -137,7 +137,15 @@ class StatementRead {
     required this.openingBalanceMinor,
     required this.closingBalanceMinor,
     required this.unreadCount,
+    this.datesOnly = false,
+    this.utcOffset = Duration.zero,
   });
+
+  /// Whether rows print only a date, no time, so each falls at midnight.
+  final bool datesOnly;
+
+  /// The offset of the statement's printed dates and times.
+  final Duration utcOffset;
 
   /// The institution's id, e.g. `mpesa`.
   final String institutionId;
@@ -149,7 +157,8 @@ class StatementRead {
   final List<ParsedTransaction> transactions;
   final int? openingBalanceMinor, closingBalanceMinor;
 
-  /// Rows that could not be read, plus balances that did not follow.
+  /// Rows that could not be read, plus balances that did not follow, plus
+  /// one when the rows do not start or end at the summary's balances.
   final int unreadCount;
 }
 
@@ -175,7 +184,12 @@ StatementRead? readStatement(List<StatementPage> pages) {
     transactions: read.transactions,
     openingBalanceMinor: read.openingBalanceMinor,
     closingBalanceMinor: read.closingBalanceMinor,
-    unreadCount: read.unreadLines.length + read.balanceBreaks.length,
+    unreadCount:
+        read.unreadLines.length +
+        read.balanceBreaks.length +
+        (read.matchesSummary ? 0 : 1),
+    datesOnly: !pack.hasTimes,
+    utcOffset: pack.utcOffset,
   );
 }
 
@@ -256,16 +270,25 @@ class StatementImporter {
       return const StatementNotRead(isPdf: true);
     }
 
-    final firstDay = _earlier(
-      statement.periodStart,
-      CalendarDate.local(parsed.first.time),
-    );
-    final lastDay = _later(
-      statement.periodEnd,
-      CalendarDate.local(parsed.last.time),
-    );
-    final from = firstDay.startInstant;
-    final to = lastDay.addDays(1).startInstant;
+    // Rows with only a date fall at midnight where the statement prints
+    // them, which is another day in other time zones: read their days, and
+    // the period's bounds, at the statement's offset.
+    final offset = statement.utcOffset;
+    CalendarDate dayOf(DateTime time) => statement.datesOnly
+        ? CalendarDate.of(time, offset)
+        : CalendarDate.local(time);
+    DateTime startOf(CalendarDate day) =>
+        statement.datesOnly ? day.startInstantAt(offset) : day.startInstant;
+
+    final firstDay = _earlier(statement.periodStart, dayOf(parsed.first.time));
+    final lastDay = _later(statement.periodEnd, dayOf(parsed.last.time));
+    final from = startOf(firstDay);
+    final to = startOf(lastDay.addDays(1));
+    // SMS times are when the money moved; a date-only row may be any time
+    // of its day.
+    final margin = statement.datesOnly
+        ? const Duration(days: 1)
+        : defaultDedupeWindow;
 
     final institutionId = statement.institutionId;
     final institution = _institution(institutionId);
@@ -280,13 +303,18 @@ class StatementImporter {
 
     final nearby = await _imports.transactionsBetween(
       accountId,
-      from: from.subtract(defaultDedupeWindow),
-      to: to.add(defaultDedupeWindow),
+      from: from.subtract(margin),
+      to: to.add(margin),
     );
     final matches = matchStatementLines(
-      [for (final p in parsed) _fieldsOfParsed(p)],
+      [
+        for (final p in parsed)
+          _fieldsOfParsed(p, dayOnly: statement.datesOnly),
+      ],
       [for (final t in nearby) LedgerCandidate(t.id, _fieldsOfRecord(t))],
+      dayOffset: statement.utcOffset,
     );
+    await _fillMissingFees(parsed, matches, nearby, dayOf);
     final added = await _transactions.addNew([
       for (var i = 0; i < parsed.length; i++)
         if (matches[i] == null)
@@ -351,6 +379,41 @@ class StatementImporter {
     );
   }
 
+  /// Gives each SMS transaction a statement row duplicates the charge the
+  /// statement folds into the row, when the SMS gave none, so the ledger
+  /// counts it. A charge with an SMS of its own (an unmatched debit of the
+  /// same amount that day) is left alone.
+  Future<void> _fillMissingFees(
+    List<ParsedTransaction> parsed,
+    List<int?> matches,
+    List<TransactionRecord> nearby,
+    CalendarDate Function(DateTime) dayOf,
+  ) async {
+    final byId = {for (final t in nearby) t.id: t};
+    final used = {for (final id in matches) ?id};
+    for (var i = 0; i < parsed.length; i++) {
+      final record = byId[matches[i]];
+      final fee = parsed[i].feeMinor ?? 0;
+      if (record == null || fee <= 0 || record.feeMinor != 0) continue;
+      final feeMinor = inCurrencyMinor(fee, parsed[i].currency);
+      final day = dayOf(parsed[i].time);
+      final ownMessage = nearby
+          .where(
+            (t) =>
+                !used.contains(t.id) &&
+                t.direction == TransactionDirection.outflow &&
+                t.amountMinor == feeMinor &&
+                dayOf(t.occurredAt) == day,
+          )
+          .firstOrNull;
+      if (ownMessage != null) {
+        used.add(ownMessage.id);
+        continue;
+      }
+      await _imports.fillMissingFee(record.id, feeMinor);
+    }
+  }
+
   StatementImportSummary _summaryOf(Import record) {
     final id = record.institutionId;
     return StatementImportSummary.fromRecord(
@@ -388,14 +451,16 @@ DateTime _utcMidnight(CalendarDate day) =>
 CalendarDate _dayOf(DateTime utcMidnight) =>
     CalendarDate(utcMidnight.year, utcMidnight.month, utcMidnight.day);
 
-DedupeFields _fieldsOfParsed(ParsedTransaction p) => DedupeFields(
-  amountMinor: p.amountMinor,
-  direction: transactionDirectionFor(p.direction),
-  occurredAt: p.time,
-  receipt: p.receipt,
-  counterparty: p.counterparty,
-  dedupeKey: p.dedupeKey,
-);
+DedupeFields _fieldsOfParsed(ParsedTransaction p, {required bool dayOnly}) =>
+    DedupeFields(
+      dayOnly: dayOnly,
+      amountMinor: p.amountMinor,
+      direction: transactionDirectionFor(p.direction),
+      occurredAt: p.time,
+      receipt: p.receipt,
+      counterparty: p.counterparty,
+      dedupeKey: p.dedupeKey,
+    );
 
 DedupeFields _fieldsOfRecord(TransactionRecord t) => DedupeFields(
   amountMinor: t.amountMinor,

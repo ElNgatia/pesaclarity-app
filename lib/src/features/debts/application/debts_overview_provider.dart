@@ -80,6 +80,7 @@ class DebtsOverview {
     required this.preference,
     required this.plan,
     required this.fuliza,
+    this.fulizaShown = true,
     this.fulizaDebt,
     this.fulizaAccount,
     this.fulizaWalletMinor = 0,
@@ -98,8 +99,13 @@ class DebtsOverview {
   /// The plan with today's strategy and no extra.
   final PayoffPlan plan;
 
-  /// This month's Fuliza use; null when there was none.
+  /// This month's Fuliza use; null when there was none, or while the space
+  /// does not show Fuliza.
   final FulizaTrackerMonth? fuliza;
+
+  /// Whether the space shows Fuliza (see `FulizaTracking`): until then
+  /// Fuliza is not named, not even as an example.
+  final bool fulizaShown;
 
   /// Fuliza owed now, its due date and this month's daily charges, as
   /// Fuliza's own messages put them. Null when nothing is owed.
@@ -176,7 +182,8 @@ final debtsOverviewProvider = FutureProvider<DebtsOverview>((ref) async {
     startingBalances: await repository.startingBalances(),
     preference: preference,
     plan: PayoffPlan.simulate(ordered, preference.options(month)),
-    fuliza: fuliza.usage.drawCount == 0 ? null : fuliza,
+    fuliza: !journal.fulizaShown || fuliza.usage.drawCount == 0 ? null : fuliza,
+    fulizaShown: journal.fulizaShown,
     fulizaDebt: fulizaDebt,
     fulizaAccount: fulizaAccount,
     fulizaWalletMinor: fulizaWallet,
