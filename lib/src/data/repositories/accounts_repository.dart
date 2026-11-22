@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/money/exchange_rates.dart';
 import '../../core/money/money.dart';
 import '../../domain/accounts/account_reference.dart';
+import '../../domain/accounts/mpesa_family.dart';
 import '../../domain/accounts/mpesa_lines.dart';
 import '../../domain/ledger/balances.dart';
 import '../../features/currency/application/currency_controller.dart';
@@ -106,13 +107,38 @@ class DriftAccountsRepository implements AccountsRepository {
     Account? pick(Iterable<Account> accounts) =>
         accounts.where((a) => a.currency == currency).firstOrNull;
 
+    // The person's own Pochi la Biashara is its own account, a member of
+    // the M-Pesa family under the first wallet (decision 0026).
+    if (isPochiReference(reference)) {
+      final pochi = existing.where((a) => a.reference == reference);
+      final match = pick(pochi) ?? pochi.firstOrNull;
+      if (match != null) return match.id;
+      final wallet = existing
+          .where((a) => a.type == AccountType.mpesa)
+          .firstOrNull;
+      return add(
+        AccountsCompanion.insert(
+          name: name,
+          type: type,
+          currency: Value(currency),
+          openingDate: openingDate,
+          institutionId: Value(institutionId),
+          reference: Value(reference),
+          familyOf: Value(wallet?.id),
+        ),
+      );
+    }
+
+    // Every other message is on an account other than Pochi.
+    existing.removeWhere((a) => isPochiReference(a.reference));
+
     // An M-Pesa line is its own account, by its key alone: never another
     // line's, nor the one account all lines were read into before.
     if (lineOfReference(reference) != null) {
       final line = existing.where((a) => a.reference == reference);
       final match = pick(line) ?? line.firstOrNull;
       if (match != null) return match.id;
-      return add(
+      final id = await add(
         AccountsCompanion.insert(
           name: name,
           type: type,
@@ -122,6 +148,8 @@ class DriftAccountsRepository implements AccountsRepository {
           reference: Value(reference),
         ),
       );
+      if (type == AccountType.mpesa) await _adoptPochi(institutionId, id);
+      return id;
     }
 
     if (printed == null) {
@@ -165,8 +193,21 @@ class DriftAccountsRepository implements AccountsRepository {
     for (final other in existing) {
       await _nameApart(other, name);
     }
+    if (type == AccountType.mpesa) await _adoptPochi(institutionId, id);
     return id;
   });
+
+  /// Puts a Pochi la Biashara read before its wallet under [walletId], the
+  /// first M-Pesa wallet of [institutionId] (decision 0026).
+  Future<void> _adoptPochi(String institutionId, int walletId) async {
+    await (_db.update(_db.accounts)..where(
+          (a) =>
+              a.institutionId.equals(institutionId) &
+              a.reference.equals(pochiReference) &
+              a.familyOf.isNull(),
+        ))
+        .write(AccountsCompanion(familyOf: Value(walletId)));
+  }
 
   /// Adds the last digits of [account]'s number to its name while it still
   /// has the institution's [name].

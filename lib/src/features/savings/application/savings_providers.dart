@@ -90,7 +90,8 @@ final savingsToAddProvider = FutureProvider<List<SavingsProduct>>((ref) async {
   final declined = await repository.declined();
   return [
     for (final product in savingsProducts)
-      if (!added.contains(product.id) &&
+      if (!product.keptOnItsOwn &&
+          !added.contains(product.id) &&
           (declined.contains(product.id) ||
               (await repository.discover(product)).found))
         product,

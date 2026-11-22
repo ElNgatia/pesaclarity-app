@@ -335,6 +335,8 @@ class DriftSavingsRepository implements SavingsRepository {
         a.product,
     };
     for (final product in products) {
+      // Kept without asking (decision 0026).
+      if (product.keptOnItsOwn) continue;
       if (no.contains(product.id) || added.contains(product.id)) continue;
       final ask = (await discover(product)).latestPayIn;
       if (ask != null) return ask;

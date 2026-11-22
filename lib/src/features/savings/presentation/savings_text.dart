@@ -48,6 +48,22 @@ abstract final class SavingsText {
 
   // A savings account's page.
   static const saved = 'Saved';
+  static const invested = 'Invested';
+  static const value = 'Value';
+  static String earnedThisMonth(String amount, {required bool invested}) =>
+      '+$amount ${invested ? 'returns' : 'interest'} this month';
+  static const returnsEarned = 'Returns earned';
+  static const interestEarned = 'Interest earned';
+  static const returns = 'Returns';
+  static const interest = 'Interest';
+
+  /// Whose messages an account kept from its messages is read from.
+  static String messagesFrom(SavingsProduct product) =>
+      product.inMpesaFamily ? 'M-Pesa' : '${product.provider} and M-Pesa';
+
+  /// `Invested from M-Pesa`, `Saved from M-Pesa`.
+  static String movedFrom(String account, {required bool invested}) =>
+      '${invested ? 'Invested' : 'Saved'} from $account';
   static const balance = 'Balance';
   static String heldBy(SavingsProduct? product) => product == null
       ? 'A savings account'

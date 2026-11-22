@@ -26,8 +26,10 @@ typedef BalancesRepair = ({
 const balancesRepairKey = 'ledger.balancesRepaired';
 
 /// The version of [repairBalances]: raised when it learns something new to
-/// put right. Version 2 matches own transfers by decision 0030's rules.
-const balancesRepairVersion = 2;
+/// put right. Version 2 matches own transfers by decision 0030's rules;
+/// version 3 makes M-Shwari, Ziidi and Etica MMF accounts of their own
+/// (decision 0026), so money moved to and from them is an own transfer.
+const balancesRepairVersion = 3;
 
 /// The readers' versions as one text, such as `0.4.0 kcb@0.4.2,mpesa@0.5.0`:
 /// the engine's [engine] and each pack's in [packs], by pack id, in order.
@@ -46,7 +48,11 @@ String readersVersion(String engine, Map<String, String> packs) {
 ///   the wallet: merged as new messages now merge ([mergeStoredWalletCredits]);
 /// * rows made twice from one message ([removeMessageCopies]);
 /// * own transfers paired by amount and time that what the messages print
-///   now rules out ([unpairRuledOutMoves]).
+///   now rules out ([unpairRuledOutMoves]);
+/// * money sent to or received from M-Shwari, Ziidi or Etica, stored as
+///   plain payments: each becomes an own transfer with that product's
+///   account, made for it ([syncSavingsAccounts]). Payments the person
+///   matched by hand or said went elsewhere stay as they are.
 ///
 /// Then matches own transfers again over the whole history, with what the
 /// readers now read, and reposts the whole journal from the records, which
@@ -118,9 +124,9 @@ Future<BalancesRepair> repairBalances(AppDatabase db) async {
       unpaired: await unpairRuledOutMoves(db),
     ),
   );
-  if (fixed.copies > 0 || fixed.walletCredits > 0) {
-    await syncSavingsAccounts(db);
-  }
+  // Also makes the M-Pesa family's accounts (decision 0026) and turns the
+  // money moved to and from them into own transfers.
+  await syncSavingsAccounts(db);
   final paired = await DriftTransactionsRepository(db).pairOwnTransfers();
   await JournalRepository.markForRebuild(db);
   await JournalRepository(db).sync();

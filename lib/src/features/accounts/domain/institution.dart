@@ -28,7 +28,11 @@ class Institution {
 }
 
 // Packs say nothing about the kind of account; anything not listed is a bank.
-const _accountTypes = {'mpesa': AccountType.mpesa};
+const _accountTypes = {
+  'mpesa': AccountType.mpesa,
+  // Etica Capital's money market fund (see `savings_product.dart`).
+  'etica': AccountType.moneyMarket,
+};
 
 /// Institutions offered in My accounts, one per bundled parser pack: mobile
 /// money first, then by name.
