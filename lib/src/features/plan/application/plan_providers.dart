@@ -4,6 +4,7 @@ import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/categories_repository.dart';
 import '../../../data/repositories/debts_repository.dart';
+import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/payday_repository.dart';
 import '../../../data/repositories/plan_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
@@ -45,6 +46,7 @@ final monthCloseProvider = FutureProvider<List<YearMonth>>((ref) async {
     transactions: ref.watch(transactionsRepositoryProvider),
     firstMonth: first,
     now: now,
+    journal: await readJournal(ref),
   );
 });
 
@@ -135,7 +137,7 @@ final planViewProvider = FutureProvider.family<PlanView, YearMonth>((
   final entries = await ref
       .watch(transactionsRepositoryProvider)
       .ledgerEntries(from: month.startInstant, to: month.endInstant);
-  final review = MonthReview.of(plan, entries);
+  final review = MonthReview.of(plan, entries, journal: await readJournal(ref));
   final debts = await ref.watch(debtsRepositoryProvider).debts(today: today);
   final hasDebt =
       debts.any((d) => d.balanceMinor > 0) ||
@@ -200,7 +202,7 @@ final paydayProvider = FutureProvider<PaydayProposal?>((ref) async {
   final debtsRepository = ref.watch(debtsRepositoryProvider);
   final preference = await ref.watch(debtPreferenceProvider.future);
   final checklist = PaydayChecklist.propose(
-    review: MonthReview.of(plan, entries),
+    review: MonthReview.of(plan, entries, journal: await readJournal(ref)),
     incomeMinor: payday.amountMinor,
     debts: await debtsRepository.debts(today: today),
     strategy: preference.strategy,

@@ -1,4 +1,5 @@
 import '../../core/money/money.dart';
+import '../books/journal_balances.dart';
 import 'fuliza.dart';
 import 'ledger_entry.dart';
 import 'ledger_role.dart';
@@ -29,11 +30,23 @@ class LedgerTotals {
   /// repayments; the rest of a repayment counts as debt repayment. Own
   /// transfers are counted once, by their outflow half; one that moved
   /// money into savings (see [isSavedByTransfer]) counts as saving instead.
+  ///
+  /// With the space's [journal] (decision 0018, stage 4), what each entry
+  /// earned, spent, paid in fees and tax and saved is read from the
+  /// postings of its journal entry ([JournalBalances.partsOf]), so these
+  /// totals are the journal's: Fuliza charged once, when it charges, as
+  /// the balances show it; what a transfer lost on the way as its fee; a
+  /// customer paying what they owe as money owed coming in rather than
+  /// income again. Which entries count, and money in, own transfers,
+  /// borrowing, what came off a debt and money awaiting a name, still
+  /// follow [history]; an entry the journal has not posted counts as it
+  /// reads alone.
   factory LedgerTotals.of(
     Iterable<LedgerEntry> history, {
     required DateTime from,
     required DateTime to,
     String? currency,
+    JournalBalances? journal,
   }) {
     currency ??= BaseCurrency.code;
     final all = history.where((e) => e.currency == currency).toList();
@@ -54,9 +67,36 @@ class LedgerTotals {
         continue;
       }
       final amount = entry.amountMinor;
-      fees += entry.feeMinor + (entry.exchangeCostMinor ?? 0);
       if (isMoneyArrived(entry)) arrived += amount;
-      switch (roleOf(entry)) {
+      final role = roleOf(entry);
+      if (journal?.partsOf(entry) case final posted?) {
+        income += posted.incomeMinor;
+        spending += posted.spendingMinor;
+        // What an exchange cost posts in its own entry, on the day the
+        // money arrived, as the entry carries it.
+        fees += posted.allFeesMinor + (entry.exchangeCostMinor ?? 0);
+        tax += posted.taxMinor;
+        saving += posted.savingMinor;
+        switch (role) {
+          // What came off what was borrowed: the journal counts Fuliza's
+          // charges when they are charged, so they stay out.
+          case LedgerRole.debtRepayment:
+            repayment += amount - fuliza.feeOf(entry);
+          case LedgerRole.borrowing:
+            borrowing += amount;
+          case LedgerRole.ownTransfer when isSavedByTransfer(entry):
+            saving += amount;
+          case LedgerRole.ownTransfer when entry.isOutflow:
+            transfers += amount;
+          case LedgerRole.awaitingPayee:
+            awaiting += amount;
+          case _:
+            break;
+        }
+        continue;
+      }
+      fees += entry.feeMinor + (entry.exchangeCostMinor ?? 0);
+      switch (role) {
         case LedgerRole.income:
           income += amount;
         case LedgerRole.spending:

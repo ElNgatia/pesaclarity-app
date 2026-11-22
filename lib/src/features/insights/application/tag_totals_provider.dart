@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/time/clock.dart';
+import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/tags/tag_totals.dart';
 import '../../../domain/time/calendar.dart';
@@ -18,5 +19,10 @@ final tagTotalsThisMonthProvider = FutureProvider<Map<int, TagSummary>>((
   final entries = await ref
       .watch(transactionsRepositoryProvider)
       .ledgerEntries(from: from, to: to);
-  return tagTotals(entries, from: from, to: to);
+  return tagTotals(
+    entries,
+    from: from,
+    to: to,
+    journal: await readJournal(ref),
+  );
 });

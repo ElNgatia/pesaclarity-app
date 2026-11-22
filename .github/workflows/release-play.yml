@@ -6,6 +6,7 @@ name: Release to Google Play
 # and PLAY_TAG_STATUS variables). Tests run before each push
 # (tool/check, from the pre-push hook), not here.
 #
+# Runs in the "production" environment; its secrets and variables are used.
 # Secrets: PLAY_UPLOAD_KEYSTORE_BASE64, PLAY_UPLOAD_KEYSTORE_PASSWORD,
 # PLAY_UPLOAD_KEY_ALIAS, PLAY_UPLOAD_KEY_PASSWORD, PLAY_SERVICE_ACCOUNT_JSON.
 # Variables (required): PLAY_PACKAGE_NAME, PLAY_VERSION_CODE_OFFSET, and for
@@ -58,7 +59,7 @@ jobs:
   release:
     name: Build and upload
     runs-on: ubuntu-24.04
-    environment: ${{ github.event_name != 'pull_request' && 'play-store' || '' }}
+    environment: ${{ github.event_name != 'pull_request' && 'production' || '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -164,6 +165,19 @@ jobs:
           keytool -printcert -jarfile build/app/outputs/bundle/playRelease/app-play-release.aab \
             | grep -q "Android Debug" && { echo "::error::Signed with the debug key"; exit 1; } || true
 
+      # Kept before the upload, so the bundle is there to upload by hand when
+      # Play refuses the API (the app's first release must be uploaded in
+      # Play Console).
+      - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
+        with:
+          name: pesaclarity-play-release
+          path: |
+            build/app/outputs/bundle/playRelease/app-play-release.aab
+            build/app/outputs/mapping/playRelease/mapping.txt
+            build/symbols
+          retention-days: 30
+
       - name: Upload to Google Play
         if: github.event_name != 'pull_request'
         uses: r0adkll/upload-google-play@v1
@@ -174,16 +188,6 @@ jobs:
           track: ${{ env.TRACK }}
           status: ${{ env.STATUS }}
           mappingFile: build/app/outputs/mapping/playRelease/mapping.txt
-
-      - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
-        with:
-          name: pesaclarity-play-release
-          path: |
-            build/app/outputs/bundle/playRelease/app-play-release.aab
-            build/app/outputs/mapping/playRelease/mapping.txt
-            build/symbols
-          retention-days: 30
 
       - name: Remove signing files
         if: always()

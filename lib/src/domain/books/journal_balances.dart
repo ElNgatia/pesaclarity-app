@@ -4,18 +4,100 @@ import 'book_account.dart';
 import 'books.dart';
 import 'journal.dart';
 
+/// What one transaction did by the postings of its journal entry
+/// (decision 0018, stage 4): the figures Plan, Insights, Activity, reports
+/// and tax count it for. Each is positive in the account's normal
+/// direction, so a refund is negative spending and money sent back is
+/// negative income. Reversals and the entries they cancel net out, so only
+/// what the entry says now counts.
+class PostedParts {
+  const PostedParts({
+    this.incomeMinor = 0,
+    this.spendingMinor = 0,
+    this.feesMinor = 0,
+    this.fulizaChargesMinor = 0,
+    this.taxMinor = 0,
+    this.savingMinor = 0,
+  });
+
+  /// Reads one transaction's net postings, by account.
+  factory PostedParts.of(Map<BookAccount, int> lines) {
+    var income = 0;
+    var spending = 0;
+    var fees = 0;
+    var charges = 0;
+    var tax = 0;
+    var saving = 0;
+    for (final MapEntry(key: account, value: amount) in lines.entries) {
+      switch (account.kind) {
+        case BookAccountKind.incomeCategory ||
+            BookAccountKind.uncategorisedIncome:
+          income -= amount;
+        case BookAccountKind.spendingCategory ||
+            BookAccountKind.uncategorisedSpending:
+          spending += amount;
+        case BookAccountKind.fees:
+          fees += amount;
+        case BookAccountKind.fulizaCharges:
+          charges += amount;
+        case BookAccountKind.tax:
+          tax += amount;
+        case BookAccountKind.savings:
+          saving += amount;
+        case _:
+          break;
+      }
+    }
+    return PostedParts(
+      incomeMinor: income,
+      spendingMinor: spending,
+      feesMinor: fees,
+      fulizaChargesMinor: charges,
+      taxMinor: tax,
+      savingMinor: saving,
+    );
+  }
+
+  /// Income, net of money sent back.
+  final int incomeMinor;
+
+  /// Spending on its category (or Uncategorised), net of refunds.
+  final int spendingMinor;
+
+  /// Transaction costs and charges, without Fuliza's.
+  final int feesMinor;
+
+  /// What Fuliza charged in this entry: access fees, daily charges, and
+  /// what a repayment took beyond what was owed.
+  final int fulizaChargesMinor;
+  final int taxMinor;
+
+  /// Money put into savings held elsewhere.
+  final int savingMinor;
+
+  /// Every fee and charge, Fuliza's included.
+  int get allFeesMinor => feesMinor + fulizaChargesMinor;
+}
+
 /// Balances read from a space's journal (decision 0018, stage 2): every
 /// figure is a sum of postings. Built from the stored journal in the app,
 /// or from the records with [JournalBalances.ofRecords].
 class JournalBalances {
-  /// Reads [entries], in any order.
-  JournalBalances(Iterable<JournalEntry> entries)
-    : _lines = {},
-      _running = Expando<List<int>>(),
+  /// Reads [entries], in any order. [posted] adds transactions the journal
+  /// posted with no postings, which a stored journal keeps as entries
+  /// without lines.
+  JournalBalances(Iterable<JournalEntry> entries, {Set<int> posted = const {}})
+    : _data = _JournalData({...posted}),
       fulizaShown = true {
+    final _JournalData(:_posted, :_byTransaction, :_lines, :_running) = _data;
     for (final e in entries) {
+      if (e.source == JournalSource.transaction) _posted.add(e.sourceId);
+      final own = e.source == JournalSource.transaction
+          ? _byTransaction[(e.sourceId, e.currency)] ??= {}
+          : null;
       for (final l in e.lines) {
         (_lines[(l.account, e.currency)] ??= []).add((e.at, l.amountMinor));
+        if (own != null) own[l.account] = (own[l.account] ?? 0) + l.amountMinor;
       }
     }
     for (final list in _lines.values) {
@@ -38,14 +120,10 @@ class JournalBalances {
     postJournal(accounts: accounts, history: history, categories: categories),
   );
 
-  JournalBalances._view(
-    this._lines,
-    this._running, {
-    required this.fulizaShown,
-  });
+  JournalBalances._view(this._data, {required this.fulizaShown});
 
-  final Map<(BookAccount, String), List<(DateTime, int)>> _lines;
-  final Expando<List<int>> _running;
+  /// The postings, shared by every view of them ([withFuliza]).
+  final _JournalData _data;
 
   /// Whether the space shows Fuliza (see `FulizaTracking`). Hidden, the
   /// postings stay as they are, but Fuliza owed reads as nothing, so each
@@ -56,14 +134,30 @@ class JournalBalances {
   /// postings.
   JournalBalances withFuliza({required bool shown}) => shown == fulizaShown
       ? this
-      : JournalBalances._view(_lines, _running, fulizaShown: shown);
+      : JournalBalances._view(_data, fulizaShown: shown);
+
+  /// What transaction [e] did by its entry's postings, in [e]'s currency;
+  /// null when the journal has no entry for it (not posted yet, or a
+  /// journal of other records). An entry that posted nothing, such as a
+  /// Fuliza repayment whose money in already paid what was owed, did
+  /// nothing.
+  PostedParts? partsOf(LedgerEntry e) {
+    final data = _data;
+    if (e.isBalanceRecord || !data._posted.contains(e.id)) return null;
+    final key = (e.id, e.currency);
+    final known = data._parts[key];
+    if (known != null) return known;
+    return data._parts[key] = PostedParts.of(
+      data._byTransaction[key] ?? const {},
+    );
+  }
 
   /// Debit-positive total of [account] in [currency] from postings dated
   /// before [at], or all of them.
   int _debits(BookAccount account, String currency, DateTime? at) {
-    final list = _lines[(account, currency)];
+    final list = _data._lines[(account, currency)];
     if (list == null || list.isEmpty) return 0;
-    final sums = _running[list]!;
+    final sums = _data._running[list]!;
     if (at == null) return sums.last;
     // The last posting dated before [at].
     var lo = 0;
@@ -135,4 +229,19 @@ class JournalBalances {
     required DateTime at,
     required bool Function(AccountOpening account) where,
   }) => accounts.where(where).fold(0, (sum, a) => sum + heldAt(a, at: at));
+}
+
+/// What [JournalBalances] reads, kept once for all its views.
+class _JournalData {
+  _JournalData(this._posted);
+
+  final _lines = <(BookAccount, String), List<(DateTime, int)>>{};
+  final _running = Expando<List<int>>();
+
+  /// Each transaction's net postings by account, by its id and currency.
+  final _byTransaction = <(int, String), Map<BookAccount, int>>{};
+  final _parts = <(int, String), PostedParts>{};
+
+  /// The transactions the journal has an entry for, lines or not.
+  final Set<int> _posted;
 }

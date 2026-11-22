@@ -68,9 +68,15 @@ class HealthInputs {
       from: month.startInstant,
       to: month.endInstant,
       currency: currency,
+      journal: journal,
     );
     final inMonth = entries.where((e) => month.contains(e.date)).toList();
-    final review = MonthReview.of(plan, inMonth, currency: currency);
+    final review = MonthReview.of(
+      plan,
+      inMonth,
+      currency: currency,
+      journal: journal,
+    );
     final judgedTo = asOf ?? month.lastDay;
 
     // Fees from the journal when there is one, so Fuliza charges match
@@ -88,7 +94,7 @@ class HealthInputs {
         ? totals.feesMinor
         : breakdown.feesMinor + breakdown.fulizaMinor;
 
-    final bills = _billsOnTime(plan, inMonth, judgedTo, currency);
+    final bills = _billsOnTime(plan, inMonth, judgedTo, currency, journal);
 
     final byType = plan.plannedByType;
     var essentials =
@@ -172,6 +178,7 @@ class HealthInputs {
   List<LedgerEntry> inMonth,
   CalendarDate judgedTo,
   String currency,
+  JournalBalances? journal,
 ) {
   final byDueDate = <CalendarDate, List<PlanLine>>{};
   for (final line in plan.outgoingLines) {
@@ -192,6 +199,7 @@ class HealthInputs {
       plan,
       inMonth.where((e) => !e.date.isAfter(date)),
       currency: currency,
+      journal: journal,
     );
     final paid = Set<PlanLine>.identity()
       ..addAll([

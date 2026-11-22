@@ -93,7 +93,13 @@ MonthInsight _monthOf(
   }
   return MonthInsight(
     month: month,
-    totals: LedgerTotals.of(all, from: from, to: to, currency: currency),
+    totals: LedgerTotals.of(
+      all,
+      from: from,
+      to: to,
+      currency: currency,
+      journal: journal,
+    ),
     leakage: LeakageBreakdown.of(
       all,
       from: from,
