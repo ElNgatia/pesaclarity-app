@@ -28,6 +28,7 @@ import '../../spaces/application/routing_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../data/sms_source.dart';
 import '../domain/scan_range.dart';
+import 'every_space_catch_up.dart';
 import 'message_recheck.dart';
 import 'read_again.dart';
 import 'scan_range_provider.dart';
@@ -61,21 +62,34 @@ final smsScanServiceProvider = Provider<SmsScanService>((ref) {
     source: source,
     ingestor: ref.watch(smsIngestorProvider),
     marks: ref.watch(smsScanMarksRepositoryProvider),
-    // The iPhone's queue lets go of an M-Pesa message only once every space
-    // reading one of its lines has read it.
-    releaseUntil: source is! ShortcutConnection
-        ? null
-        : (institution, startedAt) async {
-            if (institution.id != mpesaInstitutionId) return startedAt;
-            final listed = {
-              for (final s in await ref.read(spacesProvider.future)) s.id,
-            };
-            return ref
-                .read(mpesaLinesProvider.notifier)
-                .change((l) => l.readTo(spaceId, startedAt, listed));
-          },
+    releaseUntil: queueReleaseFor(
+      source,
+      spaceId,
+      lines: () => ref.read(mpesaLinesProvider.notifier),
+      listed: () async => {
+        for (final s in await ref.read(spacesProvider.future)) s.id,
+      },
+    ),
   );
 });
+
+/// How far the iPhone's queue may let go of an institution's messages once
+/// [spaceId] has read them (see [SmsScanService]); null for a source that
+/// keeps no copy of its own. The queue lets go of an M-Pesa message only
+/// once every space reading one of its lines has read it; [listed] gives
+/// the ids of the spaces on the list.
+Future<DateTime?> Function(Institution, DateTime)? queueReleaseFor(
+  SmsSource source,
+  String spaceId, {
+  required MpesaLinesController Function() lines,
+  required Future<Set<String>> Function() listed,
+}) => source is! ShortcutConnection
+    ? null
+    : (institution, startedAt) async {
+        if (institution.id != mpesaInstitutionId) return startedAt;
+        final ids = await listed();
+        return lines().change((l) => l.readTo(spaceId, startedAt, ids));
+      };
 
 /// The institutions switched on in My accounts, in catalogue order.
 final selectedInstitutionsProvider = Provider<List<Institution>>((ref) {
@@ -130,7 +144,13 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
   final scan = ref.watch(smsScanServiceProvider);
   final ingestor = ref.watch(smsIngestorProvider);
   final resumed = ref.watch(appResumedProvider);
-  if (selected.isEmpty) return;
+  // While the open space's accounts load, the capture waits for them.
+  final ids = ref.watch(selectedInstitutionIdsProvider);
+  if (ids.isLoading) return;
+  final readHere = ids.value ?? const <String>{};
+  // A space with nothing switched on still reads, on start and each
+  // return, for the other spaces' accounts.
+  final readsHere = selected.isNotEmpty;
 
   // What to deal with next, in the order it came: a message that just
   // landed, or null for the app coming back to the front. Taken one at a
@@ -184,9 +204,11 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
     // Listening starts before the first scan, so a message that lands
     // during it is not missed. One the scan also read is skipped as already
     // stored.
-    arrivals = source
-        .incoming({for (final i in selected) ...i.senderIds})
-        .listen(events.add, onError: events.addError);
+    if (readsHere) {
+      arrivals = source
+          .incoming({for (final i in selected) ...i.senderIds})
+          .listen(events.add, onError: events.addError);
+    }
 
     void triggerAutoCategorise() {
       final suggester = ref.read(categorySuggesterProvider);
@@ -198,13 +220,39 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
     final range = await ref.watch(scanRangeProvider.future);
     if (!ref.mounted) return;
     final readsMpesa = selected.any((i) => i.id == mpesaInstitutionId);
+    final turns = ref.read(catchUpTurnsProvider);
     // The same catch-up when the app opens and each time it comes back.
-    Future<SmsIngestSummary> catchUp() => catchUpOnInbox(
-      scan,
-      selected,
-      range: range,
-      now: ref.read(clockProvider)(),
-    );
+    Future<SmsIngestSummary> catchUp() async => !readsHere
+        ? const SmsIngestSummary()
+        : turns.run(
+            () => catchUpOnInbox(
+              scan,
+              selected,
+              range: range,
+              now: ref.read(clockProvider)(),
+            ),
+          );
+    // Then the accounts other spaces read, each into its own space, so their
+    // balances keep up while this one is open.
+    Future<void> catchUpOthers() async {
+      try {
+        final read = await turns.run(
+          () => catchUpEverySpace(
+            ref,
+            readHere: readHere,
+            stillWanted: () => ref.mounted,
+          ),
+        );
+        if (!ref.mounted) return;
+        // Personal's shared lines may have new payments to ask about here.
+        if ((read[personalSpaceId]?.added ?? 0) > 0) {
+          ref.invalidate(sharedLineQuestionsProvider);
+        }
+      } on Object catch (error) {
+        if (kDebugMode) debugPrint('Reading for other spaces failed: $error');
+      }
+    }
+
     final initial = await catchUp();
     // Another space opened, or capture started afresh, meanwhile: the rest
     // is that run's to do.
@@ -264,6 +312,9 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
     }
 
     if (initial.added > 0) await sortShared();
+    // After this space's own, so its start is not held up.
+    await catchUpOthers();
+    if (!ref.mounted) return;
     while (await next.moveNext()) {
       final message = next.current;
       final SmsIngestSummary summary;
@@ -290,6 +341,10 @@ final liveSmsCaptureProvider = StreamProvider<SmsIngestSummary>((ref) async* {
       if (summary.added > 0) {
         triggerAutoCategorise();
         await sortShared();
+      }
+      if (message == null) {
+        await catchUpOthers();
+        if (!ref.mounted) return;
       }
       yield summary;
     }

@@ -134,7 +134,12 @@ class RepairResultSheet extends ConsumerWidget {
             const Key('repair-unsettled'),
           ),
         const SizedBox(height: 8),
-        Text('A locked copy of each space is kept for 30 days.', style: muted),
+        // The sheet's subtitle style: at 13 px this line drew under 4.5:1 in
+        // light, in any of the theme's text colours.
+        Text(
+          'A locked copy of each space is kept for 30 days.',
+          style: theme.textTheme.bodyMedium!.copyWith(color: colors.textMuted),
+        ),
         const SizedBox(height: 16),
         FilledButton(
           key: const Key('repair-next'),

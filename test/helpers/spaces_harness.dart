@@ -38,8 +38,13 @@ class TwoSpaceDatabases extends SpaceDatabases {
   final AppDatabase personal;
   final AppDatabase other;
 
+  /// Spaces whose database cannot be opened now, as when its file is being
+  /// swapped.
+  final unreadable = <String>{};
+
   @override
   Future<(AppDatabase, bool)> open(String spaceId) async {
+    if (unreadable.contains(spaceId)) throw StateError('$spaceId is busy');
     if (spaceId == personalSpaceId) return (personal, false);
     if (!(await listed()).any((space) => space.id == spaceId)) {
       throw SpaceNotOnPhone(spaceId);
@@ -51,14 +56,15 @@ class TwoSpaceDatabases extends SpaceDatabases {
 /// The app's own providers over two in-memory databases: [personal] and one
 /// [other] space, switched with the real `activeSpaceIdProvider`. Messages
 /// come from [sms] (an empty inbox when not given) and the time from
-/// [clock]. The app never goes to the background and back, since there is
-/// no widgets binding to tell it.
+/// [clock]. The app comes back to the front each time [resumed] fires,
+/// and otherwise never, since there is no widgets binding to tell it.
 ProviderContainer twoSpaces({
   required AppDatabase personal,
   required AppDatabase other,
   required DateTime Function() clock,
   SmsSource? sms,
   String active = personalSpaceId,
+  Stream<void>? resumed,
 }) {
   final container = ProviderContainer(
     overrides: [
@@ -78,7 +84,7 @@ ProviderContainer twoSpaces({
         (packs, messages) async => parseAll(packs, messages),
       ),
       clockProvider.overrideWithValue(clock),
-      appResumedProvider.overrideWithValue(const Stream.empty()),
+      appResumedProvider.overrideWithValue(resumed ?? const Stream.empty()),
     ],
   );
   addTearDown(container.dispose);
