@@ -37,6 +37,7 @@ import '../features/invoices/presentation/invoices_screen.dart';
 import '../features/invoices/presentation/make_invoice_screen.dart';
 import '../features/lending/presentation/lending_screen.dart';
 import '../features/onboarding/application/onboarding_controller.dart';
+import '../features/onboarding/presentation/about_you_screen.dart';
 import '../features/onboarding/presentation/first_insight_screen.dart';
 import '../features/onboarding/presentation/my_accounts_screen.dart';
 import '../features/onboarding/presentation/welcome_screen.dart';
@@ -54,6 +55,7 @@ import '../features/review/presentation/review_message_screen.dart';
 import '../features/sales/presentation/sell_screen.dart';
 import '../features/security/application/app_lock_controller.dart';
 import '../features/sms/presentation/connect_messages_screen.dart';
+import '../features/sms/presentation/paste_messages_screen.dart';
 import '../features/sms/presentation/sms_scan_screen.dart';
 import '../features/spaces/application/spaces_providers.dart';
 import '../features/spaces/presentation/add_space_screen.dart';
@@ -175,6 +177,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   GoRoute(
                     path: 'insight',
                     builder: (context, state) => const FirstInsightScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'about',
+                        builder: (context, state) =>
+                            const AboutYouScreen(onboarding: true),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'paste',
+                    builder: (context, state) =>
+                        const PasteMessagesScreen(onboarding: true),
                   ),
                 ],
               ),
@@ -243,6 +257,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                             builder: (context, state) =>
                                 const ChooseAccountsScreen(),
                           ),
+                          GoRoute(
+                            path: 'paste',
+                            builder: (context, state) =>
+                                const PasteMessagesScreen(),
+                          ),
                         ],
                       ),
                       GoRoute(
@@ -284,6 +303,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                             builder: (context, state) => const TermsScreen(),
                           ),
                         ],
+                      ),
+                      GoRoute(
+                        path: 'about',
+                        builder: (context, state) => const AboutYouScreen(),
                       ),
                       GoRoute(
                         path: 'connect',

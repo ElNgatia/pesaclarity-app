@@ -11,6 +11,12 @@ abstract final class AppRoutes {
   static const onboardingScan = '/onboarding/accounts/scan';
   static const onboardingFirstInsight = '/onboarding/accounts/scan/insight';
 
+  /// About you, offered on the last setup screen.
+  static const onboardingAboutYou = '/onboarding/accounts/scan/insight/about';
+
+  /// iPhone setup: paste M-Pesa or bank messages.
+  static const onboardingPaste = '/onboarding/accounts/scan/paste';
+
   static const home = '/home';
 
   /// "Which space?" after unlocking, when the app is set to ask.
@@ -44,6 +50,12 @@ abstract final class AppRoutes {
   static const balances = '/home/profile/balances';
   static const balanceCheck = '/home/profile/balances/check';
   static const chooseAccounts = '/home/profile/accounts/choose';
+
+  /// iPhone: paste messages Shortcuts missed.
+  static const pasteMessages = '/home/profile/accounts/paste';
+
+  /// Three questions that start Plan and suggest a goal.
+  static const aboutYou = '/home/profile/about';
   static const backup = '/home/profile/backup';
   static const backupSetup = '/home/profile/backup/setup';
 

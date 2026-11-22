@@ -168,24 +168,33 @@ class _ConnectMessagesScreenState extends ConsumerState<ConnectMessagesScreen> {
                 onPressed: ref.read(shortcutConnectionProvider).openShortcuts,
                 child: const Text('Open Shortcuts'),
               ),
-            if (widget.onboarding &&
-                ref.watch(statementImportAvailableProvider)) ...[
+            if (widget.onboarding)
               GroupedSection(
-                header: 'Past months',
+                header: 'Past months, or without Shortcuts',
                 footer:
-                    'Shortcuts only passes new messages. A statement from the '
-                    'M-Pesa app or your bank brings in the months before.',
+                    'Shortcuts only passes new messages. A statement, or '
+                    'messages you paste, bring in the ones before.',
                 children: [
+                  if (ref.watch(statementImportAvailableProvider))
+                    ListTile(
+                      key: const Key('connect-import-past'),
+                      leading: const Icon(Icons.upload_file_outlined),
+                      title: const Text('Import a statement'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: _importPastMonths,
+                    ),
                   ListTile(
-                    key: const Key('connect-import-past'),
-                    leading: const Icon(Icons.upload_file_outlined),
-                    title: const Text('Import a statement'),
+                    key: const Key('connect-paste'),
+                    leading: const Icon(Icons.content_paste_outlined),
+                    title: const Text('Paste messages'),
+                    subtitle: const Text(
+                      'Copy them in Messages, paste them here',
+                    ),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: _importPastMonths,
+                    onTap: () => context.push(AppRoutes.onboardingPaste),
                   ),
                 ],
               ),
-            ],
             if (widget.onboarding && !connected) ...[
               const SizedBox(height: 8),
               Semantics(

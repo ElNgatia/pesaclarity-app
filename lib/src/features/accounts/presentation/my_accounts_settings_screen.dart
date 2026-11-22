@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -20,6 +21,7 @@ import '../../../theme/pesa_colors.dart';
 import '../../activity/application/activity_providers.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../savings/presentation/savings_accounts_card.dart';
+import '../../sms/presentation/paste_messages_screen.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../application/mpesa_family_providers.dart';
 import '../application/mpesa_lines_providers.dart';
@@ -149,6 +151,10 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
                     ),
                   ),
                 ],
+                // iPhone: messages Shortcuts missed, pasted or from a
+                // statement.
+                if (readsMpesa && defaultTargetPlatform == TargetPlatform.iOS)
+                  const PasteMessagesRows(),
                 const SizedBox(height: Layout.cardGap),
                 SaccosCard(
                   onOpen: (id) => Navigator.of(context).push(

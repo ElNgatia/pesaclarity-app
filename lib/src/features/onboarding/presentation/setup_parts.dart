@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/time/clock.dart';
+import '../../../domain/time/calendar.dart';
 import '../../../theme/pesa_colors.dart';
+import '../application/about_you_providers.dart';
 import '../application/onboarding_controller.dart';
 
 /// A setup step's main button: [label], with a spinner while [busy].
@@ -90,6 +93,15 @@ class SetupAction extends StatelessWidget {
 /// Try again, rather than leaving the button doing nothing.
 Future<void> finishSetup(BuildContext context, WidgetRef ref) async {
   final messenger = ScaffoldMessenger.of(context);
+  // Setup offered About you: Home offers it once more from tomorrow, unless
+  // it is answered. Not worth holding setup up for.
+  try {
+    await ref
+        .read(aboutYouProvider.notifier)
+        .noteOffered(CalendarDate.local(ref.read(clockProvider)()));
+  } on Object catch (error) {
+    debugPrint('The About you offer could not be noted: $error');
+  }
   try {
     await ref.read(onboardingControllerProvider.notifier).complete();
   } on Object catch (error) {

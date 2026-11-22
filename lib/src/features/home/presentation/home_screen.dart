@@ -48,6 +48,7 @@ import '../../income/application/income_providers.dart';
 import '../../income/presentation/make_it_last_sheet.dart';
 import '../../income/presentation/what_was_this_sheet.dart';
 import '../../insights/presentation/health_colors.dart';
+import '../../onboarding/presentation/about_you_cards.dart';
 import '../../plan/presentation/bills_calendar_view.dart';
 import '../../plan/presentation/budget_alert_cards.dart';
 import '../../sales/application/sales_providers.dart';
@@ -262,6 +263,7 @@ class HomeScreen extends ConsumerWidget {
                   const AppNoticeCards(),
                   const RestoreCheckCard(),
                   const ReadAgainHomeCard(),
+                  const AboutYouHomeCard(),
                   SupportHomeCard(
                     moneyTight: _moneyTight(safeToSpend, untilNext, forecast),
                   ),
