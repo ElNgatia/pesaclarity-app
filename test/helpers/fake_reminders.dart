@@ -26,6 +26,12 @@ class FakeReminderNotifications implements ReminderNotifications {
   Future<void> replaceAll(List<Reminder> reminders) async =>
       schedules.add(reminders);
 
+  /// Every reminder passed to [show], oldest first.
+  final shown = <Reminder>[];
+
+  @override
+  Future<void> show(Reminder reminder) async => shown.add(reminder);
+
   @override
   Future<void> cancelAll() async {
     cancels++;

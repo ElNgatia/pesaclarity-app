@@ -48,6 +48,8 @@ import '../../income/application/income_providers.dart';
 import '../../income/presentation/make_it_last_sheet.dart';
 import '../../income/presentation/what_was_this_sheet.dart';
 import '../../insights/presentation/health_colors.dart';
+import '../../plan/presentation/bills_calendar_view.dart';
+import '../../plan/presentation/budget_alert_cards.dart';
 import '../../sales/application/sales_providers.dart';
 import '../../sales/presentation/pay_sheet.dart';
 import '../../sales/presentation/records_sheets.dart';
@@ -264,6 +266,7 @@ class HomeScreen extends ConsumerWidget {
                     moneyTight: _moneyTight(safeToSpend, untilNext, forecast),
                   ),
                   const LineQuestionRows(),
+                  const HomeBudgetAlertCard(),
                   const NotYetSortedCard(),
                   const _WhatWasThisCard(),
                   if (untilNext != null) _MoneyInCard(untilNext, today: today),
@@ -801,9 +804,20 @@ class _ComingUp extends StatelessWidget {
       children: [
         SectionTitle(
           'Coming up',
-          action: PillButton(
-            label: 'See all',
-            onPressed: () => context.go(AppRoutes.plan),
+          action: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              PillButton(
+                key: const Key('home-bills-calendar'),
+                label: 'Calendar',
+                onPressed: () => openBillsCalendar(context),
+              ),
+              PillButton(
+                label: 'See all',
+                onPressed: () => context.go(AppRoutes.plan),
+              ),
+            ],
           ),
         ),
         Card(

@@ -1,7 +1,8 @@
 import '../reminders/reminder_schedule.dart';
 import 'habit_settings.dart';
 
-/// The id of the Sunday check-in notification, apart from the rest.
+/// The id of the Sunday check-in notification, apart from the rest: after
+/// the tax reminder and below the budget alerts (from collect + 1000).
 const checkInReminderId = collectReminderId + 16;
 
 /// The Sunday check-in notification: the next Sunday at the chosen time,

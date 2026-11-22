@@ -4,6 +4,7 @@ import 'package:pesaclarity/src/domain/habits/habit_settings.dart';
 import 'package:pesaclarity/src/domain/habits/no_spend_days.dart';
 import 'package:pesaclarity/src/domain/habits/week_check_in.dart';
 import 'package:pesaclarity/src/domain/ledger/ledger_entry.dart';
+import 'package:pesaclarity/src/domain/reminders/reminder_schedule.dart';
 import 'package:pesaclarity/src/domain/time/calendar.dart';
 import 'package:pesaclarity/src/features/habits/presentation/habits_text.dart';
 
@@ -142,5 +143,12 @@ void main() {
         isNull,
       );
     });
+  });
+  test('the check-in id clashes with no other reminder', () {
+    expect(checkInReminderId, isNot(collectReminderId));
+    expect(checkInReminderId, isNot(taxReminderId));
+    for (final category in [0, 1, 99999, 100000, 123456]) {
+      expect(checkInReminderId, isNot(budgetAlertReminderId(category)));
+    }
   });
 }
