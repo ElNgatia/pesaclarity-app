@@ -27,8 +27,10 @@ import '../../debts/presentation/due_line.dart' show IconLine;
 import '../../lending/application/lending_providers.dart';
 import '../../onboarding/presentation/about_you_cards.dart';
 import '../../savings/presentation/savings_text.dart';
+import '../application/goals_aside_providers.dart';
 import '../application/goals_overview_provider.dart';
 import 'goal_sheet.dart';
+import 'goals_aside_text.dart';
 
 /// Goals tab: am I getting there?
 class GoalsScreen extends ConsumerWidget {
@@ -324,7 +326,7 @@ class _GoalGrid extends StatelessWidget {
   }
 }
 
-class _GoalCard extends StatelessWidget {
+class _GoalCard extends ConsumerWidget {
   const _GoalCard({required this.goal, required this.today});
 
   final SavingsGoal goal;
@@ -335,7 +337,7 @@ class _GoalCard extends StatelessWidget {
           .copyWith(fontWeight: FontWeight.w500);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final colors = PesaColors.of(context);
     String amount(int minor) => shownMoney(
@@ -345,6 +347,13 @@ class _GoalCard extends StatelessWidget {
       withCurrency: false,
     );
     final percent = (goal.progress * 100).floor();
+    final keptAside =
+        ref
+            .watch(goalsAsideProvider)
+            .value
+            ?.goals
+            .any((g) => g.goal.id == goal.id) ??
+        false;
 
     return Card(
       child: InkWell(
@@ -371,6 +380,17 @@ class _GoalCard extends StatelessWidget {
                   case final pace?) ...[
                 const SizedBox(height: 2),
                 Text(pace, style: theme.textTheme.bodySmall),
+              ],
+              // A note in the app, not a lock: the padlock stays for
+              // savings an app really locks.
+              if (keptAside) ...[
+                const SizedBox(height: 10),
+                IconLine(
+                  key: Key('goal-kept-aside-${goal.id}'),
+                  icon: Icons.savings_outlined,
+                  text: const TextSpan(text: GoalsAsideText.keptAside),
+                  style: theme.textTheme.bodySmall!.copyWith(fontSize: 12),
+                ),
               ],
               if (goal.backing case final backing?) ...[
                 const SizedBox(height: 10),

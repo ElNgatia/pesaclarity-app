@@ -30,6 +30,7 @@ class SafeToSpend {
     required this.weekdayLimitMinor,
     required this.weekendLimitMinor,
     this.onHandMinor,
+    this.goalsKeptMinor = 0,
   });
 
   /// Works out today's limits.
@@ -37,6 +38,10 @@ class SafeToSpend {
   /// [budgetMinor] is this month's day-to-day budget. [entries] may hold any
   /// period: only day-to-day spending in [today]'s Nairobi month, up to and
   /// including today, counts. Refunds in day-to-day categories reduce it.
+  ///
+  /// With goals kept aside ([goalsKeptMinor], already taken off
+  /// [onHandMinor]), the days ahead share no more than the free money on
+  /// hand, so the plan never offers what is set aside.
   factory SafeToSpend.calculate({
     required int budgetMinor,
     required Iterable<LedgerEntry> entries,
@@ -44,6 +49,7 @@ class SafeToSpend {
     int weekendWeightPercent = evenWeekendWeightPercent,
     String? currency,
     int? onHandMinor,
+    int goalsKeptMinor = 0,
   }) {
     currency ??= BaseCurrency.code;
     if (weekendWeightPercent <= 0) {
@@ -74,7 +80,10 @@ class SafeToSpend {
       d.isWeekend ? weekendDays++ : weekdays++;
     }
 
-    final left = budgetMinor - before;
+    var left = budgetMinor - before;
+    if (goalsKeptMinor > 0 && onHandMinor != null && onHandMinor < left) {
+      left = onHandMinor;
+    }
     var weekdayLimit = 0;
     var weekendLimit = 0;
     if (left > 0) {
@@ -95,6 +104,7 @@ class SafeToSpend {
       weekdayLimitMinor: weekdayLimit,
       weekendLimitMinor: weekendLimit,
       onHandMinor: onHandMinor,
+      goalsKeptMinor: goalsKeptMinor,
     );
   }
 
@@ -114,6 +124,13 @@ class SafeToSpend {
   /// Day-to-day money on hand, Fuliza owed taken off, when known. At or
   /// below zero nothing is safe to spend, whatever the budget has left.
   final int? onHandMinor;
+
+  /// What goals kept aside hold, already out of [onHandMinor].
+  final int goalsKeptMinor;
+
+  /// Whether the free money is used up and only what is set aside for
+  /// goals is left: nothing is safe to spend, but nothing is below zero.
+  bool get nothingFreeAfterGoals => goalsKeptMinor > 0 && onHandMinor == 0;
 
   /// Whether the accounts hold nothing to spend.
   bool get nothingOnHand => onHandMinor != null && onHandMinor! <= 0;

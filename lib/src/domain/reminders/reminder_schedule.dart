@@ -5,7 +5,16 @@ import '../time/calendar.dart';
 import 'recurring_charges.dart';
 import 'reminder_settings.dart';
 
-enum ReminderKind { bill, cardCharge, payday, safeToSpend, collect, tax }
+enum ReminderKind {
+  bill,
+  cardCharge,
+  payday,
+  safeToSpend,
+  collect,
+  tax,
+  weeklyCheckIn,
+  budget,
+}
 
 /// One local notification to show at [at].
 class Reminder {
@@ -293,6 +302,11 @@ Reminder? collectReminder({
 
 /// The id of a business's tax due reminder, apart from the rest.
 const taxReminderId = collectReminderId + 1;
+
+/// The id of a category's budget alert: one per category, so a later
+/// alert replaces an earlier one.
+int budgetAlertReminderId(int categoryId) =>
+    (collectReminderId + 1000) + categoryId % 100000;
 
 /// A reminder [daysBefore] days ahead of [due] at 9:00 local time that
 /// [what] is due, with about [amount] when amounts show; null when that

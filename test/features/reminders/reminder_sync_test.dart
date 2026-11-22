@@ -74,6 +74,12 @@ void main() {
       (ReminderKind.payday, eat(2026, 10, 30, 9), 'Payday: Salary'),
       (ReminderKind.bill, eat(2026, 10, 31, 9), 'Rent is due tomorrow'),
       (ReminderKind.payday, eat(2026, 11, 30, 9), 'Payday: Salary'),
+      // The Sunday check-in (Profile › Habits), on by default.
+      (
+        ReminderKind.weeklyCheckIn,
+        DateTime(2026, 11, 1, 18).toUtc(),
+        'Your week in three lines is ready',
+      ),
     ]);
     expect(notifications.scheduled[1].body, contains('KES 25,000'));
   });
@@ -126,6 +132,7 @@ void main() {
       'Payday: Salary',
       'Rent is due today',
       'Payday: Salary',
+      'Your week in three lines is ready',
     ]);
 
     await addRecurring('Internet', CategoryType.expense, 28, 3000);
@@ -148,5 +155,63 @@ void main() {
     expect(notifications.schedules, isEmpty);
     expect(notifications.cancels, 0);
     expect(c.read(remindersControllerProvider).value, const ReminderSettings());
+  });
+
+  test('a budget alert shows once at its share, with no amount', () async {
+    final food = await db
+        .into(db.categories)
+        .insert(
+          CategoriesCompanion.insert(
+            name: 'Test Food',
+            type: CategoryType.expense,
+            isDailySpending: const Value(true),
+          ),
+        );
+    await db
+        .into(db.recurring)
+        .insert(
+          RecurringCompanion.insert(
+            name: 'Food',
+            categoryId: Value(food),
+            amountMinor: kes(10000),
+            frequency: RecurrenceFrequency.monthly,
+            startDate: eat(2026, 1, 1, 0),
+          ),
+        );
+    final account = await db
+        .into(db.accounts)
+        .insert(
+          AccountsCompanion.insert(
+            name: 'M-Pesa',
+            type: AccountType.mpesa,
+            openingDate: DateTime.utc(2026),
+          ),
+        );
+    await db
+        .into(db.transactions)
+        .insert(
+          TransactionsCompanion.insert(
+            accountId: account,
+            occurredAt: eat(2026, 10, 20),
+            amountMinor: kes(8500),
+            direction: TransactionDirection.outflow,
+            kind: const Value(TransactionKind.till),
+            categoryOverrideId: Value(food),
+            source: TransactionSource.sms,
+          ),
+        );
+
+    final c = container();
+    await c.read(remindersControllerProvider.notifier).setEnabled(true);
+    expect(notifications.shown.map((r) => (r.kind, r.title, r.body)), [
+      (
+        ReminderKind.budget,
+        'Test Food has used 85% of its plan',
+        '6 days left this month. Open Pesa Clarity to see it.',
+      ),
+    ]);
+
+    await c.read(reminderSyncProvider).sync();
+    expect(notifications.shown, hasLength(1));
   });
 }

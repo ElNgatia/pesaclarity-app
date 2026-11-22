@@ -30,6 +30,7 @@ import '../../export/application/export_service.dart';
 import '../../export/presentation/export_sheet.dart';
 import '../../firefly/application/firefly_controller.dart';
 import '../../firefly/presentation/firefly_labels.dart';
+import '../../habits/presentation/habits_settings_card.dart';
 import '../../income/application/income_providers.dart';
 import '../../look/application/look_providers.dart';
 import '../../onboarding/application/about_you_providers.dart';
@@ -325,6 +326,9 @@ class ProfileScreen extends ConsumerWidget {
           GroupedSection(children: [...money, ...data, ...about]),
           const SecuritySettingsCard(),
           const RemindersSettingsCard(),
+          // No-spend days and the Sunday check-in are personal habits.
+          if (ref.watch(activeSpaceProvider).kind == SpaceKind.personal)
+            const HabitsSettingsCard(),
           const SizedBox(height: 16),
           const AccountActions(),
         ],

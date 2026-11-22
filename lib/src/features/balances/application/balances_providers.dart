@@ -24,6 +24,7 @@ import '../../../domain/ledger/own_transfers.dart';
 import '../../../domain/time/calendar.dart';
 import '../../accounts/domain/institution.dart';
 import '../../currency/application/currency_controller.dart';
+import '../../goals/application/goals_aside_providers.dart';
 import '../../income/application/income_providers.dart';
 
 /// How far back the balance check looks for gaps.
@@ -241,12 +242,14 @@ final onHandProvider = FutureProvider<OnHand?>((ref) async {
     to: today.addDays(1).startInstant,
   );
   final fund = await ref.watch(rainyDayFundProvider.future);
+  final goals = await ref.watch(goalsAsideProvider.future);
   return OnHand.at(
     accounts,
     entries,
     balances: await readJournal(ref),
     today: today,
     rainyDayMinor: fund.balanceMinor,
+    goalsKeptMinor: goals.totalMinor,
   );
 });
 

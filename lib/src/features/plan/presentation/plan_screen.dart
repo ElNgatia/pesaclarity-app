@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/plan_repository.dart';
+import '../../../domain/budget/budget_alerts.dart';
 import '../../../domain/categories/default_categories.dart';
 import '../../../domain/plan/month_plan.dart';
 import '../../../domain/plan/plan_groups.dart';
+import '../../../domain/reminders/reminder_settings.dart';
 import '../../../domain/time/calendar.dart';
+import '../../../shared/adaptive/adaptive.dart';
 import '../../../shared/semantic_ids.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/beside_or_under.dart';
@@ -19,7 +22,11 @@ import '../../../theme/brand_tokens.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../debts/presentation/debts_screen.dart' show monthLabel;
+import '../../reminders/application/reminders_controller.dart';
+import '../application/budget_alert_providers.dart';
 import '../application/plan_providers.dart';
+import 'bills_calendar_view.dart';
+import 'budget_alert_cards.dart';
 import 'payday_banner.dart';
 import 'plan_item_sheet.dart';
 
@@ -34,8 +41,25 @@ class PlanScreen extends ConsumerStatefulWidget {
 class _PlanScreenState extends ConsumerState<PlanScreen> {
   bool _pendingOnly = false;
 
+  /// The bills heading, for Home's "Coming up" to scroll to.
+  final _billsKey = GlobalKey();
+  int _focusHandled = 0;
+
   @override
   Widget build(BuildContext context) {
+    final focus = ref.watch(billsFocusProvider);
+    if (focus != _focusHandled) {
+      _focusHandled = focus;
+      // Twice: once the bills are built, then once the calendar has loaded.
+      for (final delay in const [Duration.zero, Duration(milliseconds: 300)]) {
+        Future<void>.delayed(delay, () {
+          final target = _billsKey.currentContext;
+          if (target != null && target.mounted) {
+            Scrollable.ensureVisible(target, alignment: 0.05);
+          }
+        });
+      }
+    }
     final month = ref.watch(planMonthProvider);
     final current = ref.watch(currentMonthProvider);
     final view = ref.watch(planViewProvider(month));
@@ -56,7 +80,10 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
           ),
           children: [
             _Header(month),
-            if (month == current) const PaydayBanner(),
+            if (month == current) ...[
+              const PaydayBanner(),
+              const PlanBudgetAlerts(),
+            ],
             ...switch (view) {
               AsyncData(:final value) => _body(context, value, names),
               AsyncError() => [
@@ -101,6 +128,11 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
       _CategoryList(
         rows: rows,
         names: names,
+        alerts:
+            view.isClosed || view.plan.month != ref.watch(currentMonthProvider)
+            ? null
+            : ref.watch(remindersControllerProvider).value,
+        plan: view.plan,
         emptyText: view.categoryRows.isEmpty
             ? 'Add rent, salary and other bills below to see how each '
                   'category is doing.'
@@ -116,7 +148,7 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
           style: theme.textTheme.bodySmall,
         ),
       ] else
-        _LinesSection(view: view, names: names),
+        _LinesSection(key: _billsKey, view: view, names: names),
     ];
   }
 }
@@ -318,11 +350,18 @@ class _CategoryList extends StatelessWidget {
     required this.rows,
     required this.names,
     required this.emptyText,
+    required this.plan,
+    this.alerts,
   });
 
   final List<CategoryRow> rows;
   final Map<int, String> names;
   final String emptyText;
+  final MonthPlan plan;
+
+  /// Budget alert settings, this month only: its day-to-day categories
+  /// open their own "Warn me at".
+  final ReminderSettings? alerts;
 
   @override
   Widget build(BuildContext context) {
@@ -332,7 +371,11 @@ class _CategoryList extends StatelessWidget {
         children: [
           for (final (i, row) in rows.indexed) ...[
             if (i > 0) const Divider(height: 1),
-            _CategoryTile(row, _categoryName(row.categoryId, names)),
+            _CategoryTile(
+              row,
+              _categoryName(row.categoryId, names),
+              alerts: isBudgetCategory(plan, row.categoryId) ? alerts : null,
+            ),
           ],
         ],
       ),
@@ -344,10 +387,13 @@ String _categoryName(int? id, Map<int, String> names) =>
     id == null ? uncategorisedName : names[id] ?? 'Removed category';
 
 class _CategoryTile extends StatelessWidget {
-  const _CategoryTile(this.row, this.name);
+  const _CategoryTile(this.row, this.name, {this.alerts});
 
   final CategoryRow row;
   final String name;
+
+  /// Set when the row opens its budget alert sheet.
+  final ReminderSettings? alerts;
 
   @override
   Widget build(BuildContext context) {
@@ -361,8 +407,19 @@ class _CategoryTile extends StatelessWidget {
     final progress = row.plannedMinor <= 0
         ? 1.0
         : (row.actualMinor / row.plannedMinor).clamp(0.0, 1.0);
+    final settings = alerts;
+    final id = row.categoryId;
+    // A share of its own shows on the row; the share for all does not.
+    final own = settings == null || id == null
+        ? null
+        : settings.budgetAlertCategoryPercents[id];
+    final share = switch (own) {
+      null => null,
+      ReminderSettings.budgetAlertOff => 'alerts off',
+      _ => 'warns at $own%',
+    };
 
-    return Padding(
+    final tile = Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: Layout.cardPadding,
         vertical: 12,
@@ -389,13 +446,29 @@ class _CategoryTile extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            '${_amount(context, row.actualMinor)} of ${_amount(context, row.plannedMinor)}',
+            [
+              '${_amount(context, row.actualMinor)} of '
+                  '${_amount(context, row.plannedMinor)}',
+              ?share,
+            ].join(' · '),
             style: theme.textTheme.bodyMedium!.copyWith(
               color: colors.textMuted,
             ),
           ),
         ],
       ),
+    );
+    if (settings == null || id == null) return tile;
+    return InkWell(
+      key: Key('plan-category-$id'),
+      onTap: () => showCategoryAlertSheet(
+        context,
+        categoryId: id,
+        name: name,
+        usedMinor: row.actualMinor,
+        plannedMinor: row.plannedMinor,
+      ),
+      child: tile,
     );
   }
 }
@@ -492,15 +565,16 @@ class _SurplusCard extends ConsumerWidget {
   }
 }
 
-class _LinesSection extends StatelessWidget {
-  const _LinesSection({required this.view, required this.names});
+class _LinesSection extends ConsumerWidget {
+  const _LinesSection({required this.view, required this.names, super.key});
 
   final PlanView view;
   final Map<int, String> names;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final shown = ref.watch(billsViewProvider);
     final month = view.plan.month;
     final lines = [...view.plan.lines]..sort(_byDue);
 
@@ -514,7 +588,21 @@ class _LinesSection extends StatelessWidget {
             onPressed: () => showPlanItemSheet(context, month: month),
           ),
         ),
-        if (lines.isEmpty)
+        AdaptiveSegmented<BillsView>(
+          key: const Key('plan-bills-view'),
+          name: 'Show bills as',
+          segments: const [
+            (BillsView.list, 'List'),
+            (BillsView.calendar, 'Calendar'),
+          ],
+          segmentKey: (v) => Key('plan-bills-${v.name}'),
+          selected: shown,
+          onChanged: (v) => ref.read(billsViewProvider.notifier).show(v),
+        ),
+        const SizedBox(height: 12),
+        if (shown == BillsView.calendar)
+          BillsCalendarView(month: month)
+        else if (lines.isEmpty)
           const EmptyNote(
             'Add what repeats, such as salary, rent and school fees, and '
             'one-offs for this month only.',
