@@ -20,6 +20,7 @@ import '../database/database_providers.dart';
 import 'accounts_repository.dart';
 import 'app_settings_repository.dart';
 import 'balance_records_repository.dart';
+import 'fuliza_tracking.dart';
 import 'transactions_repository.dart';
 
 /// What one [JournalRepository.sync] or [JournalRepository.rebuild] did.
@@ -929,11 +930,19 @@ final _latestJournalProvider = Provider<_LatestJournal>(
 /// The open space's balances, read from its journal once per change to the
 /// ledger and shared by every provider that calls this. Providers that call
 /// it watch `ledgerChangesProvider` themselves, so they follow every change.
-Future<JournalBalances> readJournal(Ref ref) {
+///
+/// Fuliza owed reads as nothing while the space does not show Fuliza (see
+/// [FulizaTracking]); the postings are the same either way.
+Future<JournalBalances> readJournal(Ref ref) async {
   final journal = ref.watch(journalRepositoryProvider);
   final converter = ref.watch(currencyConverterProvider);
-  return ref.watch(
+  final tracked = ref.watch(fulizaTrackedProvider.future);
+  final db = ref.watch(appDatabaseProvider);
+  final balances = await ref.watch(
     journalAtGenerationProvider((journal.generation, converter, journal))
         .future,
   );
+  // Looked for at each read, as the journal is read again after each
+  // change to the ledger: the first Fuliza message shows Fuliza.
+  return balances.withFuliza(shown: await tracked && await fulizaSeenIn(db));
 }

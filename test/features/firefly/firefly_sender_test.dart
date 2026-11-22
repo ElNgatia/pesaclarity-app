@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/network/pinned_http_client.dart';
 import 'package:pesaclarity/src/core/network/trusted_roots.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
+import 'package:pesaclarity/src/data/repositories/app_settings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/balances_repair.dart';
 import 'package:pesaclarity/src/data/repositories/category_seeds.dart';
+import 'package:pesaclarity/src/data/repositories/fuliza_tracking.dart';
 import 'package:pesaclarity/src/data/repositories/restore_check.dart';
 import 'package:pesaclarity/src/data/repositories/savings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/space_move_repository.dart';
@@ -207,6 +209,44 @@ void main() {
         server.requests.where((r) => r == 'POST /api/v1/transactions'),
         hasLength(count),
       );
+    });
+
+    test('Fuliza not tracked: no Fuliza liability, every account at its '
+        'balance here; tracked again, Fuliza is back', () async {
+      final p = month.personalDb;
+      await DriftAppSettingsRepository(p)
+          .writeJson(trackFulizaKey, {'track': false});
+      await sender().sendSpace(month.personal, p);
+      expect([
+        for (final d in await sender().checkBalances(month.personal, p))
+          '${d.name}: ${d.thereMinor} there, ${d.expectedMinor} here',
+      ], isEmpty);
+      expect([
+        for (final a in server.accounts.values)
+          if (a['type'] == 'liabilities') a['name'],
+      ], isEmpty);
+      // The draw is money in from outside the person's accounts, and its
+      // repayment money out, under a name that does not say Fuliza.
+      expect([
+        for (final a in server.accounts.values)
+          if (RegExp('fuliza', caseSensitive: false).hasMatch('${a['name']}'))
+            a['name'],
+      ], isEmpty);
+      expect({
+        for (final a in server.accounts.values) a['name'],
+      }, contains(fireflyOverdraft));
+
+      await DriftAppSettingsRepository(p)
+          .writeJson(trackFulizaKey, {'track': true});
+      await sender().sendSpace(month.personal, p);
+      expect([
+        for (final d in await sender().checkBalances(month.personal, p))
+          '${d.name}: ${d.thereMinor} there, ${d.expectedMinor} here',
+      ], isEmpty);
+      expect([
+        for (final a in server.accounts.values)
+          if (a['type'] == 'liabilities') a['name'],
+      ], contains(startsWith('Fuliza')));
     });
 
     test('a lost record is rebuilt by external id: nothing twice', () async {

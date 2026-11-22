@@ -1,5 +1,6 @@
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/balance_records_repository.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/firefly/firefly_mapping.dart';
@@ -42,6 +43,8 @@ Future<FireflySpaceSnapshot> readFireflySpace(
   required DateTime from,
 }) async {
   await JournalRepository(db).sync();
+  // A space that does not show Fuliza sends no Fuliza liability.
+  final fuliza = (await readFulizaTracking(db)).shown;
   final naming = FireflyNames(
     spaceName: space.name,
     personal: space.id == personalSpaceId,
@@ -165,6 +168,7 @@ Future<FireflySpaceSnapshot> readFireflySpace(
         gapMinor: gap,
         heldFor: held,
         journalHeldMinor: held == null ? 0 : -line(held.bookKey),
+        fulizaShown: fuliza,
       ),
       naming,
     );
@@ -189,9 +193,9 @@ Future<FireflySpaceSnapshot> readFireflySpace(
   for (final a in accounts.values) {
     final spec = naming.asset(a);
     specs[spec.key] = spec;
-    if (a.canOweFuliza) {
-      final fuliza = naming.fuliza(a);
-      specs[fuliza.key] = fuliza;
+    if (a.canOweFuliza && fuliza) {
+      final owed = naming.fuliza(a);
+      specs[owed.key] = owed;
     }
   }
 

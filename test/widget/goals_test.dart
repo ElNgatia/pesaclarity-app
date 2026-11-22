@@ -86,7 +86,8 @@ void main() {
 
     expect(
       find.text(
-        'Debts show here, such as loans, cards, Fuliza and family loans.',
+        // No Fuliza message yet, so Fuliza is not among the examples.
+        'Debts show here, such as loans, cards and family loans.',
       ),
       findsOneWidget,
     );

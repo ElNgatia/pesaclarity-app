@@ -327,6 +327,9 @@ class _Source implements AskDataSource {
   final List<LedgerEntry> all;
 
   @override
+  Future<bool> fulizaShown() async => true;
+
+  @override
   Future<List<AskEntity>> entities() async => const [
     AskEntity(SlotKind.payee, 'p:1', 'Example Employer'),
     AskEntity(SlotKind.payee, 'p:2', 'Aunt Example'),

@@ -93,4 +93,8 @@ abstract interface class AskDataSource {
 
   /// Items running low, with what is left as [AskLine.count] in thousandths.
   Future<List<AskLine>> lowStock();
+
+  /// Whether the space shows Fuliza (see `FulizaTracking`): replies name
+  /// Fuliza only for people who use it and track it.
+  Future<bool> fulizaShown();
 }

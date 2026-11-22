@@ -6,6 +6,7 @@ import '../../../core/money/currency_data.dart';
 import '../../../core/money/money.dart';
 import '../../../data/database/app_database.dart' hide Tag;
 import '../../../data/database/database_providers.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../domain/accounts/account_reference.dart';
 import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/space.dart';
@@ -45,6 +46,8 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
     final hidden = ref.watch(hiddenLineAccountsProvider);
     final lines = ref.watch(mpesaLinesProvider).value ?? MpesaLines.empty;
     final readsMpesa = ref.watch(readsMpesaHereProvider).value ?? false;
+    final fuliza =
+        ref.watch(fulizaTrackingProvider).value ?? FulizaTracking.unseen;
     // M-Pesa with linked accounts is a group of its own (decision 0026).
     final families = <MpesaFamily>[
       for (final f
@@ -152,6 +155,12 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
                     children: [
                       if (lines.twoSeen) ...[
                         _LinesRow(lines: lines),
+                        const Divider(height: 1),
+                      ],
+                      // Only for people who use Fuliza: kept with the space
+                      // its messages are read in.
+                      if (fuliza.seen) ...[
+                        _TrackFulizaRow(tracked: fuliza.tracked),
                         const Divider(height: 1),
                       ],
                       Semantics(
@@ -279,6 +288,29 @@ class _LinesRow extends ConsumerWidget {
       onTap: () => showMpesaLinesSheet(context),
     );
   }
+}
+
+/// "Track Fuliza": on, Fuliza shows as a debt on M-Pesa; off, it is hidden
+/// everywhere and M-Pesa shows the balance M-Pesa reports. Nothing is lost
+/// either way.
+class _TrackFulizaRow extends ConsumerWidget {
+  const _TrackFulizaRow({required this.tracked});
+
+  final bool tracked;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => SwitchListTile.adaptive(
+    key: const Key('track-fuliza'),
+    value: tracked,
+    onChanged: (track) =>
+        ref.read(fulizaTrackedProvider.notifier).setTracked(track),
+    title: const Text('Track Fuliza'),
+    subtitle: Text(
+      tracked
+          ? 'What you owe Fuliza shows as a debt on M-Pesa'
+          : 'Hidden. M-Pesa shows the balance its messages report',
+    ),
+  );
 }
 
 class _AccountRow extends StatelessWidget {

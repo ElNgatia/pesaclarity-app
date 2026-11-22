@@ -453,7 +453,7 @@ class AskEngine {
     final amount = _sum(now);
     final headline = _headline(q.context, period, q.today, flow);
     final named = _named(q.context);
-    final leftOut = _moneyInNote(q, all, now, period, flow);
+    final leftOut = await _moneyInNote(q, all, now, period, flow);
     if (now.isEmpty) {
       return _withNote(
         await _answer(
@@ -510,13 +510,13 @@ class AskEngine {
   /// For money in with no sender named: how much of [counted] is from
   /// people not named yet, and what arrived in [entries] but is not money
   /// in.
-  (String, Map<String, Object>)? _moneyInNote(
+  Future<(String, Map<String, Object>)?> _moneyInNote(
     _Query q,
     List<LedgerEntry> entries,
     List<LedgerEntry> counted,
     AskPeriod period,
     _Flow flow,
-  ) {
+  ) async {
     if (flow != _Flow.received ||
         q.context.entities.containsKey(SlotKind.payee)) {
       return null;
@@ -529,6 +529,7 @@ class AskEngine {
       ],
       counted,
       period,
+      fuliza: await source.fulizaShown(),
     );
   }
 
@@ -667,7 +668,7 @@ class AskEngine {
       link: AskLink.activity,
       suggestions: _followUps(q, period),
     );
-    return _withNote(answer, _moneyInNote(q, all, entries, period, flow));
+    return _withNote(answer, await _moneyInNote(q, all, entries, period, flow));
   }
 
   Future<AskAnswer> _biggest(_Query q) async {
@@ -1434,11 +1435,18 @@ class AskEngine {
   Future<AskAnswer> _fees(_Query q) async {
     final period = q.period(AskPeriod.thisMonth(q.today));
     final fees = await source.fees(period);
+    // Fuliza is named only for people who use it; the trained writer's
+    // wording names it, so the template words it otherwise.
+    final fuliza = await source.fulizaShown();
     return _answer(
       q,
-      fees == 0 ? ReplyKind.nothing : ReplyKind.fees,
+      fees == 0
+          ? ReplyKind.nothing
+          : fuliza
+          ? ReplyKind.fees
+          : ReplyKind.feesNoFuliza,
       {'period': period.phrase(q.today), if (fees != 0) 'amount': fees},
-      words: fees == 0
+      words: fees == 0 || !fuliza
           ? null
           : const WriterFacts('fees', given: {'amount', 'period'}),
       headline: 'Charges · ${period.label(q.today)}',
@@ -1870,11 +1878,14 @@ class AskEngine {
   /// Said beside a money-in answer: how much of [counted] is from people
   /// not named yet, and what arrived in [entries] during [period] but is
   /// not money in: own transfers and borrowing.
+  /// Fuliza is named as an example of borrowing only while the space shows
+  /// it ([fuliza]).
   static (String, Map<String, Object>)? _leftOut(
     List<LedgerEntry> entries,
     List<LedgerEntry> counted,
-    AskPeriod period,
-  ) {
+    AskPeriod period, {
+    required bool fuliza,
+  }) {
     var own = 0;
     var borrowed = 0;
     for (final e in entries) {
@@ -1904,8 +1915,11 @@ class AskEngine {
           "The {own_amount} that moved between your own accounts isn't "
               'counted as money in.',
         if (borrowed > 0)
-          "The {borrowed_amount} you borrowed, such as Fuliza, isn't counted "
-              'as money in.',
+          fuliza
+              ? "The {borrowed_amount} you borrowed, such as Fuliza, isn't "
+                    'counted as money in.'
+              : "The {borrowed_amount} you borrowed isn't counted as money "
+                    'in.',
       ].join(' '),
       {
         'unnamed_amount': ?(unnamed > 0 ? unnamed : null),
