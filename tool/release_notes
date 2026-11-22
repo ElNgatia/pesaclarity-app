@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Plain release notes from the pull requests merged into dev since the last
+# release (tool/release_notes.dart has the details):
+#
+#   tool/release_notes --version 0.5.5             print them (a dry run)
+#   tool/release_notes --version 0.5.5 --publish   rewrite release v0.5.5
+#   tool/release_notes --help                      every option
+#
+# Needs Dart (or Flutter) and gh, signed in or with GH_TOKEN set.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec dart tool/release_notes.dart "$@"
