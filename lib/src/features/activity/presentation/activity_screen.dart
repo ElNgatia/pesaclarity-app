@@ -15,6 +15,7 @@ import '../../../domain/ledger/activity_lines.dart';
 import '../../../domain/ledger/fuliza_debt.dart';
 import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/ledger/ledger_role.dart';
+import '../../../domain/lending/loan_link.dart';
 import '../../../domain/payees/payee_identifier.dart';
 import '../../../domain/savings/savings_prompt.dart';
 import '../../../domain/time/calendar.dart';
@@ -43,6 +44,7 @@ import '../../categoriser/application/categoriser_providers.dart';
 import '../../categoriser/presentation/category_suggestion_sheet.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../export/presentation/export_sheet.dart';
+import '../../lending/application/lending_providers.dart';
 import '../../payees/application/tag_filter.dart';
 import '../../payees/presentation/payee_sheet.dart';
 import '../../payees/presentation/transaction_sheet.dart';
@@ -155,6 +157,12 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
 
     String? categoryName(LedgerEntry e) =>
         e.categoryId == null ? null : categories[e.categoryId]?.name;
+    // A loan in Lent and borrowed reads as one: "Lent to Grace".
+    final loans = ref.watch(loanLinksProvider).value ?? const {};
+    String? loanLabel(LedgerEntry e) => switch (loans[e.id]) {
+      final loan? => loanLinkLabel(loan.link, loan.person),
+      null => null,
+    };
 
     final inWindow = _filter.copyWith(from: () => _filter.from ?? from);
     final tagId = ref.watch(activityTagFilterProvider);
@@ -165,6 +173,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             e,
             labels: [
               categoryName(e),
+              loanLabel(e),
               if (accounts[e.accountId] case final a?)
                 accountTag(a.name, a.type),
             ],
@@ -277,6 +286,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           accounts: accounts,
           transferNames: transferNames,
           categoryName: categoryName,
+          loanLabel: loanLabel,
           categories: categories,
           suggest: (e) => suggester?.suggest(e),
           onAccept: (e, s) => confirmCategory(ref, e, s.categoryId, s),
@@ -519,6 +529,7 @@ class _ActivityRow extends StatelessWidget {
     required this.accounts,
     this.transferNames,
     required this.categoryName,
+    required this.loanLabel,
     required this.categories,
     required this.suggest,
     required this.onAccept,
@@ -548,6 +559,9 @@ class _ActivityRow extends StatelessWidget {
   /// its name alone. [accounts] when not given.
   final Map<int, Account>? transferNames;
   final String? Function(LedgerEntry) categoryName;
+
+  /// "Lent to Grace" for a transaction linked to a loan; null otherwise.
+  final String? Function(LedgerEntry) loanLabel;
   final Map<int, Category> categories;
   final CategorySuggestion? Function(LedgerEntry) suggest;
   final void Function(LedgerEntry, CategorySuggestion) onAccept;
@@ -745,6 +759,7 @@ class _ActivityRow extends StatelessWidget {
     if (roleOf(entry) == LedgerRole.awaitingPayee) {
       return 'Gift, loan or repayment?';
     }
+    if (loanLabel(entry) case final loan?) return loan;
     final name = categoryName(entry) ?? 'Uncategorised';
     if (entry.categoryIsAuto && entry.categoryId != null) {
       return '$name (Auto)';

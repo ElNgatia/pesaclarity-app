@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart' hide Tag;
+import '../../../data/repositories/categories_repository.dart';
 import '../../../data/repositories/category_suggestions_repository.dart';
 import '../../../domain/categoriser/suggester.dart';
 import '../../../domain/ledger/ledger_entry.dart';
+import '../../../domain/lending/loan_link.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/app_sheet.dart';
 import '../../../shared/widgets/marks.dart';
@@ -13,7 +15,9 @@ import '../../../shared/widgets/sections.dart';
 import '../../../theme/brand_tokens.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../lending/presentation/loan_from_transaction.dart';
 import '../../payees/presentation/category_picker.dart';
+import '../../spaces/application/spaces_providers.dart';
 import '../application/categoriser_providers.dart';
 
 /// Short line on where a suggestion came from.
@@ -50,6 +54,13 @@ Future<void> showCategorySuggestionSheet(
   if (suggestion == null) {
     final container = ProviderScope.containerOf(context);
     final choice = await _pickFor(context, entry);
+    if (!context.mounted) return;
+    if (await _loanOf(context, entry, choice) case final link?) {
+      if (context.mounted) {
+        await linkToLoan(context, loanSubjectOf(entry), link);
+      }
+      return;
+    }
     if (choice case ChosenCategory(:final id?)) {
       await container
           .read(categorySuggestionsRepositoryProvider)
@@ -67,8 +78,19 @@ Future<void> showCategorySuggestionSheet(
   );
 }
 
+/// What [entry] can be in Lent and borrowed in the open space.
+List<LoanLink> _loanLinks(BuildContext context, LedgerEntry entry) =>
+    loanLinksFor(
+      ProviderScope.containerOf(
+        context,
+        listen: false,
+      ).read(activeSpaceProvider).kind,
+      loanSubjectOf(entry),
+    );
+
 /// The category picker for [entry]: income categories for money in,
-/// spending ones for money out.
+/// spending ones for money out, and in a Personal-style space what it can
+/// be in Lent and borrowed.
 Future<CategoryChoice?> _pickFor(
   BuildContext context,
   LedgerEntry entry, {
@@ -78,7 +100,28 @@ Future<CategoryChoice?> _pickFor(
   selectedId: selectedId,
   allowType: (t) =>
       entry.isInflow ? t != CategoryType.expense : t != CategoryType.income,
+  loanLinks: _loanLinks(context, entry),
 );
+
+/// The loan [choice] makes [entry]: one of Lent and borrowed's answers, or
+/// Money lent picked from the list. Null for any other category.
+Future<LoanLink?> _loanOf(
+  BuildContext context,
+  LedgerEntry entry,
+  CategoryChoice? choice,
+) async => switch (choice) {
+  LoanChoice(:final link) => link,
+  ChosenCategory(:final id?) => loanLinkOfCategory(
+    ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(categoriesRepositoryProvider),
+    _loanLinks(context, entry),
+    loanSubjectOf(entry),
+    id,
+  ),
+  _ => null,
+};
 
 /// Shows the suggested category with its confidence: one tap accepts it,
 /// and Change opens the category picker.
@@ -116,6 +159,13 @@ class _CategorySuggestionSheetState
       widget.entry,
       selectedId: suggestedId,
     );
+    if (!mounted) return;
+    if (await _loanOf(context, widget.entry, choice) case final link?) {
+      if (!mounted) return;
+      await linkToLoan(context, loanSubjectOf(widget.entry), link);
+      if (mounted) Navigator.pop(context);
+      return;
+    }
     if (choice case ChosenCategory(:final id?)) await _save(id);
   }
 

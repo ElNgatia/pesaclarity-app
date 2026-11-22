@@ -906,6 +906,7 @@ class _RowReader {
       readBy: d['read_by'] as String?,
       linkId: d['link_id'] as String?,
       linkedSpaceId: d['linked_space_id'] as String?,
+      lentLoanId: d['lent_loan_id'] as int?,
     );
   }
 
@@ -1032,6 +1033,7 @@ LedgerEntry _toLedgerEntry(
     originalAmountMinor: converted ? record.amountMinor : null,
     originalCurrency: converted ? record.currency : null,
     linkedSpaceId: record.linkedSpaceId,
+    lentLoanId: record.lentLoanId,
   );
 }
 

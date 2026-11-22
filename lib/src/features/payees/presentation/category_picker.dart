@@ -5,6 +5,7 @@ import '../../../data/database/app_database.dart';
 import '../../../data/repositories/categories_repository.dart';
 import '../../../domain/categories/default_categories.dart';
 import '../../../domain/export/export_tables.dart';
+import '../../../domain/lending/loan_link.dart';
 import '../../../shared/adaptive/adaptive.dart';
 import '../../../shared/widgets/app_sheet.dart';
 import '../../../shared/widgets/choice_menu.dart';
@@ -29,18 +30,30 @@ class FollowPayeeCategory extends CategoryChoice {
   const FollowPayeeCategory();
 }
 
+/// Money lent or borrowed, or paying it back: the transaction is linked to
+/// its loan in Lent and borrowed.
+class LoanChoice extends CategoryChoice {
+  const LoanChoice(this.link);
+
+  final LoanLink link;
+}
+
 /// Opens the category list: the five most used first, then everything on
 /// "Show all" or as the person types. Typing filters it, and a name that is
 /// not there yet can be created on the spot. Returns null when dismissed.
 ///
 /// With [payeeCategoryName] set, offers to follow the payee's category.
 /// [allowType] limits the list, for example to income for money in.
+/// [loanLinks] offers what a transaction can be in Lent and borrowed, with
+/// [selectedLink] the one it is now.
 Future<CategoryChoice?> pickCategory(
   BuildContext context, {
   int? selectedId,
   String? payeeName,
   String? payeeCategoryName,
   bool Function(CategoryType type)? allowType,
+  List<LoanLink> loanLinks = const [],
+  LoanLink? selectedLink,
 }) => showAppSheet<CategoryChoice>(
   context: context,
   // Stays above the keyboard while the search box is in use.
@@ -56,6 +69,8 @@ Future<CategoryChoice?> pickCategory(
         payeeName: payeeName,
         payeeCategoryName: payeeCategoryName,
         allowType: allowType,
+        loanLinks: loanLinks,
+        selectedLink: selectedLink,
       ),
     ),
   ),
@@ -95,6 +110,8 @@ class CategoryPicker extends ConsumerStatefulWidget {
     this.payeeName,
     this.payeeCategoryName,
     this.allowType,
+    this.loanLinks = const [],
+    this.selectedLink,
     super.key,
   });
 
@@ -103,6 +120,13 @@ class CategoryPicker extends ConsumerStatefulWidget {
   final String? payeeName;
   final String? payeeCategoryName;
   final bool Function(CategoryType type)? allowType;
+
+  /// What the transaction can be in Lent and borrowed, shown above the
+  /// categories; empty for none.
+  final List<LoanLink> loanLinks;
+
+  /// The one it is now; its loan's category then shows no tick of its own.
+  final LoanLink? selectedLink;
 
   @override
   ConsumerState<CategoryPicker> createState() => _CategoryPickerState();
@@ -173,11 +197,18 @@ class _CategoryPickerState extends ConsumerState<CategoryPicker> {
         ? mostUsedCategories(all, usage, selectedId: widget.selectedId)
         : null;
 
+    final linked = widget.selectedLink;
     Widget tile(Category c) => ListTile(
       title: Text(c.name),
-      trailing: c.id == widget.selectedId ? const Icon(Icons.check) : null,
+      trailing: linked == null && c.id == widget.selectedId
+          ? const Icon(Icons.check)
+          : null,
       onTap: () => Navigator.of(context).pop(ChosenCategory(c.id)),
     );
+    final loans = [
+      for (final link in widget.loanLinks)
+        if (key.isEmpty || categoryNameKey(link.label).contains(key)) link,
+    ];
 
     return ListView(
       controller: widget.controller,
@@ -251,11 +282,22 @@ class _CategoryPickerState extends ConsumerState<CategoryPicker> {
           ListTile(
             title: const Text(uncategorisedName),
             subtitle: const Text('Still counts in your totals'),
-            trailing: widget.selectedId == null
+            trailing: widget.selectedId == null && linked == null
                 ? const Icon(Icons.check)
                 : null,
             onTap: () => Navigator.of(context).pop(const ChosenCategory(null)),
           ),
+        ],
+        if (loans.isNotEmpty) ...[
+          const SectionLabel('Lent and borrowed'),
+          for (final link in loans)
+            ListTile(
+              key: Key('category-loan-${link.name}'),
+              title: Text(link.label),
+              subtitle: Text(link.hint),
+              trailing: link == linked ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(context).pop(LoanChoice(link)),
+            ),
         ],
         if (mostUsed != null) ...[
           const SectionLabel('Most used'),

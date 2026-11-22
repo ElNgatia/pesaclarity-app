@@ -268,6 +268,7 @@ Future<void> _removeInto(
       item: Value(now.item ?? copy.item),
       goalId: Value(now.goalId ?? copy.goalId),
       debtId: Value(now.debtId ?? copy.debtId),
+      lentLoanId: Value(now.lentLoanId ?? copy.lentLoanId),
       transferAccountId: Value(now.transferAccountId ?? copy.transferAccountId),
     ),
   );

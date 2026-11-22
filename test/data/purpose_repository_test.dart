@@ -148,17 +148,32 @@ void main() {
     },
   );
 
-  test('a loan to you adds them to Debts once', () async {
+  test('a loan to you adds each loan to Debts, linked to its money', () async {
     final a = await received(1, 300000);
     await purpose.answer(a, MoneyPurpose.loanToYou);
-    await purpose.answer(await received(9, 100000), MoneyPurpose.loanToYou);
-    final debts = await db.select(db.debts).get();
-    expect(debts, hasLength(1));
-    expect(debts.single.lender, 'Test Wanjiku');
-    expect(debts.single.type, DebtType.family);
-    expect(debts.single.startingBalanceMinor, 300000);
-    expect(debts.single.payeeId, payee);
+    final b = await received(9, 100000);
+    await purpose.answer(b, MoneyPurpose.loanToYou);
+    final debts = await (db.select(
+      db.debts,
+    )..orderBy([(d) => OrderingTerm.asc(d.id)])).get();
+    expect(debts, hasLength(2));
+    expect(debts.first.lender, 'Test Wanjiku');
+    expect(debts.first.type, DebtType.family);
+    expect(debts.first.isFormal, isFalse);
+    expect(debts.map((d) => d.startingBalanceMinor), [300000, 100000]);
+    expect(debts.first.payeeId, payee);
     expect((await entryOf(a)).categoryType, CategoryType.debt);
+    final rows = await (db.select(
+      db.transactions,
+    )..orderBy([(t) => OrderingTerm.asc(t.id)])).get();
+    expect(rows.map((t) => t.debtId), [debts.first.id, debts.last.id]);
+
+    // Answering again replaces the loan it made rather than adding one.
+    await purpose.answer(a, MoneyPurpose.loanToYou);
+    expect(await db.select(db.debts).get(), hasLength(2));
+    // Another answer takes the loan back out of Debts.
+    await purpose.answer(a, MoneyPurpose.gift);
+    expect(await db.select(db.debts).get(), hasLength(1));
   });
 
   test('paying you back lowers what they owe', () async {
@@ -173,4 +188,17 @@ void main() {
     expect(loan.payments.single.amountMinor, 200000);
     expect(loan.outstandingAt(CalendarDate(2026, 10, 5)), 0);
   });
+
+  test(
+    'paying you back with no money lent to them is an own transfer',
+    () async {
+      final id = await received(4, 500000);
+      await purpose.answer(id, MoneyPurpose.payingBack);
+      final row = await (db.select(
+        db.transactions,
+      )..where((t) => t.id.equals(id))).getSingle();
+      expect(row.lentLoanId, isNull);
+      expect(row.categoryOverrideId, await idOf('own_transfer'));
+    },
+  );
 }

@@ -40,6 +40,7 @@ class LedgerEntry {
     this.linkedSpaceId,
     this.heldForAccountId,
     this.placeId,
+    this.lentLoanId,
   }) : currency = currency ?? BaseCurrency.code,
        assert(amountMinor >= 0, 'amountMinor is always positive'),
        assert(feeMinor >= 0, 'feeMinor is always positive');
@@ -145,6 +146,11 @@ class LedgerEntry {
   /// keeps its place among entries at the same time.
   final int? placeId;
 
+  /// The money lent to a friend or relative this entry is: money out that
+  /// made the loan, or money in that pays it back. It is then neither
+  /// spending nor income ([LedgerRole.lending]).
+  final int? lentLoanId;
+
   /// Where this entry stands among entries at the same time.
   int get order => placeId ?? id;
 
@@ -206,6 +212,7 @@ class LedgerEntry {
     linkedSpaceId: linkedSpaceId,
     heldForAccountId: heldForAccountId,
     placeId: placeId,
+    lentLoanId: lentLoanId,
   );
 
   @override

@@ -578,7 +578,9 @@ List<FireflyPart> fireflyParts(
       } else {
         spend(name, category: category);
       }
-    case LedgerRole.borrowing:
+    // Money lent goes to the person's own account there, as a loan does,
+    // so what they owe moves and nothing counts as spending or income.
+    case LedgerRole.borrowing || LedgerRole.lending:
       final from = debt ?? lender();
       if (e.isInflow) {
         add(
