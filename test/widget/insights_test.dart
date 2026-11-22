@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -12,6 +13,7 @@ import 'package:pesaclarity/src/domain/health/health_index.dart';
 import 'package:pesaclarity/src/domain/health/health_inputs.dart';
 import 'package:pesaclarity/src/domain/insights/spending_charts.dart';
 import 'package:pesaclarity/src/domain/time/calendar.dart';
+import 'package:pesaclarity/src/features/activity/application/activity_providers.dart';
 import 'package:pesaclarity/src/features/home/application/health_index_provider.dart';
 import 'package:pesaclarity/src/features/insights/application/insights_report.dart';
 import 'package:pesaclarity/src/features/insights/application/report_sharer.dart';
@@ -143,6 +145,34 @@ Future<void> _seed(AppDatabase db) async {
       );
 }
 
+/// Runs [work] while the app keeps going, as it would on a phone: the
+/// screen's own queries and the writes share the database, so neither
+/// waits on the other inside the test's fake clock.
+Future<T> _drive<T>(WidgetTester tester, Future<T> Function() work) async {
+  T? result;
+  var done = false;
+  unawaited(
+    work().then((value) {
+      result = value;
+      done = true;
+    }),
+  );
+  for (var i = 0; i < 200 && !done; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+  }
+  expect(done, isTrue, reason: 'the work did not finish');
+  for (var i = 0; i < 3; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+  }
+  return result as T;
+}
+
 final _health = HealthIndex.compute(
   HealthInputs(
     month: YearMonth(2026, 9),
@@ -165,16 +195,20 @@ void main() {
   late _FakeSharer sharer;
   late List<InsightsReport> reports;
 
-  Future<void> pumpInsights(WidgetTester tester) async {
+  Future<void> pumpInsights(
+    WidgetTester tester, {
+    bool realHealth = false,
+  }) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
           // Monday 26 October 2026, 18:00 EAT.
           clockProvider.overrideWithValue(() => DateTime.utc(2026, 10, 26, 15)),
-          healthIndexProvider.overrideWith(
-            (ref) async => HealthOnHome(_health, 4),
-          ),
+          if (!realHealth)
+            healthIndexProvider.overrideWith(
+              (ref) async => HealthOnHome(_health, 4),
+            ),
           reportSharerProvider.overrideWithValue(sharer),
           reportRendererProvider.overrideWithValue((report) async {
             reports.add(report);
@@ -347,6 +381,73 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Add or remove accounts'), findsOneWidget);
   });
+
+  testAppWidgets(
+    'opened before anything was read, fills as transactions come and are '
+    'sorted',
+    (tester) async {
+      await pumpInsights(tester, realHealth: true);
+      expect(find.text('Your insights show here'), findsOneWidget);
+
+      // Accounts chosen and messages read while the tab stays open; one
+      // sorted by hand on Activity.
+      await _drive(tester, () async {
+        await _seed(db);
+        final food = await db
+            .into(db.categories)
+            .insert(
+              CategoriesCompanion.insert(
+                name: 'Test food',
+                type: CategoryType.expense,
+              ),
+            );
+        await (db.update(db.transactions)
+              ..where((t) => t.amountMinor.equals(kes(20000))))
+            .write(TransactionsCompanion(categoryOverrideId: Value(food)));
+      });
+
+      // Activity has them, this month and last.
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(InsightsScreen)),
+      );
+      final activity = await _drive(
+        tester,
+        () => container.read(
+          activityEntriesProvider(CalendarDate(2026, 9, 1)).future,
+        ),
+      );
+      expect(activity, hasLength(5));
+
+      expect(find.text('Your insights show here'), findsNothing);
+      expect(find.text('What changed'), findsOneWidget);
+      expect(find.text('Fees 30 so far'), findsOneWidget);
+      expect(find.text('Money in 100,000 so far'), findsOneWidget);
+
+      await tester.scrollUntilVisible(find.text('This month so far'), 200);
+      expect(
+        find.bySemanticsLabel(RegExp('Spending by category: .*Test food')),
+        findsOneWidget,
+      );
+
+      await tester.scrollUntilVisible(find.text('Leakage in October'), 200);
+      expect(find.text('17,030'), findsOneWidget);
+      expect(find.text('17% of income'), findsOneWidget);
+
+      // September, the last full month, is scored.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('pillar-save')),
+        200,
+      );
+      expect(find.text('September 2026'), findsOneWidget);
+      expect(
+        find.textContaining('Your score shows once a full month'),
+        findsNothing,
+      );
+
+      await tester.scrollUntilVisible(find.text('#roadtrip'), 200);
+      expect(find.text('Tags in October'), findsOneWidget);
+    },
+  );
 
   testAppWidgets('switches the spending charts between week, month and year', (
     tester,
