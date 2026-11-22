@@ -1,4 +1,5 @@
 import '../../core/money/money.dart';
+import '../books/journal_balances.dart';
 import '../time/calendar.dart';
 import 'activity_lines.dart';
 import 'ledger_entry.dart';
@@ -254,11 +255,13 @@ class WeekInOut {
 
 /// The week to date containing [today], Monday first, from [history].
 ///
-/// Totals follow [LedgerTotals], so own transfers are neither in nor out.
+/// Totals follow [LedgerTotals], so own transfers are neither in nor out;
+/// with the space's [journal], what went out is read from its postings.
 WeekInOut weekInOut(
   Iterable<LedgerEntry> history, {
   required CalendarDate today,
   String? currency,
+  JournalBalances? journal,
 }) {
   currency ??= BaseCurrency.code;
   final start = startOfWeek(today);
@@ -267,6 +270,7 @@ WeekInOut weekInOut(
     from: start.startInstant,
     to: today.addDays(1).startInstant,
     currency: currency,
+    journal: journal,
   );
   return WeekInOut(
     start: start,

@@ -476,13 +476,23 @@ void main() {
       expect(totals.incomeMinor, 0);
       final leaks = LeakageBreakdown.of(entries, from: from, to: to);
       expect(leaks.feesMinor, kes(110));
+      // The same from the journal (decision 0018, stage 4).
+      final c = await converter();
+      final posted = LedgerTotals.of(
+        entries,
+        from: from,
+        to: to,
+        journal: await journal.read(converter: c),
+      );
+      expect(posted.feesMinor, kes(110));
+      expect(posted.ownTransferMinor, kes(13050 + 12900));
+      expect(posted.incomeMinor, 0);
+      // The business books are a view over the stored journal.
       final books = Books.of(
         entries,
-        accounts: await DriftAccountsRepository(
-          db,
-          converter: await converter(),
-        ).openings(),
+        accounts: await DriftAccountsRepository(db, converter: c).openings(),
         categories: const {},
+        journal: await journal.entries(converter: c, live: true),
       );
       expect(books.unbalanced, isEmpty);
       expect(

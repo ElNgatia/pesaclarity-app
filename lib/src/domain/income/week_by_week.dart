@@ -1,3 +1,4 @@
+import '../books/journal_balances.dart';
 import '../ledger/ledger_entry.dart';
 import '../ledger/ledger_totals.dart';
 import '../time/calendar.dart';
@@ -109,10 +110,13 @@ class WeekByWeek {
   });
 
   /// Weeks from [history], oldest first; the last is this week so far.
+  /// With the space's [journal], what went out is read from its postings
+  /// (see [LedgerTotals.of]).
   factory WeekByWeek.of(
     Iterable<LedgerEntry> history, {
     required CalendarDate today,
     RainyDayFund fund = const RainyDayFund(),
+    JournalBalances? journal,
   }) {
     final thisWeek = weekStartOf(today);
     final weeks = <WeekFlow>[];
@@ -122,6 +126,7 @@ class WeekByWeek {
         history,
         from: start.startInstant,
         to: start.addDays(7).startInstant,
+        journal: journal,
       );
       weeks.add(
         WeekFlow(

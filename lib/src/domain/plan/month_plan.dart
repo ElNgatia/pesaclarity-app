@@ -1,4 +1,5 @@
 import '../../core/money/money.dart';
+import '../books/journal_balances.dart';
 import '../enums.dart';
 import '../ledger/ledger_entry.dart';
 import '../ledger/ledger_role.dart';
@@ -199,10 +200,14 @@ class MonthReview {
   /// an unnamed Fuliza repayment does not land there. Each category's actual
   /// pays its lines in order: arrears first, then by due date, then one-offs;
   /// a line marked paid counts as paid and uses up what it can.
+  ///
+  /// With the space's [journal] (decision 0018, stage 4), what each entry
+  /// paid towards its category is read from its journal entry's postings.
   factory MonthReview.of(
     MonthPlan plan,
     Iterable<LedgerEntry> entries, {
     String? currency,
+    JournalBalances? journal,
   }) {
     currency ??= BaseCurrency.code;
     final actuals = <int?, int>{};
@@ -210,7 +215,7 @@ class MonthReview {
       if (entry.currency != currency || !plan.month.contains(entry.date)) {
         continue;
       }
-      final amount = _actualOf(entry);
+      final amount = _actualOf(entry, journal?.partsOf(entry));
       if (amount != 0) {
         actuals[entry.categoryId] = (actuals[entry.categoryId] ?? 0) + amount;
       }
@@ -262,12 +267,30 @@ class MonthReview {
   }
 }
 
-int _actualOf(LedgerEntry entry) {
+/// What [entry] paid towards its category: from [posted], its journal
+/// entry's postings, when the journal has it.
+int _actualOf(LedgerEntry entry, PostedParts? posted) {
   final role = roleOf(entry);
-  if (role == LedgerRole.reversal && entry.isInflow) return -entry.amountMinor;
+  if (role == LedgerRole.reversal && entry.isInflow) {
+    return posted?.spendingMinor ?? -entry.amountMinor;
+  }
   if (!entry.isOutflow) return 0;
   if (entry.categoryId == null) {
-    return role == LedgerRole.spending ? entry.amountMinor : 0;
+    if (role != LedgerRole.spending) return 0;
+    return posted?.spendingMinor ?? entry.amountMinor;
+  }
+  if (posted != null) {
+    return switch (role) {
+      LedgerRole.spending => posted.spendingMinor,
+      LedgerRole.tax => posted.taxMinor,
+      LedgerRole.saving => posted.savingMinor,
+      // What the person paid towards the debt, as its message says: the
+      // journal can post a Fuliza repayment with the money in it came
+      // out of.
+      LedgerRole.debtRepayment => entry.amountMinor,
+      LedgerRole.ownTransfer when isSavedByTransfer(entry) => entry.amountMinor,
+      _ => 0,
+    };
   }
   return switch (role) {
     LedgerRole.spending ||

@@ -6,8 +6,10 @@ import 'package:pesaclarity/src/core/time/clock.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
 import 'package:pesaclarity/src/data/repositories/accounts_repository.dart';
+import 'package:pesaclarity/src/data/repositories/journal_repository.dart';
 import 'package:pesaclarity/src/data/repositories/transactions_repository.dart';
 import 'package:pesaclarity/src/domain/books/book_account.dart';
+import 'package:pesaclarity/src/domain/books/journal.dart';
 import 'package:pesaclarity/src/features/books/application/books_providers.dart';
 import 'package:pesaclarity/src/features/currency/application/currency_controller.dart';
 
@@ -71,7 +73,7 @@ void main() {
         );
     await add(mpesa, 2, 1500, TransactionDirection.inflow);
     await add(mpesa, 3, 400, TransactionDirection.outflow, fee: 7);
-    // M-Pesa reports more than the records explain: a balance difference.
+    // M-Pesa reports more than the records explain.
     await add(mpesa, 4, 100, TransactionDirection.outflow, balanceAfter: 3500);
 
     final c = container();
@@ -90,9 +92,18 @@ void main() {
       books.balanceOf(BookAccount.money(mpesa), currency: 'KES'),
       kes(3500),
     );
+    // A view over the journal (decision 0018, stage 4), with no plug: the
+    // first reported balance says what the account started from.
+    expect(books.balanceOf(BookAccount.balanceDifferences, currency: 'KES'), 0);
+    expect(books.balanceOf(BookAccount.notYetSorted, currency: 'KES'), 0);
     expect(
-      books.balanceOf(BookAccount.balanceDifferences, currency: 'KES'),
-      kes(3500 - (2000 + 1500 - 407 - 100)),
+      books.balanceOf(BookAccount.openingBalances, currency: 'KES'),
+      kes(3500 - (1500 - 407 - 100)),
+    );
+    final journal = await c.read(journalRepositoryProvider).entries(live: true);
+    expect(
+      books.balanceOf(BookAccount.money(mpesa), currency: 'KES'),
+      journalBalance(journal, BookAccount.money(mpesa), currency: 'KES'),
     );
 
     // A new record reaches the books.
