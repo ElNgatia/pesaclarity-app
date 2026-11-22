@@ -8,6 +8,7 @@ import '../../domain/categories/default_categories.dart';
 import '../../domain/ledger/balances.dart';
 import '../../domain/ledger/cross_currency_transfers.dart';
 import '../../domain/ledger/ledger_entry.dart';
+import '../../domain/ledger/own_accounts.dart';
 import '../../domain/ledger/own_transfers.dart';
 import '../../domain/payees/payee_directory.dart';
 import '../../domain/payees/payee_identifier.dart';
@@ -16,6 +17,7 @@ import '../database/app_database.dart';
 import '../database/database_providers.dart';
 import 'message_links.dart';
 import 'message_twins_store.dart';
+import 'own_moves.dart';
 import 'payees_repository.dart';
 import 'savings_links.dart';
 
@@ -81,6 +83,13 @@ abstract interface class TransactionsRepository {
   /// Pairs [outflowId] and [inflowId] as one own transfer, as the person
   /// chose.
   Future<void> match(int outflowId, int inflowId);
+
+  /// Answers "Was this a move between your accounts?" for the guessed own
+  /// transfer of [outflowId] and [inflowId] (decision 0030, rule 5). The
+  /// answer is remembered for its sender: Yes keeps it and later guesses
+  /// with that sender pair without asking; No unmatches it, and every other
+  /// guess with that sender, so both sides count as they were.
+  Future<void> answerOwnMove(int outflowId, int inflowId, {required bool yes});
 
   /// Undoes the own transfer [id] is half of, so both count as they were
   /// and pairing never matches them again. A payment into or out of a
@@ -307,13 +316,23 @@ class DriftTransactionsRepository implements TransactionsRepository {
       await _wasMoved(transaction.accountId.value, key) ||
       await _isStored(transaction, key);
 
-  /// Moved to another space: it lives there now.
+  /// Switched to another space: it lives there now, and its balance record
+  /// here keeps what the account needs (decision 0027). Moves from before
+  /// that are remembered apart until the repair.
   Future<bool> _wasMoved(int accountId, String key) async =>
       await (_db.select(_db.movedTransactions)..where(
-            (m) => m.accountId.equals(accountId) & m.dedupeKey.equals(key),
-          ))
-          .getSingleOrNull() !=
-      null;
+                (m) => m.accountId.equals(accountId) & m.dedupeKey.equals(key),
+              ))
+              .getSingleOrNull() !=
+          null ||
+      await (_db.select(_db.balanceRecords)
+                ..where(
+                  (r) =>
+                      r.accountId.equals(accountId) & r.dedupeKey.equals(key),
+                )
+                ..limit(1))
+              .getSingleOrNull() !=
+          null;
 
   Future<bool> _isStored(TransactionsCompanion transaction, String key) =>
       (_db.selectOnly(_db.transactions)
@@ -578,29 +597,47 @@ class DriftTransactionsRepository implements TransactionsRepository {
         final payees = {
           for (final p in await _db.select(_db.payees).get()) p.id: p,
         };
-        // Amounts as stored, each in the currency it moved in.
-        // Each transaction's code, which pairs two sides that print it.
+        // Amounts as stored, each in the currency it moved in, and each
+        // transaction's code, which pairs two sides that print it.
         final receipts = <int, String?>{};
+        // And the other side's code each prints, such as Airtel's "Sender
+        // TID".
+        final linked = <int, String?>{};
         Future<List<LedgerEntry>> read() async {
           final rows = await query.get();
           receipts
             ..clear()
             ..addAll({for (final r in rows) r.id: r.receiptNo});
+          linked
+            ..clear()
+            ..addAll({for (final r in rows) r.id: r.linkedReceiptNo});
           return [
             for (final r in rows)
               _toLedgerEntry(r, payees[r.payeeId], categories, const {}, null),
           ];
         }
 
-        var entries = await read();
-        if (await _unmatchReversed(entries)) entries = await read();
         final accounts = await _db.select(_db.accounts).get();
+        // Money between spaces is never half of an own transfer.
+        final between = {
+          for (final a in accounts)
+            if (a.type.isBetweenSpaces) a.id,
+        };
+        Future<List<LedgerEntry>> own() async => [
+          for (final e in await read())
+            if (!between.contains(e.accountId)) e,
+        ];
+        var entries = await own();
+        if (await _unmatchReversed(entries)) entries = await own();
         final declined = await declinedTransfers();
         final pairs = findOwnTransfers(
           entries,
           declined: declined,
           references: {for (final a in accounts) a.id: a.reference},
           receipts: receipts,
+          linked: linked,
+          own: ownAccountsOf(accounts),
+          answers: await readOwnMoveAnswers(_db),
         );
         // Then between currencies, among what one currency left unpaired, at
         // the rates the app converts with.
@@ -653,7 +690,43 @@ class DriftTransactionsRepository implements TransactionsRepository {
         ))
         .go();
     await saveTransferPairs([TransferPair(outflowId, inflowId)]);
+    // Matched by the person: their own money, never asked about again.
+    final key = await _moveSenderKey(outflowId, inflowId);
+    if (key != null) await rememberOwnMoveAnswer(_db, key, yes: true);
   });
+
+  @override
+  Future<void> answerOwnMove(
+    int outflowId,
+    int inflowId, {
+    required bool yes,
+  }) => _db.transaction(() async {
+    final key = await _moveSenderKey(outflowId, inflowId);
+    if (key == null) return;
+    await rememberOwnMoveAnswer(_db, key, yes: yes);
+    if (yes) return;
+    await unmatch(outflowId);
+    // Other guesses with the same sender stay apart from now on.
+    final questions = await ownMoveQuestions(_db);
+    final again = {
+      for (final q in questions.values)
+        if (q.senderKey == key) q.outflowId,
+    };
+    for (final id in again) {
+      await unmatch(id);
+    }
+  });
+
+  /// The sender the answer about [outflowId] and [inflowId] is kept for.
+  Future<String?> _moveSenderKey(int outflowId, int inflowId) async {
+    final rows = await (_db.select(
+      _db.transactions,
+    )..where((t) => t.id.isIn([outflowId, inflowId]))).get();
+    final out = rows.where((r) => r.id == outflowId).firstOrNull;
+    final into = rows.where((r) => r.id == inflowId).firstOrNull;
+    if (out == null || into == null) return null;
+    return moveSenderKey(moveEntryOf(out), moveEntryOf(into));
+  }
 
   @override
   Future<void> unmatch(int id) => _db.transaction(() async {
@@ -831,6 +904,8 @@ class _RowReader {
         d['auto_category_confidence'],
       ),
       readBy: d['read_by'] as String?,
+      linkId: d['link_id'] as String?,
+      linkedSpaceId: d['linked_space_id'] as String?,
     );
   }
 
@@ -956,6 +1031,7 @@ LedgerEntry _toLedgerEntry(
     owedDueAt: record.owedDueAt,
     originalAmountMinor: converted ? record.amountMinor : null,
     originalCurrency: converted ? record.currency : null,
+    linkedSpaceId: record.linkedSpaceId,
   );
 }
 
@@ -1000,6 +1076,7 @@ Stream<void> ledgerTableUpdates(AppDatabase db) => db.tableUpdates(
     db.savingsPockets,
     db.savingsEntries,
     db.savingsReadings,
+    db.balanceRecords,
   ]),
 );
 

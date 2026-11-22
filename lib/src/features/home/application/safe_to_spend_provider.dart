@@ -10,6 +10,7 @@ import '../../../domain/budget/safe_to_spend.dart';
 import '../../../domain/ledger/on_hand.dart';
 import '../../../domain/time/calendar.dart';
 import '../../income/application/income_providers.dart';
+import '../../spaces/application/money_between_spaces_providers.dart';
 
 /// Today's safe-to-spend, or null until there is a day-to-day budget.
 final safeToSpendTodayProvider = FutureProvider<SafeToSpend?>((ref) async {
@@ -61,11 +62,15 @@ Future<int?> _onHand(Ref ref, CalendarDate today) async {
     to: today.addDays(1).startInstant,
   );
   final fund = await ref.read(rainyDayFundProvider.future);
+  // What the accounts hold for another space is not the owner's to spend
+  // (decision 0027, owner's decision 3).
+  final notOwn = await notOwnMinorAt(ref, today.startInstant);
   return OnHand.at(
-    accounts,
-    entries,
-    balances: await readJournal(ref),
-    today: today,
-    rainyDayMinor: fund.balanceMinor,
-  ).totalMinor;
+        accounts,
+        entries,
+        balances: await readJournal(ref),
+        today: today,
+        rainyDayMinor: fund.balanceMinor,
+      ).totalMinor -
+      notOwn;
 }

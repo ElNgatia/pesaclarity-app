@@ -19,6 +19,6 @@ Set<String> senderWatchList(
   List<Institution> catalogue,
   Set<String> selected,
 ) => {
-  for (final institution in catalogue)
-    if (selected.contains(institution.id)) ...institution.senderIds,
+  for (final institution in institutionsReadWith(catalogue, selected))
+    ...institution.senderIds,
 };

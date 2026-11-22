@@ -314,7 +314,9 @@ void main() {
         GoRoute(
           path: '/',
           builder: (_, _) => const Scaffold(
-            body: InstitutionList(control: InstitutionControl.toggle),
+            body: SingleChildScrollView(
+              child: InstitutionList(control: InstitutionControl.toggle),
+            ),
           ),
         ),
         GoRoute(

@@ -6,6 +6,7 @@ import '../ledger/ledger_entry.dart';
 import '../ledger/ledger_role.dart';
 import '../spaces/space_categories.dart';
 import 'book_account.dart';
+import 'journal.dart';
 
 /// What a journal entry was made from.
 enum JournalSource {
@@ -45,6 +46,11 @@ enum JournalSource {
   /// [JournalEntry.sourceId] is the transaction of the side in that
   /// currency.
   exchange,
+
+  /// What a payment switched to another space left on its account where
+  /// the account lives (decision 0027): [JournalEntry.sourceId] is the
+  /// balance record's id.
+  balanceRecord,
 }
 
 /// One line of a journal entry. Positive is a debit, negative a credit.
@@ -195,6 +201,15 @@ class StockEntry {
 /// Category key whose outflows are the owner taking money out.
 const ownerPayCategoryKey = 'owner_pay';
 
+/// Category key of the owner's own money put into a business (decision
+/// 0027, Put money in): in the business, money in that is the owner's
+/// capital, never owed back.
+const ownerCapitalCategoryKey = 'owner_capital';
+
+/// Category key of Personal's side of Put money in: money out of Personal
+/// into one of the owner's businesses, never spending.
+const putIntoBusinessCategoryKey = 'put_into_business';
+
 /// A space's double-entry books, worked out from its transactions and
 /// accounts. Nothing here is stored: the books always follow the records.
 ///
@@ -285,7 +300,8 @@ class Books {
       JournalSource.creditSale ||
       JournalSource.creditPurchase ||
       JournalSource.withheld ||
-      JournalSource.exchange => 1,
+      JournalSource.exchange ||
+      JournalSource.balanceRecord => 1,
       JournalSource.balanceDifference => 2,
     };
     for (final p in purchases) {
@@ -343,7 +359,8 @@ class Books {
       final byTime = a.at.compareTo(b.at);
       return byTime != 0 ? byTime : rank(a.source).compareTo(rank(b.source));
     });
-    return Books._(List.unmodifiable(out));
+    // Money between spaces posts as what it is (decision 0027).
+    return Books._(List.unmodifiable(postedBetweenSpaces(out, accounts)));
   }
 
   final List<JournalEntry> entries;
@@ -475,7 +492,25 @@ JournalEntry postEntry(
       ? BookAccount.category(e.categoryId!, income: false)
       : BookAccount.uncategorisedSpending;
 
+  // What a switched payment left where its account lives: the account and
+  // Held for that space move together, its fee with it (decision 0027).
+  if (e.heldForAccountId case final held?) {
+    final heldFor = BookAccount.heldForSpace(held);
+    e.isInflow ? inFrom(heldFor, amount) : outTo(heldFor, amount + e.feeMinor);
+    return JournalEntry(
+      source: JournalSource.balanceRecord,
+      sourceId: e.balanceRecordId!,
+      at: e.occurredAt,
+      currency: e.currency,
+      lines: lines,
+    );
+  }
+
   final ownerPay = category?.key == ownerPayCategoryKey;
+  // Put money in (decision 0027): the owner's capital, on either side.
+  final capital =
+      (category?.key == ownerCapitalCategoryKey && e.isInflow) ||
+      (category?.key == putIntoBusinessCategoryKey && e.isOutflow);
   final fromCustomer = category?.key == customerPaymentsKey;
   final toSupplier = category?.key == supplierPaymentsKey;
   switch (roleOf(e)) {
@@ -523,12 +558,19 @@ JournalEntry postEntry(
     case LedgerRole.ownTransfer:
       final other = ownerPay && e.isOutflow
           ? BookAccount.ownerPay
+          : capital
+          ? BookAccount.ownerCapital
           : BookAccount.ownTransfers;
       e.isInflow ? inFrom(other, amount) : outTo(other, amount);
     case LedgerRole.correction:
       e.isInflow
           ? inFrom(BookAccount.balanceDifferences, amount)
           : outTo(BookAccount.balanceDifferences, amount);
+    case LedgerRole.betweenSpaces:
+      // Another space's part set right: a balance correction on each side.
+      e.isInflow
+          ? inFrom(BookAccount.balanceCorrections, amount)
+          : outTo(BookAccount.balanceCorrections, amount);
     case LedgerRole.reversal:
       // A refund in takes spending back; money sent back takes income back.
       e.isInflow
@@ -576,7 +618,7 @@ List<JournalEntry> _openingAndDifferences(
           if (!e.occurredAt.isBefore(account.openingDate)) e,
       ]..sort((a, b) {
         final byTime = a.occurredAt.compareTo(b.occurredAt);
-        return byTime != 0 ? byTime : a.id.compareTo(b.id);
+        return byTime != 0 ? byTime : a.order.compareTo(b.order);
       });
 
   JournalEntry adjust(

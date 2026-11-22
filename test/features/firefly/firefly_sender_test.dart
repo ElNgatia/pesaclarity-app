@@ -6,7 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/network/pinned_http_client.dart';
 import 'package:pesaclarity/src/core/network/trusted_roots.dart';
 import 'package:pesaclarity/src/data/database/app_database.dart';
+import 'package:pesaclarity/src/data/repositories/category_seeds.dart';
+import 'package:pesaclarity/src/data/repositories/restore_check.dart';
+import 'package:pesaclarity/src/data/repositories/space_move_repository.dart';
+import 'package:pesaclarity/src/domain/firefly/firefly_mapping.dart';
 import 'package:pesaclarity/src/domain/firefly/firefly_server.dart';
+import 'package:pesaclarity/src/domain/spaces/space.dart';
+import 'package:pesaclarity/src/domain/spaces/space_categories.dart';
 import 'package:pesaclarity/src/features/firefly/application/firefly_sender.dart';
 import 'package:pesaclarity/src/features/firefly/data/firefly_client.dart';
 import 'package:pesaclarity/src/features/firefly/data/firefly_space_store.dart';
@@ -288,12 +294,11 @@ void main() {
     );
 
     test(
-      'a delete deletes there; a move keeps the record and retags',
+      'a delete deletes there; a switch to another space is sent from there',
       () async {
         await sender().sendSpace(month.personal, month.personalDb);
         await sender().sendSpace(month.business, month.businessDb);
         final saleExternal = 'pesaclarity:${month.personal.id}:${month.sale}';
-        final made = server.live.length;
         await month.changes();
         await sender().sendSpace(month.personal, month.personalDb);
         await sender().sendSpace(month.business, month.businessDb);
@@ -305,16 +310,280 @@ void main() {
           ),
           isEmpty,
         );
-        final sale = server.live.singleWhere(
-          (s) => s['external_id'] == saleExternal,
+        // The sale on the shared line is switched (decision 0027): it is on
+        // the owner's account in the business now, so Personal's goes and
+        // the business sends its own, once. The balance record Personal
+        // keeps is no transaction and is not sent.
+        expect(
+          server.live.where((s) => s['external_id'] == saleExternal),
+          isEmpty,
         );
-        expect(sale['tags'], contains(month.business.name));
-        expect(server.live.length, lessThan(made));
-        // The business keeps the record under the sale's id there.
-        final moved = await FireflySpaceStore(month.businessDb).allSent();
-        expect(moved.values.map((r) => r.externalId), contains(saleExternal));
+        final switched = await (month.businessDb.select(
+          month.businessDb.transactions,
+        )..where((t) => t.linkId.isNotNull())).getSingle();
+        final there = server.live.where(
+          (s) =>
+              s['external_id'] ==
+              'pesaclarity:${month.business.id}:${switched.id}',
+        );
+        expect(there, hasLength(1));
+        expect(there.single['tags'], contains(month.business.name));
       },
     );
+
+    test('after a switch, every account there ends at its balance here, '
+        'in both spaces', () async {
+      Future<void> sendBoth() async {
+        await sender().sendSpace(month.personal, month.personalDb);
+        await sender().sendSpace(month.business, month.businessDb);
+      }
+
+      Future<void> expectNoDifference() async {
+        for (final (space, db) in [
+          (month.personal, month.personalDb),
+          (month.business, month.businessDb),
+        ]) {
+          expect(
+            [
+              for (final d in await sender().checkBalances(space, db))
+                '${d.name}: ${d.thereMinor} there, ${d.expectedMinor} here',
+            ],
+            isEmpty,
+            reason: space.name,
+          );
+        }
+      }
+
+      await sendBoth();
+      await expectNoDifference();
+      // The sale on the shared line is switched to the business (decision
+      // 0027): Personal keeps it on M-Pesa, held for the business, and the
+      // business has it on the owner's account.
+      await month.changes();
+      await sendBoth();
+      await expectNoDifference();
+      final accounts = {
+        for (final a in server.accounts.values) a['name']: a['type'],
+      };
+      expect(
+        accounts.entries
+            .where((e) => '${e.key}'.startsWith('Held for'))
+            .map((e) => e.value),
+        ['liabilities'],
+      );
+    });
+
+    group('money between spaces, the rest of decision 0027', () {
+      Future<void> sendBoth() async {
+        await sender().sendSpace(month.personal, month.personalDb);
+        await sender().sendSpace(month.business, month.businessDb);
+      }
+
+      Future<void> expectNoDifference() async {
+        for (final (space, db) in [
+          (month.personal, month.personalDb),
+          (month.business, month.businessDb),
+        ]) {
+          expect(
+            [
+              for (final d in await sender().checkBalances(space, db))
+                '${d.name}: ${d.thereMinor} there, ${d.expectedMinor} here',
+            ],
+            isEmpty,
+            reason: space.name,
+          );
+        }
+      }
+
+      /// Put money in, as the sheet writes it: KES 3,000 staying on the
+      /// owner's M-Pesa, and KES 1,000 from Personal's cash into the
+      /// business's own M-Pesa.
+      Future<void> putMoneyIn() async {
+        final p = month.personalDb;
+        final b = month.businessDb;
+        final line = await (p.select(
+          p.accounts,
+        )..where((a) => a.id.equals(month.mpesa))).getSingle();
+        final at = DateTime.utc(2026, 11, 21, 7, 12);
+        const link = 'putin:test:1';
+        final held = await ensureHeldForAccount(
+          p,
+          spaceId: month.business.id,
+          account: line,
+          spaceName: month.business.name,
+        );
+        final intoBusiness = await ensureCategory(p, putIntoBusinessSeed);
+        await p
+            .into(p.transactions)
+            .insert(
+              TransactionsCompanion.insert(
+                accountId: held,
+                occurredAt: at,
+                amountMinor: 300000,
+                direction: TransactionDirection.outflow,
+                source: TransactionSource.manual,
+                counterpartyName: Value(month.business.name),
+                categoryOverrideId: Value(intoBusiness),
+                linkId: const Value(link),
+                linkedSpaceId: Value(month.business.id),
+              ),
+            );
+        final owners = await ensureOwnersAccount(
+          b,
+          spaceId: personalSpaceId,
+          account: line,
+          spaceName: 'Personal',
+        );
+        final capital = await ensureCategory(b, ownerCapitalSeed);
+        await b
+            .into(b.transactions)
+            .insert(
+              TransactionsCompanion.insert(
+                accountId: owners,
+                occurredAt: at,
+                amountMinor: 300000,
+                direction: TransactionDirection.inflow,
+                source: TransactionSource.manual,
+                categoryOverrideId: Value(capital),
+                linkId: const Value(link),
+                linkedSpaceId: const Value(personalSpaceId),
+              ),
+            );
+        await month.tx(
+          p,
+          month.cash,
+          at,
+          100000,
+          TransactionDirection.outflow,
+          TransactionKind.withdrawal,
+          category: intoBusiness,
+          counterparty: month.business.name,
+        );
+        await month.tx(
+          b,
+          month.shopMpesa,
+          at,
+          100000,
+          TransactionDirection.inflow,
+          TransactionKind.deposit,
+          category: capital,
+        );
+      }
+
+      test('Put money in: each side sent once, every account at its balance '
+          'here, never a sale', () async {
+        await sendBoth();
+        await month.changes();
+        await putMoneyIn();
+        await sendBoth();
+        await expectNoDifference();
+        final capital = server.live.where(
+          (s) => s['description'] == fireflyPutInByYou,
+        );
+        expect(capital, hasLength(2), reason: 'the business side of each');
+        expect(capital.map((s) => s['type']), everyElement('deposit'));
+      });
+
+      test('the restore remakes: made again in the business, or they were '
+          "Personal's own, every account at its balance here", () async {
+        await sendBoth();
+        await month.changes();
+        await putMoneyIn();
+        await sendBoth();
+        // The business restored from before the switch and the Put money
+        // in: its sides are gone.
+        final b = month.businessDb;
+        final p = month.personalDb;
+        await (b.delete(
+          b.transactions,
+        )..where((t) => t.linkId.isNotNull())).go();
+        final missing = await missingInBusiness(
+          personal: p,
+          business: b,
+          businessId: month.business.id,
+        );
+        expect(missing, hasLength(2));
+        await remakeInBusiness(personal: p, business: b, payments: missing);
+        await sendBoth();
+        await expectNoDifference();
+
+        // Again, and this time they were the owner's own.
+        await (b.delete(
+          b.transactions,
+        )..where((t) => t.linkId.isNotNull())).go();
+        await wereMine(
+          personal: p,
+          businessId: month.business.id,
+          payments: await missingInBusiness(
+            personal: p,
+            business: b,
+            businessId: month.business.id,
+          ),
+        );
+        await sendBoth();
+        await expectNoDifference();
+      });
+
+      test('Personal restored: its side made again in full, every account '
+          'at its balance here', () async {
+        await sendBoth();
+        await month.changes();
+        await putMoneyIn();
+        await sendBoth();
+        final b = month.businessDb;
+        final p = month.personalDb;
+        await p.delete(p.balanceRecords).go();
+        await (p.delete(
+          p.transactions,
+        )..where((t) => t.linkId.isNotNull())).go();
+        final missing = await missingInPersonal(personal: p, business: b);
+        expect(missing, hasLength(2));
+        await remakeInPersonal(
+          personal: p,
+          businessId: month.business.id,
+          businessName: month.business.name,
+          payments: missing,
+        );
+        await sendBoth();
+        await expectNoDifference();
+      });
+    });
+
+    test('a move outright keeps the record and retags', () async {
+      final p = month.personalDb;
+      final bus = await month.tx(
+        p,
+        month.cash,
+        DateTime.utc(2026, 11, 16, 8),
+        20000,
+        TransactionDirection.outflow,
+        TransactionKind.bank,
+        counterparty: 'MADE UP BUS',
+      );
+      await sender().sendSpace(month.personal, p);
+      await sender().sendSpace(month.business, month.businessDb);
+      final external = 'pesaclarity:${month.personal.id}:$bus';
+      expect(
+        server.live.where((s) => s['external_id'] == external),
+        isNotEmpty,
+      );
+      final made = server.live.length;
+      // Typed by hand on an account no messages are read into: it moves
+      // whole, and Firefly III keeps the one transaction, retagged.
+      await DriftSpaceMoveRepository(
+        p,
+        (_) async => (month.businessDb, false),
+      ).move(bus, month.business.id);
+      await sender().sendSpace(month.personal, p);
+      await sender().sendSpace(month.business, month.businessDb);
+      final moved = server.live.singleWhere(
+        (s) => s['external_id'] == external,
+      );
+      expect(moved['tags'], contains(month.business.name));
+      expect(server.live.length, made);
+      final kept = await FireflySpaceStore(month.businessDb).allSent();
+      expect(kept.values.map((r) => r.externalId), contains(external));
+    });
 
     test('a move to a space not sent deletes it there', () async {
       await sender().sendSpace(month.personal, month.personalDb);

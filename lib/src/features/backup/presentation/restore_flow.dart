@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../core/backup/backup.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/database_providers.dart';
+import '../../../data/repositories/restore_check.dart';
 import '../../../shared/adaptive/adaptive.dart';
 import '../../../shared/widgets/app_sheet.dart';
 import '../../../shared/widgets/form_fields.dart';
@@ -74,7 +75,14 @@ Future<void> _unlockAndRestore(
   );
   await ref.read(backupServiceProvider).clearTemporaryFiles();
   if (file.existsSync()) await file.delete();
-  if (manifest == null || !context.mounted) return;
+  if (manifest == null) return;
+  // Checks once whether a payment between spaces lost a side (decision
+  // 0027, section 7).
+  await RestoreCheck.mark(
+    () => ref.read(appDatabaseProvider),
+    manifest.createdAt,
+  );
+  if (!context.mounted) return;
   final when = backupTimeLabel(manifest.createdAt, ref.read(clockProvider)());
   showNote(context, 'Restored. Your data is from $when.');
 }

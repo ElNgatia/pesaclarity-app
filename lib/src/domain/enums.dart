@@ -8,6 +8,30 @@ enum AccountType {
 
   /// An account added by hand that is none of the above.
   other,
+
+  /// Money on one of this space's own accounts that belongs to another
+  /// space (decision 0027): "Held for Vegetable stall" in Personal, one for
+  /// each other space and account. Below zero, the other space owes this
+  /// one. Never a money account of its own: it holds no messages and no
+  /// reported balance.
+  heldForSpace,
+
+  /// This space's money on an account that lives in another space: the
+  /// business's "On your M-Pesa", the owner's account. Below zero, it is
+  /// what the owner has put in. Switched payments sit on it.
+  ownersAccount,
+
+  /// Another space's money that paid for something of this space's: the
+  /// owner's purchase with the business's money, "Paid from Vegetable
+  /// stall" in Personal. It counts in neither money in nor money out.
+  paidBySpace;
+
+  /// Whether this is one of the accounts money between spaces keeps
+  /// ([heldForSpace], [ownersAccount], [paidBySpace]): no messages are read
+  /// into it, it has no reported balance, and it is left out of what the
+  /// space's own accounts hold.
+  bool get isBetweenSpaces =>
+      this == heldForSpace || this == ownersAccount || this == paidBySpace;
 }
 
 /// Whether money came in or went out of an account.
@@ -137,7 +161,7 @@ enum SalePaymentMethod {
 /// A record made from a business's Today: stock or a cost bought, a
 /// customer paying what they owe, paying a supplier, the owner paying
 /// themselves, or change sent back to a customer who paid too much.
-enum QuickRecordKind { bought, gotPaid, paid, paidYourself, change }
+enum QuickRecordKind { bought, gotPaid, paid, paidYourself, change, putIn }
 
 /// What a business sells: something kept in stock, or its time or skill.
 enum ItemKind { product, service }

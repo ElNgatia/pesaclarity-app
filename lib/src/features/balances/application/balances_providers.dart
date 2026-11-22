@@ -1,4 +1,6 @@
+import 'package:drift/drift.dart' show TableUpdateQuery;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ujumbe/ujumbe.dart' show engineVersion;
 
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
@@ -6,9 +8,11 @@ import '../../../data/database/database_providers.dart';
 import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/accounts_repository.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../data/repositories/balance_records_repository.dart';
 import '../../../data/repositories/balances_repair.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/ledger_history.dart';
+import '../../../data/repositories/own_moves.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/ledger/balance_check.dart';
 import '../../../domain/ledger/balances.dart';
@@ -18,6 +22,7 @@ import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/ledger/on_hand.dart';
 import '../../../domain/ledger/own_transfers.dart';
 import '../../../domain/time/calendar.dart';
+import '../../accounts/domain/institution.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../income/application/income_providers.dart';
 
@@ -59,7 +64,13 @@ class BalancesOverview {
     required this.accounts,
     required this.entries,
     required this.now,
+    this.records = const [],
   });
+
+  /// What payments switched to other spaces left on these accounts
+  /// (decision 0027): balances walk them with [entries], so each reported
+  /// balance still adds up, but no screen lists them.
+  final List<LedgerEntry> records;
 
   /// Day-to-day accounts first, then savings, each by name.
   final List<AccountBalance> accounts;
@@ -129,6 +140,9 @@ final balancesOverviewProvider = FutureProvider<BalancesOverview>((ref) async {
     from: from,
     to: now.add(const Duration(seconds: 1)),
   );
+  final records = await BalanceRecordsReader(ref.watch(appDatabaseProvider))
+      .ledgerEntries();
+  final walked = records.isEmpty ? entries : [...entries, ...records];
   final checkFrom = now.subtract(const Duration(days: balanceCheckDays));
   final journal = await readJournal(ref);
   final at = now.add(const Duration(seconds: 1));
@@ -137,7 +151,7 @@ final balancesOverviewProvider = FutureProvider<BalancesOverview>((ref) async {
   for (final row in rows) {
     final opening = openings[row.id];
     if (opening == null) continue;
-    final check = checkAccount(opening, entries);
+    final check = checkAccount(opening, walked);
     final gaps = [
       for (final g in check.gaps)
         if (g.to.occurredAt.isAfter(checkFrom)) g,
@@ -182,7 +196,12 @@ final balancesOverviewProvider = FutureProvider<BalancesOverview>((ref) async {
         ? bySavings
         : a.account.name.toLowerCase().compareTo(b.account.name.toLowerCase());
   });
-  return BalancesOverview(accounts: list, entries: entries, now: now);
+  return BalancesOverview(
+    accounts: list,
+    entries: entries,
+    now: now,
+    records: records,
+  );
 });
 
 /// What M-Pesa's balances show Fuliza did with no message of its own, by
@@ -192,10 +211,10 @@ final fulizaAutoProvider = FutureProvider<Map<int, FulizaAuto>>((ref) async {
   return {
     for (final a in overview.accounts)
       if (a.opening.canOweFuliza)
-        for (final auto in WalletWalk.of(
-          a.opening,
-          overview.entries,
-        ).fuliza.auto)
+        for (final auto in WalletWalk.of(a.opening, [
+          ...overview.entries,
+          ...overview.records,
+        ]).fuliza.auto)
           auto.entry.id: auto,
   };
 });
@@ -233,14 +252,17 @@ final onHandProvider = FutureProvider<OnHand?>((ref) async {
 /// changed how they pair: version 1 started pairing them, version 2 pairs
 /// them across currencies. Safe to run again: only unpaired entries pair.
 ///
-/// First, once per space, puts right what earlier versions counted twice,
-/// within the space and with the other spaces (see [repairBalancesOnce]).
+/// First, once per space and again whenever the message readers change,
+/// puts right what earlier versions counted twice, within the space and
+/// with the other spaces, and matches own transfers over the whole history
+/// (see [repairBalancesOnce]; decision 0030).
 final pairHistoryOnceProvider = FutureProvider<void>((ref) async {
   const key = 'ledger.ownTransfersPaired';
   const version = 2;
   final spaces = ref.watch(spaceDatabasesProvider);
   await repairBalancesOnce(
     ref.watch(appDatabaseProvider),
+    readers: ref.watch(readersVersionProvider),
     spaces: (
       here: ref.watch(activeSpaceIdProvider),
       ids: [for (final space in await spaces.listed()) space.id],
@@ -252,6 +274,35 @@ final pairHistoryOnceProvider = FutureProvider<void>((ref) async {
   if (done is int && done >= version) return;
   await ref.watch(transactionsRepositoryProvider).pairOwnTransfers();
   await settings.writeJson(key, {'version': version});
+});
+
+/// The bundled readers' versions (see [readersVersion]): when they change,
+/// own transfers are matched again over the whole history.
+final readersVersionProvider = Provider<String>(
+  (ref) => readersVersion(engineVersion, {
+    for (final i in ref.watch(institutionCatalogueProvider))
+      i.pack.id: i.pack.version,
+  }),
+);
+
+/// Own transfers paired by amount and time alone that the person has not
+/// answered for, by each side's id: their line asks "Was this a move
+/// between your accounts?" (decision 0030, rule 5).
+final ownMoveQuestionsProvider = StreamProvider<Map<int, OwnMoveQuestion>>((
+  ref,
+) async* {
+  final db = ref.watch(appDatabaseProvider);
+  yield await ownMoveQuestions(db);
+  // Answers are kept in the settings.
+  await for (final _ in db.tableUpdates(
+    TableUpdateQuery.onAllTables([
+      db.transactions,
+      db.accounts,
+      db.appSettings,
+    ]),
+  )) {
+    yield await ownMoveQuestions(db);
+  }
 });
 
 /// Entries that may be the other side of transaction `id`, which happened

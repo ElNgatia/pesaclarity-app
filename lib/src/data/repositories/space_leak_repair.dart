@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../domain/accounts/mpesa_lines.dart';
 import '../database/app_database.dart';
 import 'journal_repository.dart';
 import 'message_links.dart';
@@ -67,24 +68,21 @@ Future<LeakRepair> removeLeakedCopies(
         readers.putIfAbsent(row.institutionId, () => id);
       }
     }
-    final elsewhere = {
-      for (final MapEntry(:key, :value) in readers.entries)
-        if (value != spaces.here) key: value,
-    };
-    if (elsewhere.isEmpty) return (removed: 0, kept: 0);
+    if (!readers.values.any((id) => id != spaces.here)) {
+      return (removed: 0, kept: 0);
+    }
 
     final t = db.transactions;
     final a = db.accounts;
     final rows = await (db.select(t).join([
       innerJoin(a, a.id.equalsExp(t.accountId)),
-    ])..where(a.institutionId.isIn(elsewhere.keys))).get();
+    ])..where(a.institutionId.isNotNull())).get();
     final byReader = <String, List<(TransactionRecord, Account)>>{};
     for (final row in rows) {
       final account = row.readTable(a);
-      (byReader[elsewhere[account.institutionId]!] ??= []).add((
-        row.readTable(t),
-        account,
-      ));
+      final reader = readerOfAccount(readers, account);
+      if (reader == null || reader == spaces.here) continue;
+      (byReader[reader] ??= []).add((row.readTable(t), account));
     }
 
     var removed = 0;
@@ -108,6 +106,18 @@ Future<LeakRepair> removeLeakedCopies(
       if (close) await other.close();
     }
   }
+}
+
+/// The space that reads [account], from [readers] (each switched-on id
+/// with the first space that has it on): an M-Pesa line's account is read
+/// where that line is switched on, else where M-Pesa is (decision 0026,
+/// section 6); any other account where its institution is.
+String? readerOfAccount(Map<String, String> readers, Account account) {
+  final institution = account.institutionId;
+  if (institution == null) return null;
+  final line = lineOfReference(account.reference);
+  return (line == null ? null : readers[lineSelectionId(line)]) ??
+      readers[institution];
 }
 
 /// Puts right the [candidates] in [db] (space [here]) against [reader],

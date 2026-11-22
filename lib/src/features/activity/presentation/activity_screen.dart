@@ -31,6 +31,7 @@ import '../../../shared/widgets/states.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../accounts/application/mpesa_lines_providers.dart';
 import '../../accounts/domain/institution.dart';
 import '../../ask/presentation/ask_entry.dart';
 import '../../ask/presentation/ask_strings.dart';
@@ -122,7 +123,27 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final from = _filter.from ?? today.addDays(-activityPageDays * _pages);
     final loaded = ref.watch(activityEntriesProvider(from));
     final entries = loaded.value ?? const <LedgerEntry>[];
-    final accounts = ref.watch(activityAccountsProvider).value ?? const {};
+    final plain = ref.watch(activityAccountsProvider).value ?? const {};
+    final lineAccounts = ref.watch(readLineAccountsProvider);
+    final hiddenLines = ref.watch(hiddenLineAccountsProvider);
+    // The menu names each M-Pesa line; the rows do only where this space
+    // reads more than one, and money between two lines is titled by their
+    // names alone.
+    final named = withLineNames(plain, lineAccounts);
+    final bothLines = lineAccounts.length > 1;
+    final accounts = bothLines ? named : plain;
+    final transferNames = bothLines
+        ? {
+            for (final MapEntry(:key, :value) in plain.entries)
+              key: lineAccounts[key] == null
+                  ? value
+                  : value.copyWith(name: lineAccounts[key]!.label),
+          }
+        : plain;
+    final menuAccounts = {
+      for (final MapEntry(:key, :value) in named.entries)
+        if (!hiddenLines.contains(key)) key: value,
+    };
     final categories = ref.watch(activityCategoriesProvider).value ?? const {};
     final suggester = ref.watch(categorySuggesterProvider);
     final fulizaAuto = ref.watch(fulizaAutoProvider).value ?? const {};
@@ -141,7 +162,11 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           matchesTagFilter(e, tagId) &&
           inWindow.matches(
             e,
-            labels: [categoryName(e), accounts[e.accountId]?.name],
+            labels: [
+              categoryName(e),
+              if (accounts[e.accountId] case final a?)
+                accountTag(a.name, a.type),
+            ],
           ),
     );
     final days = buildActivityFeed(shown, all: entries);
@@ -184,7 +209,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
       const SizedBox(height: 12),
       _Filters(
         filter: _filter,
-        accounts: accounts,
+        accounts: menuAccounts,
         categories: categories,
         onChanged: _update,
       ),
@@ -248,6 +273,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         child: _ActivityRow(
           line: line,
           accounts: accounts,
+          transferNames: transferNames,
           categoryName: categoryName,
           categories: categories,
           suggest: (e) => suggester?.suggest(e),
@@ -489,6 +515,7 @@ class _ActivityRow extends StatelessWidget {
   const _ActivityRow({
     required this.line,
     required this.accounts,
+    this.transferNames,
     required this.categoryName,
     required this.categories,
     required this.suggest,
@@ -514,12 +541,23 @@ class _ActivityRow extends StatelessWidget {
   /// The base currency's code, when the list holds other currencies too.
   final String? code;
   final Map<int, Account> accounts;
+
+  /// The accounts as an own transfer's title names them: an M-Pesa line by
+  /// its name alone. [accounts] when not given.
+  final Map<int, Account>? transferNames;
   final String? Function(LedgerEntry) categoryName;
   final Map<int, Category> categories;
   final CategorySuggestion? Function(LedgerEntry) suggest;
   final void Function(LedgerEntry, CategorySuggestion) onAccept;
 
-  String _account(int id) => accounts[id]?.name ?? 'Account';
+  String _account(int id) => switch (accounts[id]) {
+    final a? => accountTag(
+      a.name,
+      a.type,
+      heldOn: accounts[a.linkedAccountId]?.name,
+    ),
+    null => 'Account',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -613,13 +651,8 @@ class _ActivityRow extends StatelessWidget {
       OwnTransferLine(:final shown) && final transfer => _row(
         context,
         avatar: _Avatar.icon(Icons.swap_horiz, colors: colors),
-        title: transferTitle(transfer, accounts),
-        subtitle: Text(
-          transferSubtitle(context, transfer, accounts),
-          style: muted,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: transferTitle(transfer, transferNames ?? accounts),
+        subtitle: OwnTransferSubtitle(transfer, accounts, style: muted),
         amount: _entryAmount(
           context,
           shown,

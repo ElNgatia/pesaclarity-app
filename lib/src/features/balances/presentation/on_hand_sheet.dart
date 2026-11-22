@@ -9,6 +9,7 @@ import '../../../shared/widgets/figures.dart';
 import '../../../shared/widgets/marks.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../activity/application/activity_providers.dart';
+import '../../spaces/application/money_between_spaces_providers.dart';
 import '../application/balances_providers.dart';
 import 'balance_text.dart';
 
@@ -28,6 +29,7 @@ class OnHandSheet extends ConsumerWidget {
     final onHand = ref.watch(onHandProvider).value;
     final accounts = ref.watch(activityAccountsProvider).value ?? const {};
     if (onHand == null) return const SheetBody(children: []);
+    final between = ref.watch(moneyBetweenSpacesProvider).value;
     String money(int minor) => shownMoney(context, minor);
     return SheetBody(
       title: BalanceText.onHandTitle(
@@ -59,6 +61,15 @@ class OnHandSheet extends ConsumerWidget {
             if (onHand.fulizaOwedMinor > 0)
               '${BalanceText.fulizaTakenOff(money(onHand.fulizaOwedMinor))}.',
             BalanceText.savingsNotCounted,
+            if (heldLine(
+                  between?.heldBySpace ?? const {},
+                  ref.watch(spaceNamesProvider),
+                  (m) => shownMoney(context, m, withCurrency: true),
+                )
+                case final held?)
+              (between?.notOwnMinor ?? 0) > 0
+                  ? '$held. ${BalanceText.safeToSpendLeavesOut}'
+                  : '$held.',
           ].join(' '),
           style: theme.textTheme.bodySmall!.copyWith(color: colors.textMuted),
         ),

@@ -81,7 +81,7 @@ class LedgerTotals {
           }
         case LedgerRole.awaitingPayee:
           awaiting += amount;
-        case LedgerRole.correction:
+        case LedgerRole.correction || LedgerRole.betweenSpaces:
           break;
         case LedgerRole.reversal:
           if (entry.isInflow) {

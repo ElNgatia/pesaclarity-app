@@ -31,6 +31,7 @@ import '../../../shared/widgets/value_tile.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
+import '../../accounts/presentation/line_questions.dart';
 import '../../app_status/presentation/app_notice_cards.dart';
 import '../../ask/presentation/ask_entry.dart';
 import '../../balances/presentation/balance_text.dart';
@@ -50,8 +51,10 @@ import '../../sales/presentation/records_sheets.dart';
 import '../../sales/presentation/waiting_payments_card.dart';
 import '../../sms/presentation/read_again_home_card.dart';
 import '../../spaces/application/business_setup_providers.dart';
+import '../../spaces/application/money_between_spaces_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../../spaces/presentation/business_setup_card.dart';
+import '../../spaces/presentation/restore_check_card.dart';
 import '../../spaces/presentation/shared_line_card.dart';
 import '../../spaces/presentation/spaces_sheet.dart';
 import '../../support/presentation/support_card.dart';
@@ -113,6 +116,18 @@ class HomeScreen extends ConsumerWidget {
         : null;
     final health = ref.watch(healthIndexProvider).value;
     final forecast = ref.watch(cashFlowForecastProvider).value;
+    // How much of On hand is another space's (decision 0027), when On hand
+    // shows.
+    final heldBy = untilNext == null
+        ? null
+        : ref.watch(moneyBetweenSpacesProvider).value?.heldBySpace;
+    final held = heldBy == null || heldBy.isEmpty
+        ? null
+        : heldLine(
+            heldBy,
+            ref.watch(spaceNamesProvider),
+            (minor) => shownMoney(context, minor, withCurrency: true),
+          );
     final bills = ref.watch(upcomingBillsProvider).value ?? const [];
     final currency = ref.watch(currencyControllerProvider).value;
     final now = ref.watch(clockProvider)();
@@ -161,6 +176,7 @@ class HomeScreen extends ConsumerWidget {
                   if (sellsProducts) ...[
                     const _SalesTodayCard(),
                     const SizedBox(height: 12),
+                    const RestoreCheckCard(),
                     const _QuickButtons(services: false),
                     const SizedBox(height: 12),
                     const WaitingPaymentsCard(),
@@ -173,6 +189,7 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   const AppNoticeCards(),
+                  if (!sellsProducts) const RestoreCheckCard(),
                   if (isBusiness && !sellsProducts) ...[
                     const _QuickButtons(services: true),
                     const SizedBox(height: 12),
@@ -222,10 +239,12 @@ class HomeScreen extends ConsumerWidget {
                   const BalanceWarningLine(),
                   const SizedBox(height: 12),
                   const AppNoticeCards(),
+                  const RestoreCheckCard(),
                   const ReadAgainHomeCard(),
                   SupportHomeCard(
                     moneyTight: _moneyTight(safeToSpend, untilNext, forecast),
                   ),
+                  const LineQuestionRows(),
                   const NotYetSortedCard(),
                   const _WhatWasThisCard(),
                   if (untilNext != null) _MoneyInCard(untilNext, today: today),
@@ -237,7 +256,7 @@ class HomeScreen extends ConsumerWidget {
                           key: const Key('home-on-hand'),
                           label: 'On hand',
                           value: _plain(context, untilNext.onHandMinor),
-                          note: second(untilNext.onHandMinor),
+                          note: held ?? second(untilNext.onHandMinor),
                           belowZero: untilNext.onHandMinor < 0,
                           onTap: () => showOnHandSheet(context),
                         )

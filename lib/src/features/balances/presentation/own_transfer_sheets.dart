@@ -8,6 +8,7 @@ import '../../../core/money/money_format.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/balances_repository.dart';
+import '../../../data/repositories/own_moves.dart';
 import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/ledger/activity_lines.dart';
 import '../../../domain/ledger/cross_currency_transfers.dart';
@@ -68,6 +69,41 @@ String transferSubtitle(
   ].join(' · ');
 }
 
+/// An own transfer's line under its title: what [transferSubtitle] says,
+/// or, for a move guessed from the amount and time alone, the question
+/// "Was this a move between your accounts?" (decision 0030), drawn as
+/// Activity asks to name a payee.
+class OwnTransferSubtitle extends ConsumerWidget {
+  const OwnTransferSubtitle(
+    this.line,
+    this.accounts, {
+    required this.style,
+    super.key,
+  });
+
+  final OwnTransferLine line;
+  final Map<int, Account> accounts;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asked = ref.watch(ownMoveQuestionsProvider).value ?? const {};
+    if (asked.containsKey(line.shown.id)) {
+      return Text(
+        BalanceText.moveQuestion,
+        key: Key('own-move-question-${line.shown.id}'),
+        style: style.copyWith(color: PesaColors.of(context).warning),
+      );
+    }
+    return Text(
+      transferSubtitle(context, line, accounts),
+      style: style,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
 /// A matched own transfer: both sides, and Unmatch.
 Future<void> showOwnTransferSheet(BuildContext context, OwnTransferLine line) =>
     showAppSheet<void>(
@@ -117,6 +153,8 @@ class _OwnTransferSheet extends ConsumerWidget {
     final today = CalendarDate.local(ref.watch(clockProvider)());
     final shown = line.shown;
     final savings = ref.watch(savingsEntryProvider(shown.id)).value;
+    final question =
+        (ref.watch(ownMoveQuestionsProvider).value ?? const {})[shown.id];
     String when(DateTime at) =>
         '${dayHeading(CalendarDate.local(at), today: today)} ${formatTime(at)}';
     final out = line.outflow;
@@ -126,7 +164,9 @@ class _OwnTransferSheet extends ConsumerWidget {
         out != null && into != null && isCrossCurrencyPair(out, into);
     return SheetBody(
       title: transferTitle(line, accounts),
-      subtitle: transferSubtitle(context, line, accounts),
+      subtitle: question != null
+          ? BalanceText.moveQuestion
+          : transferSubtitle(context, line, accounts),
       children: [
         Card(
           child: Column(
@@ -155,6 +195,8 @@ class _OwnTransferSheet extends ConsumerWidget {
         // unmatched one payment at a time: its page can remove the app.
         if (savings != null)
           ..._savingsPart(context, savings, accounts)
+        else if (question != null)
+          ..._questionPart(context, ref, question)
         else ...[
           const SizedBox(height: 8),
           Text(
@@ -166,6 +208,48 @@ class _OwnTransferSheet extends ConsumerWidget {
         ],
       ],
     );
+  }
+
+  /// Yes and No for a move guessed from the amount and time alone, laid
+  /// out as the unmatch part is.
+  List<Widget> _questionPart(
+    BuildContext context,
+    WidgetRef ref,
+    OwnMoveQuestion question,
+  ) {
+    Future<void> answer({required bool yes}) async {
+      final navigator = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
+      await ref
+          .read(transactionsRepositoryProvider)
+          .answerOwnMove(question.outflowId, question.inflowId, yes: yes);
+      navigator.pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(yes ? BalanceText.moveKept : BalanceText.moveApart),
+        ),
+      );
+    }
+
+    return [
+      const SizedBox(height: 8),
+      Text(
+        BalanceText.moveNote(question.senderName),
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      const SizedBox(height: 16),
+      FilledButton(
+        key: const Key('own-move-yes'),
+        onPressed: () => answer(yes: true),
+        child: const Text(BalanceText.moveYes),
+      ),
+      const SizedBox(height: 8),
+      OutlinedButton(
+        key: const Key('own-move-no'),
+        onPressed: () => answer(yes: false),
+        child: const Text(BalanceText.moveNo),
+      ),
+    ];
   }
 
   List<Widget> _savingsPart(

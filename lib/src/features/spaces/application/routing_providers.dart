@@ -9,6 +9,7 @@ import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/institutions_repository.dart';
 import '../../../data/repositories/space_move_repository.dart';
+import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/kept_data.dart';
 import '../../../domain/spaces/line_routing.dart';
 import '../../../domain/spaces/space.dart';
@@ -97,10 +98,9 @@ class RoutingRulesController extends AsyncNotifier<RoutingRules> {
       await personal.setSelected(institutionId, selected: true);
     }
     await _save(
-      current.withLine(
-        institutionId,
-        choice == LineChoice.both ? businessId : null,
-      ),
+      choice == LineChoice.both
+          ? current.withNewShare(institutionId, businessId)
+          : current.withLine(institutionId, null),
     );
   }
 
@@ -136,6 +136,18 @@ class RoutingRulesController extends AsyncNotifier<RoutingRules> {
     return true;
   }
 
+  /// Shares [line] (an institution, or one M-Pesa line by its
+  /// `lineSelectionId`) with [businessId], or stops sharing it with null.
+  Future<void> shareLine(String line, String? businessId) async {
+    final current = await _current();
+    if (current.sharedLines[line] == businessId) return;
+    await _save(current.withLine(line, businessId));
+  }
+
+  /// Sets the business's own channels on [line] (decision 0027, section 4).
+  Future<void> setChannels(String line, LineChannels channels) async =>
+      _save((await _current()).withChannels(line, channels));
+
   /// Remembers that money from [key] goes to [spaceId].
   Future<void> rememberPerson(String key, String spaceId) async =>
       _save((await _current()).withPerson(key, spaceId));
@@ -169,10 +181,46 @@ class SharedLineQuestion {
     required this.at,
     this.name,
     this.personKey,
-  });
+    this.onOwnAccount = false,
+    this.through = const ReceivedThrough(ChannelKind.unclear),
+    this.asksNumber = false,
+    String? line,
+  }) : line = line ?? institutionId;
 
-  /// The transaction's id in Personal.
+  /// The shared line it is on, as the rules key it: [institutionId], or an
+  /// M-Pesa line's `lineSelectionId` once lines are told apart. Its
+  /// channels are this line's.
+  final String line;
+
+  /// The channel it came in through (decision 0027, section 4).
+  final ReceivedThrough through;
+
+  /// "Is till 123456 Vegetable stall's?", asked once for a till or paybill
+  /// the app has not seen.
+  final bool asksNumber;
+
+  SharedLineQuestion asNumber() => SharedLineQuestion(
+    transactionId: transactionId,
+    institutionId: institutionId,
+    amountMinor: amountMinor,
+    currency: currency,
+    isInflow: isInflow,
+    at: at,
+    name: name,
+    personKey: personKey,
+    through: through,
+    asksNumber: true,
+    line: line,
+  );
+
+  /// The transaction's id: in Personal, or for a payment on the business's
+  /// own account ([onOwnAccount]), in the business.
   final int transactionId;
+
+  /// A payment out of one of the business's own accounts whose meaning is
+  /// unclear (decision 0027, section 6): "Business cost" or "This was for
+  /// me".
+  final bool onOwnAccount;
   final String institutionId;
   final int amountMinor;
   final String currency;
@@ -194,6 +242,7 @@ class SharedLineRouter {
     required this.rules,
     required this.remember,
     required this.now,
+    this.saveChannels,
   }) : _personal = personal,
        _move = moveFromPersonal,
        _kept = DriftAppSettingsRepository(personal);
@@ -208,6 +257,9 @@ class SharedLineRouter {
 
   /// Saves that money from a person goes to a space.
   final Future<void> Function(String key, String spaceId) remember;
+
+  /// Saves the business's own channels on a line.
+  final Future<void> Function(String line, LineChannels channels)? saveChannels;
   final DateTime Function() now;
   final AppSettingsRepository _kept;
 
@@ -235,38 +287,63 @@ class SharedLineRouter {
     final t = _personal.transactions;
     final a = _personal.accounts;
     final since = now().subtract(sharedLineLookback);
+    // A shared M-Pesa line is its own account.
+    final lines = [
+      for (final key in rules.sharedLines.keys)
+        if (lineOfSelection(key) case final id?) lineReference(id),
+    ];
+    final shared =
+        a.institutionId.isIn(rules.sharedLines.keys) |
+        (a.institutionId.equals(mpesaInstitutionId) & a.reference.isIn(lines));
     final rows =
         await (_personal.select(t).join([
                 innerJoin(a, a.id.equalsExp(t.accountId)),
               ])
               ..where(
-                a.institutionId.isIn(rules.sharedLines.keys) &
+                shared &
                     t.occurredAt.isBiggerOrEqualValue(since) &
                     t.transferPairId.isNull(),
               )
               ..orderBy([OrderingTerm.desc(t.occurredAt)]))
             .get();
+    String? ruleOf(Account account) {
+      final line = lineOfReference(account.reference);
+      final key = line == null ? null : lineSelectionId(line);
+      return rules.sharedLines.containsKey(key)
+          ? key
+          : rules.sharedLines.containsKey(account.institutionId)
+          ? account.institutionId
+          : null;
+    }
+
     final kept = (await _keptIds()).toSet();
     return [
       for (final row in rows)
         if (row.readTable(t) case final tx when !kept.contains(tx.id))
-          (
-            SharedLineQuestion(
-              transactionId: tx.id,
-              institutionId: row.readTable(a).institutionId!,
-              amountMinor: tx.amountMinor,
-              currency: tx.currency,
-              isInflow: tx.direction.name == 'inflow',
-              at: tx.occurredAt,
-              name: tx.counterpartyName,
-              personKey: personKey(
-                kind: tx.counterpartyKind,
-                value: tx.counterpartyValue,
+          if (ruleOf(row.readTable(a)) case final rule?)
+            (
+              SharedLineQuestion(
+                transactionId: tx.id,
+                institutionId: row.readTable(a).institutionId!,
+                amountMinor: tx.amountMinor,
+                currency: tx.currency,
+                isInflow: tx.direction.name == 'inflow',
+                at: tx.occurredAt,
                 name: tx.counterpartyName,
+                personKey: personKey(
+                  kind: tx.counterpartyKind,
+                  value: tx.counterpartyValue,
+                  name: tx.counterpartyName,
+                ),
+                line: rule,
+                through: receivedThrough(
+                  isInflow: tx.direction.name == 'inflow',
+                  kind: tx.kind ?? TransactionKind.bank,
+                  counterpartyKind: tx.counterpartyKind,
+                ),
               ),
+              rules.sharedLines[rule]!,
             ),
-            rules.sharedLines[row.readTable(a).institutionId!]!,
-          ),
     ];
   }
 
@@ -276,6 +353,18 @@ class SharedLineRouter {
     final current = await rules();
     var sorted = 0;
     for (final (q, business) in await _recent(current)) {
+      // The channel decides first (decision 0027, section 4).
+      final route = current.routeOf(q.line, q.through);
+      if (route.spaceId case final to?) {
+        if (to == personalSpaceId) {
+          await _keep(q.transactionId);
+        } else {
+          await _move.move(q.transactionId, to);
+        }
+        sorted++;
+        continue;
+      }
+      if (route.asksNumber) continue;
       final target = q.personKey == null ? null : current.people[q.personKey];
       if (target == null) continue;
       if (target == personalSpaceId) {
@@ -296,10 +385,35 @@ class SharedLineRouter {
     final current = await rules();
     return [
       for (final (q, business) in await _recent(current))
-        if (business == businessId &&
-            (q.personKey == null || !current.people.containsKey(q.personKey)))
-          q,
+        if (business == businessId)
+          if (current.routeOf(q.line, q.through).asksNumber)
+            q.asNumber()
+          else if (q.personKey == null ||
+              !current.people.containsKey(q.personKey))
+            q,
     ];
+  }
+
+  /// Answers "Is till 123456 Vegetable stall's?": "Yes" names the till as
+  /// [businessId]'s and sends this payment, and later ones through it,
+  /// there; "No" asks no more about the till, and the payment is asked
+  /// about as before (approved screens, choice 4).
+  Future<void> answerNumber(
+    SharedLineQuestion question, {
+    required String businessId,
+    required bool ours,
+  }) async {
+    final kind = question.through.kind;
+    final number = question.through.number;
+    if (number == null) return;
+    final line = (await rules()).channelsOn(question.line);
+    await saveChannels?.call(
+      question.line,
+      ours
+          ? line.withNumber(kind, number, businessId)
+          : line.withNotOurs(kind, number),
+    );
+    if (ours) await _move.move(question.transactionId, businessId);
   }
 
   /// Answers [question]: moves it to [businessId] or keeps it in Personal,
@@ -325,10 +439,12 @@ class SharedLineRouter {
 /// The router, moving out of Personal into whichever business is asked.
 final sharedLineRouterProvider = Provider<SharedLineRouter>((ref) {
   final personal = ref.watch(personalDatabaseProvider);
+  final spaces = ref.watch(spaceDatabasesProvider);
   final mover = DriftSpaceMoveRepository(
     personal,
     // Only a business still on the list: see [SpaceDatabases.open].
-    ref.watch(spaceDatabasesProvider).open,
+    spaces.open,
+    nameOf: spaces.nameOf,
   );
   return SharedLineRouter(
     personal: personal,
@@ -336,12 +452,157 @@ final sharedLineRouterProvider = Provider<SharedLineRouter>((ref) {
     rules: () => ref.read(routingRulesProvider.future),
     remember: (key, spaceId) =>
         ref.read(routingRulesProvider.notifier).rememberPerson(key, spaceId),
+    saveChannels: (line, channels) =>
+        ref.read(routingRulesProvider.notifier).setChannels(line, channels),
     now: ref.watch(clockProvider),
   );
 });
 
+/// Asks about payments out of a business's own accounts that may have been
+/// the owner's (decision 0027, section 6; approved screens, choice 3): only
+/// when it is unclear, that is when nothing has filed them yet. What the
+/// owner taught it about a person applies by itself.
+class OwnAccountAsker {
+  OwnAccountAsker({
+    required AppDatabase business,
+    required this.businessId,
+    required this.moves,
+    required this.rules,
+    required this.remember,
+    required this.now,
+  }) : _db = business,
+       _kept = DriftAppSettingsRepository(business);
+
+  static const keptKey = 'routing.keptBusiness';
+
+  final AppDatabase _db;
+  final String businessId;
+
+  /// Makes "This was for me".
+  final SpaceMoveRepository moves;
+  final Future<RoutingRules> Function() rules;
+  final Future<void> Function(String key, String spaceId) remember;
+  final DateTime Function() now;
+  final AppSettingsRepository _kept;
+
+  Future<Set<int>> _keptIds() async {
+    final raw = (await _kept.readJson(keptKey))?['ids'];
+    return {
+      if (raw is List)
+        for (final id in raw)
+          if (id is int) id,
+    };
+  }
+
+  Future<void> _keep(int id) async {
+    final ids = [...await _keptIds(), id];
+    final trimmed = ids.length > keptPersonalLimit
+        ? ids.sublist(ids.length - keptPersonalLimit)
+        : ids;
+    await _kept.writeJson(keptKey, {'ids': trimmed});
+  }
+
+  Future<List<SharedLineQuestion>> _recent() async {
+    final t = _db.transactions;
+    final a = _db.accounts;
+    final since = now().subtract(sharedLineLookback);
+    final rows =
+        await (_db.select(t).join([innerJoin(a, a.id.equalsExp(t.accountId))])
+              ..where(
+                t.occurredAt.isBiggerOrEqualValue(since) &
+                    t.direction.equalsValue(TransactionDirection.outflow) &
+                    t.linkId.isNull() &
+                    t.transferPairId.isNull() &
+                    t.transferAccountId.isNull() &
+                    t.categoryOverrideId.isNull() &
+                    t.autoCategoryId.isNull() &
+                    t.payeeId.isNull() &
+                    a.type.isNotInValues([
+                      AccountType.heldForSpace,
+                      AccountType.ownersAccount,
+                      AccountType.paidBySpace,
+                    ]),
+              )
+              ..orderBy([OrderingTerm.desc(t.occurredAt)]))
+            .get();
+    final kept = await _keptIds();
+    return [
+      for (final row in rows)
+        if (row.readTable(t) case final tx
+            when !kept.contains(tx.id) &&
+                tx.kind != TransactionKind.charge &&
+                tx.kind != TransactionKind.fulizaRepayment &&
+                tx.kind != TransactionKind.loanRepayment &&
+                tx.kind != TransactionKind.correction)
+          SharedLineQuestion(
+            transactionId: tx.id,
+            institutionId: row.readTable(a).institutionId ?? '',
+            amountMinor: tx.amountMinor,
+            currency: tx.currency,
+            isInflow: false,
+            at: tx.occurredAt,
+            name: tx.counterpartyName,
+            personKey: personKey(
+              kind: tx.counterpartyKind,
+              value: tx.counterpartyValue,
+              name: tx.counterpartyName,
+            ),
+            onOwnAccount: true,
+          ),
+    ];
+  }
+
+  /// What is left to ask, once what was taught about each person applied.
+  Future<List<SharedLineQuestion>> pending() async {
+    final current = await rules();
+    final out = <SharedLineQuestion>[];
+    for (final q in await _recent()) {
+      final to = q.personKey == null ? null : current.people[q.personKey];
+      if (to == personalSpaceId) {
+        await moves.forMe(q.transactionId);
+      } else if (to == businessId) {
+        await _keep(q.transactionId);
+      } else {
+        out.add(q);
+      }
+    }
+    return out;
+  }
+
+  /// "Business cost" keeps it here; "This was for me" makes it Paid
+  /// yourself, with the purchase in Personal.
+  Future<void> answer(
+    SharedLineQuestion question, {
+    required bool forBusiness,
+    required bool always,
+  }) async {
+    if (forBusiness) {
+      await _keep(question.transactionId);
+    } else {
+      await moves.forMe(question.transactionId);
+    }
+    final key = question.personKey;
+    if (always && key != null) {
+      await remember(key, forBusiness ? businessId : personalSpaceId);
+    }
+  }
+}
+
+final ownAccountAskerProvider = Provider<OwnAccountAsker>(
+  (ref) => OwnAccountAsker(
+    business: ref.watch(appDatabaseProvider),
+    businessId: ref.watch(activeSpaceIdProvider),
+    moves: ref.watch(spaceMoveRepositoryProvider),
+    rules: () => ref.read(routingRulesProvider.future),
+    remember: (key, spaceId) =>
+        ref.read(routingRulesProvider.notifier).rememberPerson(key, spaceId),
+    now: ref.watch(clockProvider),
+  ),
+);
+
 /// Payments the open business has to ask about; empty in Personal and in
-/// spaces that are not a business.
+/// spaces that are not a business. Payments out of its own accounts that
+/// are unclear come first, then those on lines it shares with Personal.
 final sharedLineQuestionsProvider = FutureProvider<List<SharedLineQuestion>>((
   ref,
 ) async {
@@ -351,7 +612,10 @@ final sharedLineQuestionsProvider = FutureProvider<List<SharedLineQuestion>>((
   // Questions are a nudge: if Personal cannot be read, Home goes on without
   // them.
   try {
-    return await ref.watch(sharedLineRouterProvider).pending(space.id);
+    return [
+      ...await ref.watch(ownAccountAskerProvider).pending(),
+      ...await ref.watch(sharedLineRouterProvider).pending(space.id),
+    ];
   } on Object catch (error) {
     if (kDebugMode) debugPrint('Shared account questions failed: $error');
     return const [];

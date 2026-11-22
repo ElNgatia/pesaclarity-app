@@ -81,7 +81,11 @@ void main() {
   };
 
   SpaceMoveRepository mover(AppDatabase from, AppDatabase to) =>
-      DriftSpaceMoveRepository(from, (id) async => (to, false));
+      DriftSpaceMoveRepository(
+        from,
+        (id) async => (to, false),
+        sourceSpaceId: identical(from, personal) ? personalSpaceId : 'shop1',
+      );
 
   /// What "Read messages again", and the read after an update, do.
   Future<SmsIngestSummary> readAgain(

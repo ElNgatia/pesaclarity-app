@@ -19,6 +19,7 @@ import '../database/app_database.dart';
 import '../database/database_providers.dart';
 import 'accounts_repository.dart';
 import 'app_settings_repository.dart';
+import 'balance_records_repository.dart';
 import 'transactions_repository.dart';
 
 /// What one [JournalRepository.sync] or [JournalRepository.rebuild] did.
@@ -97,11 +98,16 @@ class JournalRepository {
   >
   _records([Set<int>? accountIds]) async {
     final transactions = DriftTransactionsRepository(_db);
-    final history = await transactions.ledgerEntries(
-      from: DateTime.utc(1970),
-      to: DateTime.utc(9999),
-      accountIds: accountIds,
-    );
+    final history = [
+      ...await transactions.ledgerEntries(
+        from: DateTime.utc(1970),
+        to: DateTime.utc(9999),
+        accountIds: accountIds,
+      ),
+      // What switched payments left where their account lives: they move
+      // the account and Held for that space (decision 0027).
+      ...await BalanceRecordsReader(_db).ledgerEntries(accountIds: accountIds),
+    ];
     final partners = <int, LedgerEntry>{};
     if (accountIds != null) {
       final here = {for (final e in history) e.id};
@@ -123,7 +129,9 @@ class JournalRepository {
     }
     return (
       accounts: [
-        for (final a in await DriftAccountsRepository(_db).openings())
+        for (final a in await DriftAccountsRepository(
+          _db,
+        ).openings(betweenSpaces: true))
           if (accountIds == null || accountIds.contains(a.id)) a,
       ],
       history: history,
@@ -637,6 +645,25 @@ Future<void> createJournalTriggers(AppDatabase db) async {
     'journal_dirty_payee_delete':
         'AFTER DELETE ON payees BEGIN $payeeAccounts END',
   };
+  // A balance record moves its account as a transaction does (decision
+  // 0027). Older upgrade steps run before its table exists.
+  final records = await db
+      .customSelect(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'balance_records'",
+      )
+      .get();
+  if (records.isNotEmpty) {
+    triggers.addAll({
+      'journal_dirty_balance_record_insert':
+          'AFTER INSERT ON balance_records BEGIN ${mark('NEW.account_id')} END',
+      'journal_dirty_balance_record_update':
+          'AFTER UPDATE ON balance_records BEGIN ${mark('OLD.account_id')} '
+          '${mark('NEW.account_id')} END',
+      'journal_dirty_balance_record_delete':
+          'AFTER DELETE ON balance_records BEGIN ${mark('OLD.account_id')} END',
+    });
+  }
   for (final MapEntry(key: name, value: body) in triggers.entries) {
     await db.customStatement('CREATE TRIGGER IF NOT EXISTS $name $body');
   }
@@ -771,6 +798,7 @@ class JournalKeeper {
             _db.categories,
             _db.accounts,
             _db.declinedTransfers,
+            _db.balanceRecords,
           ]),
         )
         .listen((_) => poke());

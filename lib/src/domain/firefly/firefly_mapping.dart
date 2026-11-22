@@ -2,7 +2,11 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
-import '../books/books.dart' show ownerPayCategoryKey;
+import '../books/books.dart'
+    show
+        ownerCapitalCategoryKey,
+        ownerPayCategoryKey,
+        putIntoBusinessCategoryKey;
 import '../enums.dart';
 import '../ledger/ledger_entry.dart';
 import '../ledger/ledger_role.dart';
@@ -48,6 +52,7 @@ class FireflyAccountSpec {
     this.role,
     this.currency,
     this.liabilityType,
+    this.bookKey,
   });
 
   /// One of the space's money accounts: `money:3`.
@@ -56,12 +61,14 @@ class FireflyAccountSpec {
     required String name,
     required String currency,
     required String role,
+    String? bookKey,
   }) => FireflyAccountSpec(
     key: 'money:$id',
     kind: FireflyAccountKind.asset,
     name: name,
     role: role,
     currency: currency,
+    bookKey: bookKey,
   );
 
   /// Where payments go: an expense account named after the payee.
@@ -95,8 +102,13 @@ class FireflyAccountSpec {
 
   /// `liability_type` of a liability: `loan` or `debt`. Every liability
   /// Pesa Clarity makes is owed by the person (`liability_direction`
-  /// `debit`).
+  /// `debit`), Held for another space too: money the person holds for it.
   final String? liabilityType;
+
+  /// The journal account an own account's balance is read from, when it is
+  /// not `money:<id>`: an owner's account (`ownersAccount:<id>`) or Held
+  /// for another space (`heldForSpace:<id>`, decision 0027). Not sent.
+  final String? bookKey;
 
   bool get isOwn =>
       kind == FireflyAccountKind.asset || kind == FireflyAccountKind.liability;
@@ -238,6 +250,19 @@ class FireflyMoneyAccount {
 
   /// Whether it can owe Fuliza: M-Pesa.
   bool get canOweFuliza => type == AccountType.mpesa;
+
+  /// Held for another space (decision 0027): money on this space's
+  /// accounts that is that space's, a liability in the journal and in
+  /// Firefly III.
+  bool get isHeldFor => type == AccountType.heldForSpace;
+
+  /// The journal account its balance is posted to: `money:<id>`, or for
+  /// money between spaces the account that says what it is.
+  String get bookKey => switch (type) {
+    AccountType.heldForSpace => 'heldForSpace:$id',
+    AccountType.ownersAccount => 'ownersAccount:$id',
+    _ => 'money:$id',
+  };
 }
 
 /// How names read in Firefly III for one space. Spaces are tags in one
@@ -254,13 +279,29 @@ class FireflyNames {
   /// A name for one of this space's own accounts.
   String own(String name) => personal ? name : '$name · $spaceName';
 
-  FireflyAccountSpec asset(FireflyMoneyAccount account) =>
-      FireflyAccountSpec.money(
-        id: account.id,
-        name: own(account.nameThere),
-        currency: account.currency,
-        role: account.role,
-      );
+  /// One of the space's own accounts. Held for another space (decision
+  /// 0027) is a liability, type `debt`: the person holds that money for
+  /// the other space. The owner's account in a business is an asset, the
+  /// business's money on the owner's line, read from its own journal
+  /// account.
+  FireflyAccountSpec asset(FireflyMoneyAccount account) => account.isHeldFor
+      ? FireflyAccountSpec(
+          key: 'heldFor:${account.id}',
+          kind: FireflyAccountKind.liability,
+          name: own(account.nameThere),
+          currency: account.currency,
+          liabilityType: 'debt',
+          bookKey: account.bookKey,
+        )
+      : FireflyAccountSpec.money(
+          id: account.id,
+          name: own(account.nameThere),
+          currency: account.currency,
+          role: account.role,
+          bookKey: account.type == AccountType.ownersAccount
+              ? account.bookKey
+              : null,
+        );
 
   /// Fuliza owed on M-Pesa [account].
   FireflyAccountSpec fuliza(FireflyMoneyAccount account) => FireflyAccountSpec(
@@ -312,6 +353,10 @@ const fireflyFulizaCharges = 'Fuliza charges';
 const fireflyNotYetSorted = 'Not yet sorted';
 const fireflyBalanceCorrection = 'Balance correction';
 
+/// The revenue account the owner's own money put into a business comes
+/// from (decision 0027, Put money in): capital, never a sale.
+const fireflyPutInByYou = 'Put in by you';
+
 /// What the mapping needs about one transaction.
 class FireflyTransactionFacts {
   const FireflyTransactionFacts({
@@ -327,6 +372,8 @@ class FireflyTransactionFacts {
     this.receipt,
     this.tagNames = const [],
     this.gapMinor = 0,
+    this.heldFor,
+    this.journalHeldMinor = 0,
   });
 
   final LedgerEntry entry;
@@ -357,6 +404,13 @@ class FireflyTransactionFacts {
   /// What a balance the institution reported added beyond the records,
   /// on [account], posted to Not yet sorted.
   final int gapMinor;
+
+  /// The Held for account this moves (decision 0027): a balance record's,
+  /// or [account] itself for a correction of another space's part.
+  final FireflyMoneyAccount? heldFor;
+
+  /// What it moves [heldFor] by: more held is positive.
+  final int journalHeldMinor;
 }
 
 /// The Firefly III transactions [facts] becomes, for a space named by
@@ -467,8 +521,36 @@ List<FireflyPart> fireflyParts(
   final debt = isFulizaKind && fuliza != null ? fuliza : null;
 
   switch (role) {
-    case LedgerRole.correction:
-      // The journal says what it changed; it is sent as that below.
+    case LedgerRole.betweenSpaces when e.isBalanceRecord:
+      // What a payment switched to another space left where its account
+      // lives (decision 0027): the account and Held for that space move
+      // together, the fee with them. The other space sends the payment
+      // itself, on the owner's account there, so it counts once.
+      final held = names.asset(facts.heldFor ?? facts.account);
+      if (e.isInflow) {
+        add(
+          '',
+          FireflyPartType.deposit,
+          e.amountMinor,
+          held,
+          asset,
+          description: held.name,
+        );
+      } else {
+        add(
+          '',
+          FireflyPartType.withdrawal,
+          e.amountMinor + e.feeMinor,
+          asset,
+          held,
+          description: held.name,
+        );
+      }
+    case LedgerRole.correction || LedgerRole.betweenSpaces:
+      // The journal says what it changed; it is sent as that below. Money
+      // between spaces (decision 0027) is neither side's income or
+      // spending: a correction of another space's part is sent as what it
+      // moved, like any correction.
       break;
     case LedgerRole.spending || LedgerRole.fee || LedgerRole.tax:
       final to = switch (role) {
@@ -605,6 +687,20 @@ List<FireflyPart> fireflyParts(
         spend(payee ?? category ?? 'Paid yourself', category: category);
         break;
       }
+      // Put money in (decision 0027): the owner's capital comes into the
+      // business from outside its books, and leaves Personal's for good.
+      // Each side is sent once, from its own space.
+      if (e.isInflow && facts.categoryKey == ownerCapitalCategoryKey) {
+        earn(fireflyPutInByYou, category: category);
+        break;
+      }
+      if (e.isOutflow && facts.categoryKey == putIntoBusinessCategoryKey) {
+        spend(
+          payee ?? e.counterpartyName ?? category ?? 'Put into my business',
+          category: category,
+        );
+        break;
+      }
       final other = role == LedgerRole.saving
           ? names.savings(currency)
           : names.transit(currency);
@@ -635,7 +731,7 @@ List<FireflyPart> fireflyParts(
 
   // The fee on top of the amount, as its own withdrawal to Fees. Fuliza's
   // access fee is added to what is owed, not taken from M-Pesa.
-  if (e.feeMinor > 0) {
+  if (e.feeMinor > 0 && !e.isBalanceRecord) {
     if (e.kind == TransactionKind.fulizaDraw) {
       final owedTo = debt ?? lender();
       add(
@@ -664,8 +760,14 @@ List<FireflyPart> fireflyParts(
   // fee: Fuliza's charges and repayments the balances show, what a reported
   // balance moved, a balance correction. Sent as it is, so the accounts in
   // Firefly III end where Pesa Clarity's do.
-  final correction = role == LedgerRole.correction;
-  var money = facts.journalMoneyMinor - (moved[asset.key] ?? 0);
+  final correction =
+      role == LedgerRole.correction ||
+      (role == LedgerRole.betweenSpaces && e.isCorrection);
+  // Held for another space is a liability: what the journal moved it by is
+  // sent with the others below, never as money on the account.
+  var money = facts.account.isHeldFor
+      ? 0
+      : facts.journalMoneyMinor - (moved[asset.key] ?? 0);
   final borrowedFrom = lender();
   // Each liability once, with what the journal moved it by.
   final owedJournal = <String, (FireflyAccountSpec, int)>{};
@@ -676,6 +778,10 @@ List<FireflyPart> fireflyParts(
 
   owes(fuliza ?? borrowedFrom, facts.journalFulizaMinor);
   owes(borrowedFrom, facts.journalBorrowedMinor);
+  if (facts.heldFor ?? (facts.account.isHeldFor ? facts.account : null)
+      case final held?) {
+    owes(names.asset(held), facts.journalHeldMinor);
+  }
   for (final p in parts) {
     for (final a in p.accounts) {
       if (a.kind == FireflyAccountKind.liability) owes(a, 0);

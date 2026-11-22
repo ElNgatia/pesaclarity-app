@@ -71,6 +71,7 @@ const _noCategoryRoles = {
   LedgerRole.awaitingPayee,
   LedgerRole.reversal,
   LedgerRole.correction,
+  LedgerRole.betweenSpaces,
 };
 
 /// Whether [entry] has no category and is the kind of line a category is

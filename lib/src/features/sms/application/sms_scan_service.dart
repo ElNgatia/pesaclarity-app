@@ -22,7 +22,14 @@ class SmsScanService {
     required this._marks,
     DateTime Function()? clock,
     this.batchSize = 200,
+    this._releaseUntil,
   }) : _clock = clock ?? DateTime.now;
+
+  /// How far a source that keeps its own copy may let go of an
+  /// institution's messages once a scan that started at `startedAt` has
+  /// read them; null keeps them all. Without it, up to that start.
+  final Future<DateTime?> Function(Institution institution, DateTime startedAt)?
+  _releaseUntil;
 
   final SmsSource _source;
   final SmsIngestor _ingestor;
@@ -91,11 +98,16 @@ class SmsScanService {
       // Only what this scan read: this institution's messages from where it
       // started up to the scan's start. Messages of accounts this space
       // does not read wait for the space that does.
-      await _source.release(
-        senders: institution.senderIds.toSet(),
-        since: since,
-        before: startedAt,
-      );
+      final until = _releaseUntil == null
+          ? startedAt
+          : await _releaseUntil(institution, startedAt);
+      if (until != null && (_releaseUntil == null || until.isAfter(since))) {
+        await _source.release(
+          senders: institution.senderIds.toSet(),
+          since: since,
+          before: until,
+        );
+      }
     }
     return summary;
   }

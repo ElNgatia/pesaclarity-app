@@ -241,6 +241,15 @@ class _ProfitAndLoss extends StatelessWidget {
               value: plain(b.moneyMinor),
               detail: 'What the business has',
             ),
+            if (b.withOwnerMinor != 0)
+              LabelValueRow(
+                key: const Key('report-with-owner'),
+                label: b.withOwnerMinor > 0
+                    ? 'With the owner'
+                    : 'Owed to the owner',
+                value: plain(b.withOwnerMinor.abs()),
+                detail: 'On your M-Pesa',
+              ),
             LabelValueRow(
               label: 'Customers owe you',
               value: plain(b.owedToYouMinor),

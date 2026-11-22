@@ -223,6 +223,9 @@ abstract final class BalanceText {
     AccountType.sacco => 'SACCO',
     AccountType.moneyMarket => 'Money market',
     AccountType.other => 'Other',
+    AccountType.heldForSpace => 'Held for another space',
+    AccountType.ownersAccount => "Owner's account",
+    AccountType.paidBySpace => 'Paid by another space',
   };
 
   // On hand.
@@ -230,6 +233,9 @@ abstract final class BalanceText {
   static const startOfToday = 'At the start of today';
   static const lessRainyDay = 'Less rainy day fund';
   static const onHand = 'On hand';
+
+  /// After the line that says how much is another space's (decision 0027).
+  static const safeToSpendLeavesOut = 'Safe to spend leaves it out.';
   static const savingsNotCounted = 'Savings accounts are not counted.';
   static const seeAllBalances = 'See all balances';
   static String fulizaTakenOff(String amount) => 'Includes $amount Fuliza owed';
@@ -282,6 +288,18 @@ abstract final class BalanceText {
   static String waitingFor(String account) =>
       'Own transfer · waiting for $account';
   static const transferSaved = 'Saved as a transfer.';
+
+  // A move between own accounts guessed from the amount and time alone
+  // (decision 0030): asked once, remembered per sender.
+  static const moveQuestion = 'Was this a move between your accounts?';
+  static String moveNote(String? sender) =>
+      'Matched by amount and time only, so it counts as neither spending '
+      'nor income until you say. '
+      '${sender == null ? 'We remember your answer for these accounts.' : 'We remember your answer for $sender.'}';
+  static const moveYes = 'Yes, between my accounts';
+  static const moveNo = 'No';
+  static const moveKept = 'Kept as a move between your accounts.';
+  static const moveApart = 'Counted as they were.';
 
   // An own transfer across currencies.
   static const rateYouGot = 'Rate you got';

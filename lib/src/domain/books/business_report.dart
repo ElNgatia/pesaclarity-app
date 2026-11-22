@@ -144,10 +144,17 @@ class BalanceSummary {
     required this.owedToSuppliersMinor,
     required this.stockMinor,
     required this.paidYourselfMinor,
+    this.withOwnerMinor = 0,
+    this.putInMinor = 0,
   });
 
   /// Cash, M-Pesa and bank.
   final int moneyMinor;
+
+  /// The business's money on the owner's accounts (decision 0027): above
+  /// zero "With the owner", money the business has; below zero "Owed to
+  /// the owner", what the owner has put in.
+  final int withOwnerMinor;
   final int owedToYouMinor;
   final int owedToSuppliersMinor;
   final int stockMinor;
@@ -155,10 +162,18 @@ class BalanceSummary {
   /// Taken out by the owner during the period.
   final int paidYourselfMinor;
 
+  /// "Put in by you": the owner's own money put into the business during
+  /// the period (decision 0027, Put money in), never owed back.
+  final int putInMinor;
+
   /// What the business is worth on its books: what it has, less what it
   /// owes.
   int get netMinor =>
-      moneyMinor + owedToYouMinor + stockMinor - owedToSuppliersMinor;
+      moneyMinor +
+      withOwnerMinor +
+      owedToYouMinor +
+      stockMinor -
+      owedToSuppliersMinor;
 }
 
 /// Names for the fixed book accounts as reports print them.
@@ -174,6 +189,7 @@ String bookAccountName(BookAccount a, Map<int, String> categoryNames) =>
       BookAccountKind.stockLosses => 'Stock spoiled or lost',
       BookAccountKind.exchangeCost => 'Exchange cost',
       BookAccountKind.currencyExchange => 'Currency exchange',
+      BookAccountKind.ownerCapital => 'Put in by you',
       _ => a.kind.name,
     };
 
@@ -218,12 +234,15 @@ BalanceSummary balanceSummary(
 }) {
   final to = period.to.startInstant;
   var money = 0;
+  var withOwner = 0;
   for (final MapEntry(:key, :value)
       in books.trialBalance(currency: currency, to: to).entries) {
     if (key.kind == BookAccountKind.money) money += value;
+    if (key.kind == BookAccountKind.ownersAccount) withOwner += value;
   }
   return BalanceSummary(
     moneyMinor: money,
+    withOwnerMinor: withOwner,
     owedToYouMinor: books.balanceOf(
       BookAccount.owedToYou,
       currency: currency,
@@ -237,6 +256,12 @@ BalanceSummary balanceSummary(
     stockMinor: books.balanceOf(BookAccount.stock, currency: currency, to: to),
     paidYourselfMinor: -books.balanceOf(
       BookAccount.ownerPay,
+      currency: currency,
+      from: period.from.startInstant,
+      to: to,
+    ),
+    putInMinor: books.balanceOf(
+      BookAccount.ownerCapital,
       currency: currency,
       from: period.from.startInstant,
       to: to,

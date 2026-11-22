@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/money/exchange_rates.dart';
 import '../../core/money/money.dart';
 import '../../domain/accounts/account_reference.dart';
+import '../../domain/accounts/mpesa_lines.dart';
 import '../../domain/ledger/balances.dart';
 import '../../features/currency/application/currency_controller.dart';
 import '../database/app_database.dart';
@@ -47,7 +48,11 @@ abstract interface class AccountsRepository {
   Future<bool> setCurrency(int accountId, String currency);
 
   /// Every account's opening balance, for working out balances.
-  Future<List<AccountOpening>> openings();
+  ///
+  /// Accounts kept for money between spaces (decision 0027) are left out:
+  /// they are not money the space's own accounts hold. With
+  /// [betweenSpaces], they are in, for the journal.
+  Future<List<AccountOpening>> openings({bool betweenSpaces = false});
 
   /// Starts [accountId]'s records at [date] with [balanceMinor], in the
   /// account's own currency.
@@ -100,6 +105,24 @@ class DriftAccountsRepository implements AccountsRepository {
     final printed = AccountReference.tryParse(reference);
     Account? pick(Iterable<Account> accounts) =>
         accounts.where((a) => a.currency == currency).firstOrNull;
+
+    // An M-Pesa line is its own account, by its key alone: never another
+    // line's, nor the one account all lines were read into before.
+    if (lineOfReference(reference) != null) {
+      final line = existing.where((a) => a.reference == reference);
+      final match = pick(line) ?? line.firstOrNull;
+      if (match != null) return match.id;
+      return add(
+        AccountsCompanion.insert(
+          name: name,
+          type: type,
+          currency: Value(currency),
+          openingDate: openingDate,
+          institutionId: Value(institutionId),
+          reference: Value(reference),
+        ),
+      );
+    }
 
     if (printed == null) {
       final match = pick(existing) ?? existing.firstOrNull;
@@ -246,28 +269,29 @@ class DriftAccountsRepository implements AccountsRepository {
   });
 
   @override
-  Future<List<AccountOpening>> openings() async => [
+  Future<List<AccountOpening>> openings({bool betweenSpaces = false}) async => [
     for (final a in await _db.select(_db.accounts).get())
-      // At the rates of the day the account opened.
-      if (_converter
-              ?.convert(a.openingBalanceMinor, a.currency, a.openingDate)
-              ?.baseMinor
-          case final inBase? when a.currency != _converter!.base)
-        AccountOpening(
-          id: a.id,
-          type: a.type,
-          openingBalanceMinor: inBase,
-          openingDate: a.openingDate,
-          currency: _converter.base,
-        )
-      else
-        AccountOpening(
-          id: a.id,
-          type: a.type,
-          openingBalanceMinor: a.openingBalanceMinor,
-          openingDate: a.openingDate,
-          currency: a.currency,
-        ),
+      if (betweenSpaces || !a.type.isBetweenSpaces)
+        // At the rates of the day the account opened.
+        if (_converter
+                ?.convert(a.openingBalanceMinor, a.currency, a.openingDate)
+                ?.baseMinor
+            case final inBase? when a.currency != _converter!.base)
+          AccountOpening(
+            id: a.id,
+            type: a.type,
+            openingBalanceMinor: inBase,
+            openingDate: a.openingDate,
+            currency: _converter.base,
+          )
+        else
+          AccountOpening(
+            id: a.id,
+            type: a.type,
+            openingBalanceMinor: a.openingBalanceMinor,
+            openingDate: a.openingDate,
+            currency: a.currency,
+          ),
   ];
 }
 

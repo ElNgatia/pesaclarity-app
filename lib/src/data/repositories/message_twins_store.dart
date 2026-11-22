@@ -162,6 +162,9 @@ Future<void> mergeTwin(
             v(incoming.owedAfterMinor) ?? stored.owedAfterMinor,
           ),
           owedDueAt: Value(v(incoming.owedDueAt) ?? stored.owedDueAt),
+          linkedReceiptNo: Value(
+            stored.linkedReceiptNo ?? v(incoming.linkedReceiptNo),
+          ),
           twinMessageHash: Value(stored.twinMessageHash ?? incomingHash),
         )
       : TransactionsCompanion(
@@ -176,6 +179,9 @@ Future<void> mergeTwin(
             stored.owedAfterMinor ?? v(incoming.owedAfterMinor),
           ),
           owedDueAt: Value(stored.owedDueAt ?? v(incoming.owedDueAt)),
+          linkedReceiptNo: Value(
+            stored.linkedReceiptNo ?? v(incoming.linkedReceiptNo),
+          ),
           twinMessageHash: Value(stored.twinMessageHash ?? incomingHash),
         );
   await (db.update(
@@ -232,6 +238,9 @@ Future<void> _mergeWalletCredit(
           balanceAfterMinor: Value(
             stored.balanceAfterMinor ?? v(incoming.balanceAfterMinor),
           ),
+          linkedReceiptNo: Value(
+            stored.linkedReceiptNo ?? v(incoming.linkedReceiptNo),
+          ),
           twinMessageHash: twin,
         )
       : TransactionsCompanion(
@@ -242,6 +251,9 @@ Future<void> _mergeWalletCredit(
           payeeId: Value(stored.payeeId ?? v(incoming.payeeId)),
           balanceAfterMinor: Value(
             v(incoming.balanceAfterMinor) ?? stored.balanceAfterMinor,
+          ),
+          linkedReceiptNo: Value(
+            stored.linkedReceiptNo ?? v(incoming.linkedReceiptNo),
           ),
           twinMessageHash: twin,
         );

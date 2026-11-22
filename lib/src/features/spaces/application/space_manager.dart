@@ -11,11 +11,16 @@ import '../../../data/database/app_database.dart';
 import '../../../data/database/database_providers.dart';
 import '../../../data/database/space_databases.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../data/repositories/balances_repair.dart';
+import '../../../data/repositories/category_seeds.dart';
 import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/message_reads_repository.dart';
+import '../../../data/repositories/money_repair.dart';
+import '../../../data/repositories/restore_check.dart';
 import '../../../data/repositories/savings_links.dart';
 import '../../../domain/spaces/kept_data.dart';
 import '../../../domain/spaces/space.dart';
+import '../../../domain/spaces/space_categories.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../auth/domain/auth_models.dart';
 import '../../backup/application/backup_providers.dart';
@@ -66,6 +71,16 @@ final keptDataProvider =
       KeptDataController.new,
     );
 
+/// The owner's answer when what Clear data takes holds a business's money
+/// on the owner's accounts (decision 0027, owner's decision 9).
+enum HeldOnClear {
+  /// "It is mine now": filed as pay from the business.
+  mine,
+
+  /// "Keep it apart": the business keeps it as an opening amount.
+  apart,
+}
+
 /// Clears, deletes and restores spaces. Each space's data stays in its own
 /// locked file: nothing is copied from one space to another.
 class SpaceManager {
@@ -108,6 +123,51 @@ class SpaceManager {
     ]);
   }
 
+  /// Keeps a locked copy of every space for 30 days, then runs the one-time
+  /// repair of money between spaces (decision 0027, section 8), and saves
+  /// what it did for the sheet that tells the person. Runs once: nothing
+  /// to repair, it is only marked done.
+  ///
+  /// The repair of messages stored in two spaces ([repairSpaceLeakOnce])
+  /// runs first, in every space that has not run it yet: it takes out the
+  /// copies, and what it keeps on purpose it leaves as a move, so the
+  /// moves this repair then turns into the owner's account are only moves,
+  /// each once. Should a space not open, neither runs, and both run again
+  /// the next time.
+  Future<MoneyRepairState> repairMoneyBetweenSpaces() async {
+    final personal = _ref.read(personalDatabaseProvider);
+    final store = MoneyRepairStore(personal);
+    final state = await store.read();
+    if (state.ran) return state;
+    final spaces = await _ref.read(spaceDatabasesProvider).listed();
+    final ids = [for (final space in spaces) space.id];
+    for (final id in ids) {
+      final (db, close) = await _open(id);
+      try {
+        await repairSpaceLeakOnce(db, (here: id, ids: ids, open: _open));
+      } finally {
+        if (close) await db.close();
+      }
+    }
+    final repair = MoneyRepair(
+      personal: personal,
+      spaces: spaces.isEmpty ? [Space.personal] : spaces,
+      open: _open,
+    );
+    if (!await repair.needed()) {
+      const done = MoneyRepairState(ran: true, shown: true);
+      await store.save(done);
+      return done;
+    }
+    for (final space in spaces) {
+      await _keep(space, KeptKind.beforeRepair);
+    }
+    final result = await repair.run();
+    final done = MoneyRepairState(ran: true, result: result);
+    await store.save(done);
+    return done;
+  }
+
   /// Makes [space] a [kind] of space, open or not. Its records stay.
   Future<void> changeKind(Space space, SpaceKind kind) async {
     final (db, close) = await _open(space.id);
@@ -124,6 +184,12 @@ class SpaceManager {
   /// With [from] and [to], only what happened in that range goes: its
   /// transactions, sales and quick records; everything else stays.
   ///
+  /// When what is cleared holds a business's money on the owner's
+  /// accounts (decision 0027, owner's decision 9), [held] is the owner's
+  /// answer: "It is mine now" files it in Personal as pay from the
+  /// business; "Keep it apart" keeps it on the business's owner's accounts
+  /// as their opening amount, so both sides still agree.
+  ///
   /// Returns whether the online copies, with [deleteOnline], wait for a
   /// connection; being offline never stops what happens on the phone.
   Future<bool> clear(
@@ -132,12 +198,45 @@ class SpaceManager {
     bool deleteOnline = false,
     DateTime? from,
     DateTime? to,
+    HeldOnClear? held,
   }) async {
     if (keep) await _keep(space, KeptKind.cleared);
     final (db, close) = await _open(space.id);
     try {
-      if (from != null && to != null) {
+      final range = from != null && to != null;
+      final parts = held == null || space.id == personalSpaceId
+          ? const <int, int>{}
+          : await ownersPartIn(
+              db,
+              from: range ? from : null,
+              to: range ? to : null,
+            );
+      if (held == HeldOnClear.mine) {
+        final personal = _ref.read(personalDatabaseProvider);
+        final pay = await ensureCategory(personal, payFromBusinessSeed);
+        if (range) {
+          await settleHeldPart(
+            personal: personal,
+            business: db,
+            spaceId: space.id,
+            spaceName: space.name,
+            parts: parts,
+            payCategoryId: pay,
+            at: _now,
+          );
+        } else {
+          await settleHeldFor(
+            personal,
+            spaceId: space.id,
+            spaceName: space.name,
+            payCategoryId: pay,
+            at: _now,
+          );
+        }
+      }
+      if (range) {
         await _clearRange(db, from, to);
+        if (held == HeldOnClear.apart) await keepOwnersPart(db, parts);
         return false;
       }
       await db.customStatement('PRAGMA foreign_keys = OFF');
@@ -151,6 +250,7 @@ class SpaceManager {
             if (_keptOnClear.contains(table.actualTableName)) continue;
             await db.delete(table).go();
           }
+          if (held == HeldOnClear.apart) await keepOwnersPart(db, parts);
           // The journal went with the records: post it again from the
           // accounts kept, each with its opening balance.
           await JournalRepository.markForRebuild(db);
@@ -246,6 +346,12 @@ class SpaceManager {
     await _ref
         .read(localDataStoreProvider)
         .replaceWith(staged, kept.keyHex, ofSpace: kept.space.id);
+    // Checks once whether a payment between spaces lost a side (decision
+    // 0027, section 7).
+    await RestoreCheck.mark(
+      () => _ref.read(appDatabaseProvider),
+      kept.removedAt,
+    );
     await _forget(kept);
   }
 

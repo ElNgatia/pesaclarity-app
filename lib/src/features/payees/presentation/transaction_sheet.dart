@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../data/database/database_providers.dart';
 import '../../../data/repositories/categories_repository.dart';
 import '../../../data/repositories/documents_repository.dart';
 import '../../../data/repositories/purpose_repository.dart';
@@ -248,7 +247,7 @@ class _Body extends ConsumerWidget {
           transactionId: r.id,
           outflow: r.direction == TransactionDirection.outflow,
         ),
-        _MoveToSpace(transactionId: r.id),
+        _MoveToSpace(detail: detail),
         if (r.receiptNo != null) ...[
           const SizedBox(height: 20),
           Text('Receipt ${r.receiptNo}', style: theme.textTheme.bodySmall),
@@ -258,21 +257,40 @@ class _Body extends ConsumerWidget {
   }
 }
 
-/// Moves the transaction to another space, when there is one.
+/// Switches the transaction to another space, when there is one (decision
+/// 0027, section 2): from then on it shows only in the space chosen. On a
+/// business's own account, a payment out also offers "This was for me"
+/// (section 6).
 class _MoveToSpace extends ConsumerWidget {
-  const _MoveToSpace({required this.transactionId});
+  const _MoveToSpace({required this.detail});
 
-  final int transactionId;
+  final TransactionDetail detail;
+
+  int get transactionId => detail.record.id;
+
+  /// What the switch does, under the list of spaces.
+  String? get _switchNote {
+    final account = detail.account;
+    if (account.institutionId == null ||
+        account.type.isBetweenSpaces ||
+        detail.record.source == TransactionSource.manual &&
+            detail.record.balanceAfterMinor == null) {
+      return 'It will show only in the space you choose.';
+    }
+    return "It will show only in the space you choose. ${account.name}'s "
+        'balance here stays as it is.';
+  }
 
   Future<void> _move(
     BuildContext context,
     WidgetRef ref,
     List<Space> others,
   ) async {
+    final note = _switchNote;
     final target = await showAppSheet<Space>(
       context: context,
       builder: (context) => SheetBody(
-        title: 'Move to',
+        title: 'Switch to',
         children: [
           for (final space in others)
             ListTile(
@@ -283,6 +301,15 @@ class _MoveToSpace extends ConsumerWidget {
               subtitle: Text(space.kind.label),
               onTap: () => Navigator.of(context).pop(space),
             ),
+          if (note != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                note,
+                key: const Key('move-to-note'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
         ],
       ),
     );
@@ -291,30 +318,70 @@ class _MoveToSpace extends ConsumerWidget {
     final navigator = Navigator.of(context);
     await ref.read(spaceMoveRepositoryProvider).move(transactionId, target.id);
     navigator.pop();
-    // The sheet closes with the move, so the note goes to the screen below.
+    // The sheet closes with the switch, so the note goes to the screen
+    // below.
     messenger
       ?..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text('Moved to ${target.name}.')));
   }
 
+  Future<void> _forMe(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final navigator = Navigator.of(context);
+    await ref.read(spaceMoveRepositoryProvider).forMe(transactionId);
+    navigator.pop();
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Paid yourself. It shows in Personal as yours.'),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final spaces = ref.watch(spacesProvider).value ?? const [];
-    final activeId = ref.watch(activeSpaceIdProvider);
+    final active = ref.watch(activeSpaceProvider);
     final others = [
       for (final s in spaces)
-        if (s.id != activeId) s,
+        if (s.id != active.id) s,
     ];
     // A savings app's entries stay with it (its page can remove it).
     final savings = ref.watch(savingsEntryProvider(transactionId)).value;
     if (others.isEmpty || savings != null) return const SizedBox.shrink();
+    final record = detail.record;
+    // A side of Pay yourself, or a correction of another space's part,
+    // belongs to the pair.
+    if (detail.account.type == AccountType.heldForSpace) {
+      return const SizedBox.shrink();
+    }
+    final forMe =
+        active.kind == SpaceKind.business &&
+        record.direction == TransactionDirection.outflow &&
+        !detail.account.type.isBetweenSpaces &&
+        record.linkId == null;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
-      child: OutlinedButton.icon(
-        key: const Key('transaction-move-space'),
-        icon: const Icon(Icons.drive_file_move_outline),
-        label: const Text('Move to another space'),
-        onPressed: () => _move(context, ref, others),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (forMe) ...[
+            OutlinedButton.icon(
+              key: const Key('transaction-for-me'),
+              icon: const Icon(Icons.person_outline),
+              label: const Text('This was for me'),
+              onPressed: () => _forMe(context, ref),
+            ),
+            const SizedBox(height: 8),
+          ],
+          OutlinedButton.icon(
+            key: const Key('transaction-move-space'),
+            icon: const Icon(Icons.drive_file_move_outline),
+            label: const Text('Switch to another space'),
+            onPressed: () => _move(context, ref, others),
+          ),
+        ],
       ),
     );
   }

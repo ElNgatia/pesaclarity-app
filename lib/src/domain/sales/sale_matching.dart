@@ -28,10 +28,20 @@ enum WaitingKind {
 
   /// Change sent back by M-Pesa or bank to a customer who paid too much:
   /// money out, taken off the sale.
-  change;
+  change,
+
+  /// The owner putting their own money into the business (decision 0027,
+  /// Put money in): money in.
+  putIn,
+
+  /// Personal's side of Put money in: money out.
+  putIntoBusiness;
 
   bool get isInflow =>
-      this == sale || this == gotPaid || this == payFromBusiness;
+      this == sale ||
+      this == gotPaid ||
+      this == payFromBusiness ||
+      this == putIn;
 }
 
 /// An M-Pesa or bank payment recorded on the phone, waiting for its
