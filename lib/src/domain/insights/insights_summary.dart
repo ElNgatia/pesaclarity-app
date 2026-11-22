@@ -18,6 +18,10 @@ class MonthInsight {
   final YearMonth month;
   final LedgerTotals totals;
   final LeakageBreakdown leakage;
+
+  /// Transactions dated in [month], in any currency, whatever they are:
+  /// money in or out, own transfers or fees. Balance records are not
+  /// transactions and are left out.
   final int entryCount;
 
   int get incomeMinor => totals.incomeMinor;
@@ -48,13 +52,21 @@ class InsightsSummary {
     JournalBalances? journal,
   }) {
     currency ??= BaseCurrency.code;
-    final all = history.where((e) => e.currency == currency).toList();
+    final every = history.toList();
+    final all = every.where((e) => e.currency == currency).toList();
     final fuliza = FulizaLedger.of(all);
     final first = month.addMonths(1 - trendMonths);
     return InsightsSummary(
       trend: [
         for (var i = 0; i < trendMonths; i++)
-          _monthOf(all, first.addMonths(i), fuliza, currency, journal),
+          _monthOf(
+            all,
+            first.addMonths(i),
+            fuliza,
+            currency,
+            journal,
+            counted: every,
+          ),
       ],
     );
   }
@@ -74,7 +86,7 @@ class InsightsSummary {
   /// Half this month's leakage, rounded down to the nearest 100 shillings.
   int get halfLeakageMinor => current.leakageMinor ~/ 2 ~/ 10000 * 10000;
 
-  /// Whether any month in the trend has transactions.
+  /// Whether any month in the trend has transactions, of any kind.
   bool get hasData => trend.any((m) => m.entryCount > 0);
 }
 
@@ -83,12 +95,16 @@ MonthInsight _monthOf(
   YearMonth month,
   FulizaLedger fuliza,
   String currency,
-  JournalBalances? journal,
-) {
+  JournalBalances? journal, {
+  required Iterable<LedgerEntry> counted,
+}) {
   final from = month.startInstant;
   final to = month.endInstant;
+  // Every transaction in the month counts towards [MonthInsight.entryCount],
+  // in any currency: one kept in its own for want of a rate is still there.
   var count = 0;
-  for (final e in all) {
+  for (final e in counted) {
+    if (e.isBalanceRecord) continue;
     if (!e.occurredAt.isBefore(from) && e.occurredAt.isBefore(to)) count++;
   }
   return MonthInsight(
