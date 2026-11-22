@@ -8,6 +8,11 @@ import '../../sms/application/sms_capture_providers.dart';
 const statementPasswordHints = {
   'mpesa_statement':
       'Safaricom sends the password by SMS when you request a statement.',
+  // The 5th to the 8th digits of the account number. The app keeps only
+  // masked account numbers, so it can show the hint but not fill it in.
+  'kcb_statement':
+      'KCB statements open with 4 digits of your account number: the 5th to '
+      'the 8th.',
 };
 
 /// Hints for the statements of the institutions the person ticked in My

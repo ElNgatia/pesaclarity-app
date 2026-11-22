@@ -19,8 +19,9 @@ String? _hostPdfium() {
   return null;
 }
 
-// The fixtures are synthetic two-page statements made for this test, one
-// encrypted with the password 0000.
+// The fixtures are synthetic statements made for this test: a two-page
+// M-Pesa statement, one copy encrypted with the password 0000, and a
+// four-page KCB statement.
 void main() {
   final pdfium = _hostPdfium();
   if (pdfium == null) {
@@ -74,6 +75,24 @@ void main() {
       );
     },
   );
+
+  test('extracts the synthetic KCB statement the KCB pack reads', () async {
+    final bytes = File('test/fixtures/synthetic_kcb_statement.pdf')
+        .readAsBytesSync();
+    final pages = await extractor.extractPages(bytes);
+
+    expect(pages, hasLength(4));
+    final pack = detectStatementPack(pages, loadBundledStatementPacks());
+    expect(pack?.id, 'kcb_statement');
+    final statement = StatementReader(pack!).read(pages);
+    expect(statement.lines, hasLength(15));
+    expect(statement.transactions, hasLength(10));
+    expect(statement.unreadLines, isEmpty);
+    expect(statement.balanceBreaks, isEmpty);
+    expect(statement.statedOpeningBalanceMinor, 5000000);
+    expect(statement.statedClosingBalanceMinor, 5708500);
+    expect(statement.reconciles, isTrue);
+  });
 
   test('a file that is not a PDF is unreadable', () async {
     await expectLater(

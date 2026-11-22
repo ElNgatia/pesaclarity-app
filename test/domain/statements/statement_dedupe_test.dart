@@ -9,7 +9,9 @@ DedupeFields _fields({
   String? receipt,
   String? counterparty,
   String? key,
+  bool dayOnly = false,
 }) => DedupeFields(
+  dayOnly: dayOnly,
   amountMinor: amount,
   direction: direction,
   occurredAt: at ?? DateTime.utc(2026, 10, 26, 6, 15),
@@ -112,5 +114,68 @@ void main() {
       9,
       null,
     ]);
+  });
+
+  group('a statement row with only a date', () {
+    // Midnight East Africa Time on 2 September 2026.
+    final day = DateTime.utc(2026, 9, 1, 21);
+    const eat = Duration(hours: 3);
+
+    List<int?> match(DedupeFields line, DedupeFields sms) =>
+        matchStatementLines([line], [LedgerCandidate(3, sms)], dayOffset: eat);
+
+    test('matches an SMS with no reference on its day', () {
+      expect(
+        match(
+          _fields(at: day, receipt: 'FT26245AAA03', dayOnly: true),
+          _fields(
+            at: DateTime.utc(2026, 9, 2, 7, 12),
+            counterparty: 'Pesalink Outgoing',
+          ),
+        ),
+        [3],
+      );
+    });
+
+    test('matches an SMS whose reference is of another kind', () {
+      expect(
+        match(
+          _fields(at: day, receipt: 'FT26245AAA03', dayOnly: true),
+          _fields(
+            at: DateTime.utc(2026, 9, 2, 20, 50),
+            receipt: 'ABCD000000000001',
+          ),
+        ),
+        [3],
+      );
+    });
+
+    test('keeps apart another day, another amount or another FT reference', () {
+      final line = _fields(at: day, receipt: 'FT26245AAA03', dayOnly: true);
+      expect(match(line, _fields(at: DateTime.utc(2026, 9, 2, 21, 5))), [
+        null,
+      ], reason: 'the next day in Nairobi');
+      expect(
+        match(line, _fields(at: DateTime.utc(2026, 9, 2, 7), amount: 100)),
+        [null],
+      );
+      expect(
+        match(
+          line,
+          _fields(at: DateTime.utc(2026, 9, 2, 7), receipt: 'FT26245AAA99'),
+        ),
+        [null],
+      );
+    });
+
+    test('a row with a time keeps to the time window', () {
+      expect(
+        match(
+          _fields(at: day, receipt: 'TJA0000001'),
+          _fields(at: DateTime.utc(2026, 9, 2, 7)),
+        ),
+        [null],
+      );
+    });
   });
 }
