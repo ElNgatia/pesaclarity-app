@@ -88,7 +88,7 @@ void main() {
     });
 
     Future<void> track(bool on) async {
-      await c.read(fulizaTrackingProvider.notifier).setTracked(on);
+      await c.read(fulizaTrackedProvider.notifier).setTracked(on);
     }
 
     Future<String> ask(String question) async {

@@ -54,19 +54,17 @@ bool isFulizaKind(TransactionKind? kind) =>
 
 /// Whether [db] holds a Fuliza message: a draw or a repayment, read from a
 /// message or a statement, or typed in.
-Future<bool> fulizaSeenIn(AppDatabase db) async {
-  final row = await db
-      .customSelect(
-        'SELECT 1 FROM transactions WHERE kind IN (?, ?) LIMIT 1',
-        variables: [
-          Variable<String>(TransactionKind.fulizaDraw.name),
-          Variable<String>(TransactionKind.fulizaRepayment.name),
-        ],
-        readsFrom: {db.transactions},
-      )
-      .getSingleOrNull();
-  return row != null;
-}
+Future<bool> fulizaSeenIn(AppDatabase db) async =>
+    (await _fulizaQuery(db).get()).isNotEmpty;
+
+Selectable<QueryRow> _fulizaQuery(AppDatabase db) => db.customSelect(
+  'SELECT 1 FROM transactions WHERE kind IN (?, ?) LIMIT 1',
+  variables: [
+    Variable<String>(TransactionKind.fulizaDraw.name),
+    Variable<String>(TransactionKind.fulizaRepayment.name),
+  ],
+  readsFrom: {db.transactions},
+);
 
 /// The "Track Fuliza" switch as saved in [settings]: on unless switched off.
 Future<bool> fulizaTrackedIn(AppSettingsRepository settings) async =>
@@ -80,33 +78,38 @@ Future<FulizaTracking> readFulizaTracking(AppDatabase db) async =>
       tracked: await fulizaTrackedIn(DriftAppSettingsRepository(db)),
     );
 
-/// The open space's Fuliza tracking, following its records and the switch.
-class FulizaTrackingController extends AsyncNotifier<FulizaTracking> {
+/// The open space's "Track Fuliza" switch, on unless switched off.
+///
+/// It depends on nothing that changes with the ledger, so the journal's
+/// readers (`readJournal`) can follow it without rebuilding on every
+/// change; they look for a Fuliza message themselves each time they read.
+class FulizaTrackedController extends AsyncNotifier<bool> {
   @override
-  Future<FulizaTracking> build() async {
-    ref.watch(ledgerChangesProvider);
-    return FulizaTracking(
-      seen: await fulizaSeenIn(ref.watch(appDatabaseProvider)),
-      tracked: await fulizaTrackedIn(ref.watch(appSettingsRepositoryProvider)),
-    );
-  }
+  Future<bool> build() =>
+      fulizaTrackedIn(ref.watch(appSettingsRepositoryProvider));
 
-  /// The "Track Fuliza" switch. Off hides Fuliza; on shows it again, with
-  /// everything kept in the meantime.
+  /// Off hides Fuliza; on shows it again, with everything kept in the
+  /// meantime.
   Future<void> setTracked(bool track) async {
     await ref.read(appSettingsRepositoryProvider).writeJson(trackFulizaKey, {
       'track': track,
     });
-    ref.invalidateSelf();
-    await future;
+    state = AsyncData(track);
   }
 }
 
-final fulizaTrackingProvider =
-    AsyncNotifierProvider<FulizaTrackingController, FulizaTracking>(
-      FulizaTrackingController.new,
+final fulizaTrackedProvider =
+    AsyncNotifierProvider<FulizaTrackedController, bool>(
+      FulizaTrackedController.new,
     );
 
-/// Whether the open space shows Fuliza; false until it is known.
-Future<bool> fulizaShown(Ref ref) async =>
-    (await ref.watch(fulizaTrackingProvider.future)).shown;
+/// Whether the open space shows Fuliza, from its records and the switch
+/// ([fulizaTrackedProvider]): for screens, which follow the ledger.
+final fulizaTrackingProvider = FutureProvider<FulizaTracking>((ref) async {
+  ref.watch(ledgerChangesProvider);
+  final tracked = ref.watch(fulizaTrackedProvider.future);
+  return FulizaTracking(
+    seen: await fulizaSeenIn(ref.watch(appDatabaseProvider)),
+    tracked: await tracked,
+  );
+});

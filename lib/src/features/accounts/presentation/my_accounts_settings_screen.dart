@@ -303,7 +303,7 @@ class _TrackFulizaRow extends ConsumerWidget {
     key: const Key('track-fuliza'),
     value: tracked,
     onChanged: (track) =>
-        ref.read(fulizaTrackingProvider.notifier).setTracked(track),
+        ref.read(fulizaTrackedProvider.notifier).setTracked(track),
     title: const Text('Track Fuliza'),
     subtitle: Text(
       tracked

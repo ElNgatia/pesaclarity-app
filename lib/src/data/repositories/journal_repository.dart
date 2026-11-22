@@ -936,10 +936,13 @@ final _latestJournalProvider = Provider<_LatestJournal>(
 Future<JournalBalances> readJournal(Ref ref) async {
   final journal = ref.watch(journalRepositoryProvider);
   final converter = ref.watch(currencyConverterProvider);
-  final shown = ref.watch(fulizaTrackingProvider.future);
+  final tracked = ref.watch(fulizaTrackedProvider.future);
+  final db = ref.watch(appDatabaseProvider);
   final balances = await ref.watch(
     journalAtGenerationProvider((journal.generation, converter, journal))
         .future,
   );
-  return balances.withFuliza(shown: (await shown).shown);
+  // Looked for at each read, as the journal is read again after each
+  // change to the ledger: the first Fuliza message shows Fuliza.
+  return balances.withFuliza(shown: await tracked && await fulizaSeenIn(db));
 }

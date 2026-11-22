@@ -227,8 +227,7 @@ class AppAskDataSource implements AskDataSource {
   }
 
   @override
-  Future<bool> fulizaShown() async =>
-      (await _ref.read(fulizaTrackingProvider.future)).shown;
+  Future<bool> fulizaShown() async => (await readFulizaTracking(_db)).shown;
 
   @override
   Future<List<AskLine>> lowStock() async => [

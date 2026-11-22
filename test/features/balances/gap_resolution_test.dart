@@ -13,7 +13,13 @@ import 'balances_harness.dart';
 /// M-Pesa said 140 on Sunday 8 November at 13:07; 150 came in from
 /// someone at 17:22 and M-Pesa then said 150, so 140 is not explained.
 /// With [unread], a message paying out 140 waits in Messages to check.
-Future<int> seedGap(AppDatabase db, {required bool unread}) async {
+/// With [fulizaUser], Fuliza lent 50 on the 2nd and was repaid on the 3rd,
+/// so the person uses Fuliza and the gap can be put down to it.
+Future<int> seedGap(
+  AppDatabase db, {
+  required bool unread,
+  bool fulizaUser = false,
+}) async {
   final mpesa = await db
       .into(db.accounts)
       .insert(
@@ -50,6 +56,24 @@ Future<int> seedGap(AppDatabase db, {required bool unread}) async {
       balanceAfterMinor: Value(kes(150)),
     ),
   ]);
+  if (fulizaUser) {
+    await DriftTransactionsRepository(db).addNew([
+      for (final (i, kind, direction) in [
+        (2, TransactionKind.fulizaDraw, TransactionDirection.inflow),
+        (3, TransactionKind.fulizaRepayment, TransactionDirection.outflow),
+      ])
+        TransactionsCompanion.insert(
+          accountId: mpesa,
+          occurredAt: eat(2026, 11, i, 9),
+          amountMinor: kes(50),
+          direction: direction,
+          kind: Value(kind),
+          source: TransactionSource.sms,
+          dedupeKey: Value('gap-fuliza-$i'),
+          receiptNo: Value('TST000031$i'),
+        ),
+    ]);
+  }
   if (unread) {
     await db
         .into(db.reviewItems)
@@ -116,9 +140,21 @@ void main() {
     expect(find.byType(ReviewMessageScreen), findsOneWidget);
   });
 
+  testAppWidgets('no Fuliza message: the gap is never put down to Fuliza', (
+    tester,
+  ) async {
+    await tester.runAsync(() => seedGap(db, unread: false));
+    await pumpBalances(tester, db, AppRoutes.balanceCheck);
+    await openGap(tester);
+    expect(find.text('It went to Fuliza'), findsNothing);
+    expect(find.textContaining('Fuliza'), findsNothing);
+  });
+
   testAppWidgets('without it, Fuliza leads and Add what\'s missing files '
       'the 140 as spending', (tester) async {
-    final mpesa = (await tester.runAsync(() => seedGap(db, unread: false)))!;
+    final mpesa = (await tester.runAsync(
+      () => seedGap(db, unread: false, fulizaUser: true),
+    ))!;
     await pumpBalances(tester, db, AppRoutes.balanceCheck);
     await openGap(tester);
 
@@ -166,13 +202,16 @@ void main() {
   testAppWidgets('It went to Fuliza records a repayment that closes it', (
     tester,
   ) async {
-    await tester.runAsync(() => seedGap(db, unread: false));
+    await tester.runAsync(() => seedGap(db, unread: false, fulizaUser: true));
     await pumpBalances(tester, db, AppRoutes.balanceCheck);
     await openGap(tester);
     await tester.tap(find.byKey(const Key('gap-lead-action')));
     await settle(tester);
-    final repaid = (await rows(tester))
-        .singleWhere((r) => r.kind == TransactionKind.fulizaRepayment);
+    final repaid = (await rows(tester)).singleWhere(
+      (r) =>
+          r.kind == TransactionKind.fulizaRepayment &&
+          r.source == TransactionSource.manual,
+    );
     expect(repaid.amountMinor, kes(140));
     expect(find.text('Everything adds up'), findsOneWidget);
   });
