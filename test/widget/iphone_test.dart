@@ -208,7 +208,7 @@ void main() {
     ) async {
       await toConnectStep(tester);
       await scrollTo(tester, find.byKey(const Key('connect-import-past')));
-      expect(find.text('Past months'), findsOneWidget);
+      expect(find.text('Past months, or without Shortcuts'), findsOneWidget);
       await tester.tap(find.byKey(const Key('connect-import-past')));
       await tester.pumpAndSettle();
       expect(find.byType(StatementImportScreen), findsOneWidget);

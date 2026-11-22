@@ -25,6 +25,7 @@ import '../../../theme/pesa_colors.dart';
 import '../../debts/presentation/debt_row.dart';
 import '../../debts/presentation/due_line.dart' show IconLine;
 import '../../lending/application/lending_providers.dart';
+import '../../onboarding/presentation/about_you_cards.dart';
 import '../../savings/presentation/savings_text.dart';
 import '../application/goals_overview_provider.dart';
 import 'goal_sheet.dart';
@@ -116,6 +117,8 @@ class GoalsScreen extends ConsumerWidget {
           onPressed: () => showGoalSheet(context, today: overview.today),
         ),
       ),
+      // One goal suggested from About you, until added or put off.
+      const AboutYouGoalOffer(),
       if (overview.goals.isEmpty)
         const EmptyNote(
           'Goals show here, such as an emergency fund or a new laptop.',

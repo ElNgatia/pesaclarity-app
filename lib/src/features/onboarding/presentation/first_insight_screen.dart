@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../domain/insights/first_insight.dart';
 import '../../../domain/insights/leakage.dart';
+import '../../../routing/app_routes.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/figures.dart';
 import '../../../theme/app_typography.dart';
@@ -12,6 +14,8 @@ import '../../../theme/pesa_colors.dart';
 import '../../insights/application/insights_providers.dart';
 import '../../sms/application/scan_range_provider.dart';
 import '../../sms/domain/scan_range.dart';
+import '../application/about_you_providers.dart';
+import 'about_you_cards.dart';
 import 'setup_parts.dart';
 
 /// Onboarding, after the first scan: what the messages read show,
@@ -49,6 +53,15 @@ class FirstInsightScreen extends ConsumerWidget {
               ],
             },
             const SizedBox(height: 24),
+            // An offer: Go to Home stays the main button, so the M-Pesa
+            // path is not one tap longer.
+            if (!(ref.watch(aboutYouProvider).value?.answered ?? false)) ...[
+              MakeItYoursCard(
+                key: const Key('insight-about-you'),
+                onAnswer: () => context.push(AppRoutes.onboardingAboutYou),
+              ),
+              const SizedBox(height: 16),
+            ],
             FilledButton(onPressed: finish, child: const Text('Go to Home')),
           ],
         ),

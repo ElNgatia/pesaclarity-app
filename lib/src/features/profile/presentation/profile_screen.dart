@@ -32,6 +32,7 @@ import '../../firefly/application/firefly_controller.dart';
 import '../../firefly/presentation/firefly_labels.dart';
 import '../../income/application/income_providers.dart';
 import '../../look/application/look_providers.dart';
+import '../../onboarding/application/about_you_providers.dart';
 import '../../reminders/presentation/reminders_settings_card.dart';
 import '../../security/presentation/device_warning_card.dart';
 import '../../security/presentation/security_settings_card.dart';
@@ -113,6 +114,18 @@ class ProfileScreen extends ConsumerWidget {
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => context.go(AppRoutes.incomeSources),
+    );
+    final answers = ref.watch(aboutYouProvider).value;
+    final aboutYou = ListTile(
+      key: const Key('profile-about-you'),
+      leading: const RowIcon(Icons.person_outline),
+      title: const Text('About you'),
+      subtitle: Text(
+        answers?.who?.label ??
+            'Three quick questions that start Plan and suggest a goal',
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => context.go(AppRoutes.aboutYou),
     );
     final currency = ListTile(
       key: const Key('profile-base-currency'),
@@ -284,6 +297,7 @@ class ProfileScreen extends ConsumerWidget {
       ],
       if (ios) connect,
       income,
+      if (ref.watch(activeSpaceProvider).id == personalSpaceId) aboutYou,
       payees,
       currency,
       timezone,
