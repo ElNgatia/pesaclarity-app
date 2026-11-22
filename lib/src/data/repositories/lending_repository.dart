@@ -22,6 +22,7 @@ abstract interface class LendingRepository {
     required CalendarDate lentOn,
     CalendarDate? dueDate,
     String? note,
+    String? currency,
   });
 
   /// Saves [loan]'s person, amount, dates and note; payments are kept.
@@ -29,6 +30,9 @@ abstract interface class LendingRepository {
 
   Future<void> recordPayment(int loanId, DateTime paidAt, int amountMinor);
 
+  /// Removes the loan and its payments. Transactions linked to it (the money
+  /// out that lent it, money in that paid it back) lose the link and the
+  /// category it gave them.
   Future<void> remove(int loanId);
 }
 
@@ -59,6 +63,36 @@ class DriftLendingRepository implements LendingRepository {
         ),
       );
     }
+    // Money in linked to a loan pays it back ("Paying me back"), up to what
+    // is left of it.
+    final amounts = {for (final row in rows) row.id: row.amountMinor};
+    final paidIn =
+        await (_db.select(_db.transactions)
+              ..where(
+                (t) =>
+                    t.lentLoanId.isNotNull() &
+                    t.direction.equalsValue(TransactionDirection.inflow),
+              )
+              ..orderBy([(t) => OrderingTerm.asc(t.occurredAt)]))
+            .get();
+    for (final row in paidIn) {
+      final loan = row.lentLoanId!;
+      final amount = amounts[loan];
+      if (amount == null) continue;
+      final list = payments[loan] ??= [];
+      final paid = list.fold(0, (sum, p) => sum + p.amountMinor);
+      final left = amount - paid;
+      if (left <= 0) continue;
+      list.add(
+        LoanPayment(
+          date: CalendarDate.local(row.occurredAt),
+          amountMinor: row.amountMinor < left ? row.amountMinor : left,
+        ),
+      );
+    }
+    for (final list in payments.values) {
+      list.sort((a, b) => a.date.compareTo(b.date));
+    }
     return [
       for (final row in rows)
         LentLoan(
@@ -83,13 +117,14 @@ class DriftLendingRepository implements LendingRepository {
     required CalendarDate lentOn,
     CalendarDate? dueDate,
     String? note,
+    String? currency,
   }) => _db
       .into(_db.lentLoans)
       .insert(
         LentLoansCompanion.insert(
           person: person,
           amountMinor: amountMinor,
-          currency: Value(BaseCurrency.code),
+          currency: Value(currency ?? BaseCurrency.code),
           lentOn: lentOn.startInstant,
           dueDate: Value(dueDate?.startInstant),
           note: Value(note),
@@ -121,8 +156,17 @@ class DriftLendingRepository implements LendingRepository {
           );
 
   @override
-  Future<void> remove(int loanId) =>
-      (_db.delete(_db.lentLoans)..where((l) => l.id.equals(loanId))).go();
+  Future<void> remove(int loanId) => _db.transaction(() async {
+    await (_db.update(
+      _db.transactions,
+    )..where((t) => t.lentLoanId.equals(loanId))).write(
+      const TransactionsCompanion(
+        lentLoanId: Value(null),
+        categoryOverrideId: Value(null),
+      ),
+    );
+    await (_db.delete(_db.lentLoans)..where((l) => l.id.equals(loanId))).go();
+  });
 }
 
 final lendingRepositoryProvider = Provider<LendingRepository>(

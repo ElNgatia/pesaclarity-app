@@ -10,6 +10,7 @@ import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/categories/default_categories.dart';
 import '../../../domain/enums.dart';
 import '../../../domain/export/export_tables.dart';
+import '../../../domain/lending/loan_link.dart';
 import '../../../domain/spaces/space.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
@@ -22,6 +23,8 @@ import '../../balances/presentation/own_transfer_sheets.dart';
 import '../../currency/presentation/payment_rate_card.dart';
 import '../../documents/presentation/receipt_sheet.dart';
 import '../../income/presentation/what_was_this_sheet.dart';
+import '../../lending/application/lending_providers.dart';
+import '../../lending/presentation/loan_from_transaction.dart';
 import '../../savings/application/savings_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../application/payee_providers.dart';
@@ -83,8 +86,32 @@ class _Body extends ConsumerWidget {
   final TransactionDetail detail;
   final ScrollController? controller;
 
+  /// This transaction as the Lent and borrowed answers see it.
+  LoanSubject get _loanSubject {
+    final r = detail.record;
+    final printed = r.counterpartyName?.trim();
+    return LoanSubject(
+      transactionId: r.id,
+      outflow: r.direction == TransactionDirection.outflow,
+      amountMinor: r.amountMinor,
+      occurredAt: r.occurredAt,
+      currency: r.currency,
+      person:
+          detail.payee?.displayName ??
+          (printed == null || printed.isEmpty ? null : printed),
+      canLink:
+          r.transferPairId == null &&
+          r.transferAccountId == null &&
+          r.kind != TransactionKind.correction &&
+          !detail.account.type.isBetweenSpaces,
+    );
+  }
+
   Future<void> _pickCategory(BuildContext context, WidgetRef ref) async {
     final payee = detail.payee;
+    final subject = _loanSubject;
+    final links = loanLinksFor(ref.read(activeSpaceProvider).kind, subject);
+    final linked = ref.read(loanLinksProvider).value?[detail.record.id];
     final choice = await pickCategory(
       context,
       selectedId: detail.category?.id,
@@ -92,11 +119,25 @@ class _Body extends ConsumerWidget {
       payeeCategoryName: detail.isCategoryOverridden && payee != null
           ? detail.payeeCategory?.name ?? uncategorisedName
           : null,
+      loanLinks: links,
+      selectedLink: linked?.link,
     );
+    if (!context.mounted) return;
     final repo = ref.read(categoriesRepositoryProvider);
-    switch (choice) {
+    // Money lent chosen from the list is "I lent this" or "Paying me back",
+    // so it is linked to its loan too.
+    var picked = choice;
+    if (choice case ChosenCategory(:final id?) when linked == null) {
+      if (await loanLinkOfCategory(repo, links, subject, id) case final l?) {
+        picked = LoanChoice(l);
+      }
+    }
+    if (!context.mounted) return;
+    switch (picked) {
       case null:
         return;
+      case LoanChoice(:final link):
+        await linkToLoan(context, subject, link);
       case FollowPayeeCategory():
         await repo.setOverride(detail.record.id, null);
       case ChosenCategory(:final id):
@@ -133,7 +174,10 @@ class _Body extends ConsumerWidget {
         r.counterpartyName ??
         counterparty?.label ??
         kindLabel(r.kind ?? TransactionKind.bank);
-    final categoryNote = detail.isCategoryOverridden
+    final loan = ref.watch(loanLinksProvider).value?[r.id];
+    final categoryNote = loan != null
+        ? loanLinkLabel(loan.link, loan.person)
+        : detail.isCategoryOverridden
         ? 'Set for this transaction'
         : detail.isCategoryAuto
         ? 'Predicted automatically'

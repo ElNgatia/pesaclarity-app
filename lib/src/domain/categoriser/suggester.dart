@@ -72,6 +72,7 @@ const _noCategoryRoles = {
   LedgerRole.reversal,
   LedgerRole.correction,
   LedgerRole.betweenSpaces,
+  LedgerRole.lending,
 };
 
 /// Whether [entry] has no category and is the kind of line a category is

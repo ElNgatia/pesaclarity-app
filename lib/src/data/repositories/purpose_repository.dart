@@ -1,14 +1,11 @@
-import 'dart:math' as math;
-
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/income/money_purpose.dart';
 import '../../domain/payees/payee_directory.dart';
-import '../../domain/time/calendar.dart';
 import '../database/app_database.dart';
 import '../database/database_providers.dart';
-import 'lending_repository.dart';
+import 'loan_links_repository.dart';
 
 /// "What was this?" for money in from people whose money has meant
 /// different things.
@@ -21,9 +18,10 @@ abstract interface class PurposeRepository {
   /// Files [transactionId] under [purpose]. With [alwaysUse], the payee
   /// takes that category and stops asking.
   ///
-  /// A loan to you adds the payee to Debts when they are not there yet.
-  /// Paying you back lowers the oldest money lent to someone of the payee's
-  /// name that is still owed.
+  /// A loan to you adds it to Debts as a family loan from the payee,
+  /// linked to the transaction. Paying you back links it to the oldest
+  /// money lent to someone of the payee's name that is still owed, which
+  /// it lowers (see `LoanLinksRepository`).
   Future<void> answer(
     int transactionId,
     MoneyPurpose purpose, {
@@ -85,6 +83,7 @@ class DriftPurposeRepository implements PurposeRepository {
     MoneyPurpose purpose, {
     bool alwaysUse = false,
   }) => _db.transaction(() async {
+    await unlinkLoan(_db, transactionId);
     final tx = await _transaction(transactionId);
     final payee = await _payee(tx.payeeId);
     final category = await (_db.select(
@@ -104,9 +103,9 @@ class DriftPurposeRepository implements PurposeRepository {
     }
     switch (purpose) {
       case MoneyPurpose.loanToYou:
-        await _addToDebts(payee, tx);
+        await borrowInto(_db, tx, lender: payee.displayName);
       case MoneyPurpose.payingBack:
-        await _lowerLent(payee, tx);
+        await payBackLent(_db, tx);
       case MoneyPurpose.familySupport ||
           MoneyPurpose.work ||
           MoneyPurpose.gift ||
@@ -114,47 +113,6 @@ class DriftPurposeRepository implements PurposeRepository {
         break;
     }
   });
-
-  Future<void> _addToDebts(Payee payee, TransactionRecord tx) async {
-    final existing = await (_db.select(
-      _db.debts,
-    )..where((d) => d.payeeId.equals(payee.id))).get();
-    if (existing.isNotEmpty) return;
-    await _db
-        .into(_db.debts)
-        .insert(
-          DebtsCompanion.insert(
-            lender: payee.displayName,
-            type: DebtType.family,
-            currency: Value(tx.currency),
-            startingBalanceMinor: tx.amountMinor,
-            isFormal: const Value(false),
-            payeeId: Value(payee.id),
-          ),
-        );
-  }
-
-  Future<void> _lowerLent(Payee payee, TransactionRecord tx) async {
-    final paidOn = CalendarDate.local(tx.occurredAt);
-    final name = payee.displayName.trim().toLowerCase();
-    final lending = DriftLendingRepository(_db);
-    final loans = await lending.lent();
-    // Oldest first, so the earliest money lent is paid off first.
-    for (final loan in loans.reversed) {
-      if (loan.person.trim().toLowerCase() != name ||
-          loan.currency != tx.currency) {
-        continue;
-      }
-      final owed = loan.outstandingAt(paidOn);
-      if (owed <= 0) continue;
-      await lending.recordPayment(
-        loan.id,
-        tx.occurredAt,
-        math.min(owed, tx.amountMinor),
-      );
-      return;
-    }
-  }
 
   @override
   Future<void> setAskPurpose(int payeeId, {required bool ask}) =>

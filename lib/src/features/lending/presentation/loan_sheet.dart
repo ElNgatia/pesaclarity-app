@@ -7,6 +7,7 @@ import '../../../core/money/money_format.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/debts_repository.dart';
 import '../../../data/repositories/lending_repository.dart';
+import '../../../data/repositories/loan_links_repository.dart';
 import '../../../domain/debts/debt.dart';
 import '../../../domain/lending/lent_loan.dart';
 import '../../../domain/time/calendar.dart';
@@ -18,24 +19,56 @@ import '../../goals/application/goals_overview_provider.dart';
 /// Which way the money went.
 enum LoanSide { lent, borrowed }
 
+/// Money out the person says they lent ("I lent this" in the transaction
+/// sheet): who it went to, how much and when, to start the loan from.
+class LentFromTransaction {
+  const LentFromTransaction({
+    required this.transactionId,
+    required this.amountMinor,
+    required this.on,
+    this.person,
+    this.currency,
+  });
+
+  final int transactionId;
+  final int amountMinor;
+  final CalendarDate on;
+
+  /// The payee, or the name the message printed.
+  final String? person;
+  final String? currency;
+}
+
 /// Opens the sheet to record money lent or borrowed, or to edit [lent].
+/// With [fromTransaction], it records that money out as money lent.
 Future<void> showLoanSheet(
   BuildContext context, {
   required CalendarDate today,
   LentLoan? lent,
+  LentFromTransaction? fromTransaction,
 }) => showAppSheet<void>(
   context: context,
-  builder: (context) => LoanSheet(today: today, lent: lent),
+  builder: (context) =>
+      LoanSheet(today: today, lent: lent, fromTransaction: fromTransaction),
 );
 
 /// Who, how much, when, and when it is due back.
 class LoanSheet extends StatefulWidget {
-  const LoanSheet({required this.today, this.lent, super.key});
+  const LoanSheet({
+    required this.today,
+    this.lent,
+    this.fromTransaction,
+    super.key,
+  });
 
   final CalendarDate today;
 
   /// Money lent to edit; null to add a loan on either side.
   final LentLoan? lent;
+
+  /// Money out to record as money lent, linked to the loan: the sheet
+  /// opens as "I lent", filled in from it.
+  final LentFromTransaction? fromTransaction;
 
   @override
   State<LoanSheet> createState() => _LoanSheetState();
@@ -44,14 +77,25 @@ class LoanSheet extends StatefulWidget {
 class _LoanSheetState extends State<LoanSheet> {
   final _form = GlobalKey<FormState>();
   late var _side = LoanSide.lent;
-  late final _person = TextEditingController(text: widget.lent?.person);
+  late final _person = TextEditingController(
+    text: widget.lent?.person ?? widget.fromTransaction?.person,
+  );
   late final _amount = TextEditingController(
-    text: widget.lent == null
-        ? ''
-        : formatMoney(Money(widget.lent!.amountMinor), withCurrency: false),
+    text: switch ((widget.lent, widget.fromTransaction)) {
+      (final lent?, _) => formatMoney(
+        Money(lent.amountMinor),
+        withCurrency: false,
+      ),
+      (_, final from?) => formatMoney(
+        Money(from.amountMinor, currency: from.currency),
+        withCurrency: false,
+      ),
+      _ => '',
+    },
   );
   late final _note = TextEditingController(text: widget.lent?.note);
-  late CalendarDate _on = widget.lent?.lentOn ?? widget.today;
+  late CalendarDate _on =
+      widget.lent?.lentOn ?? widget.fromTransaction?.on ?? widget.today;
   late CalendarDate? _due = widget.lent?.dueDate;
   var _busy = false;
 
@@ -68,11 +112,26 @@ class _LoanSheetState extends State<LoanSheet> {
     setState(() => _busy = true);
     final container = ProviderScope.containerOf(context, listen: false);
     final person = _person.text.trim();
-    final amount = AmountField.amountFrom(_amount.text)!;
+    final amount = AmountField.amountFrom(
+      _amount.text,
+      currency: widget.fromTransaction?.currency,
+    )!;
     final note = _note.text.trim().isEmpty ? null : _note.text.trim();
     final existing = widget.lent;
+    final from = widget.fromTransaction;
 
-    if (existing != null) {
+    if (from != null) {
+      await container
+          .read(loanLinksRepositoryProvider)
+          .lend(
+            from.transactionId,
+            person: person,
+            amountMinor: amount,
+            lentOn: _on,
+            dueDate: _due,
+            note: note,
+          );
+    } else if (existing != null) {
       await container
           .read(lendingRepositoryProvider)
           .update(
@@ -120,13 +179,17 @@ class _LoanSheetState extends State<LoanSheet> {
   @override
   Widget build(BuildContext context) {
     final editing = widget.lent != null;
+    final from = widget.fromTransaction;
     final lent = _side == LoanSide.lent;
     return Form(
       key: _form,
       child: SheetBody(
         title: editing ? 'Edit loan' : 'Add a loan',
+        subtitle: from == null
+            ? null
+            : 'This payment is the money you lent. It is not spending.',
         children: [
-          if (!editing) ...[
+          if (!editing && from == null) ...[
             AdaptiveSegmented<LoanSide>(
               segments: const [
                 (LoanSide.lent, 'I lent'),
@@ -149,7 +212,13 @@ class _LoanSheetState extends State<LoanSheet> {
             ),
           ),
           const SizedBox(height: 8),
-          AmountField(controller: _amount, label: 'Amount'),
+          AmountField(
+            controller: _amount,
+            label: 'Amount',
+            currency: from?.currency,
+            // No more than the payment itself.
+            maxMinor: from?.amountMinor,
+          ),
           const SizedBox(height: 16),
           if (lent) ...[
             DateField(

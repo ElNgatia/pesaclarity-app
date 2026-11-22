@@ -31,6 +31,12 @@ enum SpaceKind {
   /// Kinds that earn and spend to make a profit.
   bool get makesProfit =>
       this == business || this == rentalProperty || this == farm;
+
+  /// Kinds whose transactions can be money lent or borrowed between the
+  /// person, friends and family ("I lent this"). A business, rental, farm
+  /// or savings group keeps what people owe it with its own records.
+  bool get tracksLending =>
+      this == personal || this == household || this == other;
 }
 
 /// One set of money kept apart: its own encrypted database with accounts,

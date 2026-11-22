@@ -556,6 +556,12 @@ JournalEntry postEntry(
       }
     case LedgerRole.awaitingPayee:
       inFrom(BookAccount.awaitingPayee, amount);
+    case LedgerRole.lending:
+      // Money lent is still the person's, owed back to them: it moves
+      // Owed to you, as a customer's credit does in a business.
+      e.isOutflow
+          ? outTo(BookAccount.owedToYou, amount)
+          : inFrom(BookAccount.owedToYou, amount);
     case LedgerRole.ownTransfer:
       final other = ownerPay && e.isOutflow
           ? BookAccount.ownerPay

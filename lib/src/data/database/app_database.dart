@@ -85,7 +85,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 45;
+  int get schemaVersion => 46;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -385,6 +385,10 @@ class AppDatabase extends _$AppDatabase {
           savingsReadings,
           savingsReadings.fromMessage,
         );
+      }
+      // Money lent from a transaction, and money in that pays it back.
+      if (from < 46) {
+        await _addColumnIfMissing(m, transactions, transactions.lentLoanId);
       }
       // Plain English names: the seeded giving category, unless renamed.
       if (from < 17) {

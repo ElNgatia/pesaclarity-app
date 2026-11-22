@@ -354,6 +354,12 @@ class Transactions extends Table {
       integer().nullable().references(Categories, #id)();
   IntColumn get goalId => integer().nullable().references(Goals, #id)();
   IntColumn get debtId => integer().nullable().references(Debts, #id)();
+
+  /// Money lent to a friend or relative that this transaction is: money out
+  /// that made the loan ("I lent this"), or money in that pays it back
+  /// ("Paying me back"). Never spending or income. Removing the loan
+  /// clears it (`LendingRepository.remove`).
+  IntColumn get lentLoanId => integer().nullable()();
   TextColumn get receiptNo => text().nullable()();
 
   /// The other side's code as this message prints it, when it prints one

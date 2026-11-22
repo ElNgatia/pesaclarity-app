@@ -44,6 +44,12 @@ enum LedgerRole {
   /// its account lives, or a correction of another space's part ("Set the
   /// stall's part"). Counts in neither money in nor money out.
   betweenSpaces,
+
+  /// Money lent to a friend or relative, or their paying it back, linked to
+  /// the loan in Lent and borrowed ("I lent this", "Paying me back"). It
+  /// moves what they owe the person (Owed to you in the journal), so it is
+  /// never spending or income, money in or money out.
+  lending,
 }
 
 /// Roles that never count as spending or income.
@@ -53,6 +59,7 @@ const neutralRoles = {
   LedgerRole.awaitingPayee,
   LedgerRole.correction,
   LedgerRole.betweenSpaces,
+  LedgerRole.lending,
 };
 
 /// Whether [entry] is money that arrived: income, or money from someone the
@@ -80,6 +87,7 @@ LedgerRole roleOf(LedgerEntry entry) {
     return LedgerRole.betweenSpaces;
   }
   if (entry.kind == TransactionKind.correction) return LedgerRole.correction;
+  if (entry.lentLoanId != null) return LedgerRole.lending;
   if (entry.transferPairId != null ||
       entry.transferAccountId != null ||
       entry.categoryType == CategoryType.transfer) {
