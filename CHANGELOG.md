@@ -2,6 +2,29 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from commit titles (pull request titles until pull requests into `dev` were rebase-merged).
 
+## [0.5.6](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.5...v0.5.6) (2026-11-22)
+
+
+### Features
+
+* **accounts:** ask before adding the M-Pesa family (0026 item 5) ([e39a6cd](https://github.com/pesaclarity/pesaclarity-app/commit/e39a6cd7a1962d4614360938ab6ae760d0573e38))
+* **accounts:** ask before adding the M-Pesa family (0026 item 5) ([f3332aa](https://github.com/pesaclarity/pesaclarity-app/commit/f3332aa694616770099284e475205f624ba691e3))
+* **accounts:** the M-Pesa family of accounts (0026) ([b01473d](https://github.com/pesaclarity/pesaclarity-app/commit/b01473d2a0fefed149a53b765e9959352c215c18))
+* **accounts:** the M-Pesa family of accounts (0026) ([8ac1cab](https://github.com/pesaclarity/pesaclarity-app/commit/8ac1cab4cb3abe5cbc4f1a4c6c34a42657473e4c))
+* **fuliza:** track Fuliza only for people who use it ([cd53935](https://github.com/pesaclarity/pesaclarity-app/commit/cd539355cb30f1ab6b6c4c3eccabfd868c5b9f8d))
+* **fuliza:** track Fuliza only for people who use it ([f41c0ed](https://github.com/pesaclarity/pesaclarity-app/commit/f41c0ed26af49b4dafe813a2feea546d2d0981cb))
+* **goals:** show Lent and borrowed under the goals, above net worth ([57011ef](https://github.com/pesaclarity/pesaclarity-app/commit/57011ef81072903d0293c9ab95d14a531b041907))
+* **journal:** everything reads the journal, and the replay month (0018 stages 4 and 5) ([56cf5c1](https://github.com/pesaclarity/pesaclarity-app/commit/56cf5c156c296095e059ad546d28d39c632f7bd1))
+* **lending:** file a transaction as money lent or borrowed ([ef050c1](https://github.com/pesaclarity/pesaclarity-app/commit/ef050c149d008a08e37ff2c55e9602b0ffda2f47))
+* **statements:** import KCB statements ([b29c265](https://github.com/pesaclarity/pesaclarity-app/commit/b29c26564cc417713addc180b8ae0606187ac57f))
+
+
+### Fixes
+
+* **fuliza:** read the switch apart from the ledger, and say it in the README ([98aab16](https://github.com/pesaclarity/pesaclarity-app/commit/98aab168b0496f0bac01f1f3fa2cec1bba33b266))
+* **insights:** follow the ledger, so Insights fills once transactions come ([77cad4b](https://github.com/pesaclarity/pesaclarity-app/commit/77cad4bc4d03d9417b45122b9122164287df8ae6))
+* **sms:** read every space's accounts on start and on return ([50a3322](https://github.com/pesaclarity/pesaclarity-app/commit/50a3322bc03716f33d1d6ed96f75f8a5c2251a48))
+
 ## [0.5.5](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.4...v0.5.5) (2026-11-22)
 
 
