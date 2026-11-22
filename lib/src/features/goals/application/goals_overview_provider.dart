@@ -12,6 +12,7 @@ import '../../../domain/goals/savings_goal.dart';
 import '../../../domain/time/calendar.dart';
 import '../../debts/application/debt_plan_provider.dart';
 import '../../lending/application/lending_providers.dart';
+import 'goals_aside_providers.dart';
 
 /// Everything the Goals tab shows.
 class GoalsOverview {
@@ -83,9 +84,11 @@ final goalsOverviewProvider = FutureProvider<GoalsOverview>((ref) async {
   );
 });
 
-/// Reloads Goals, Lent and borrowed, and Debts after a change.
+/// Reloads Goals, Lent and borrowed, and Debts after a change, and what
+/// the goals kept aside take off On hand.
 void refreshGoals(ProviderContainer container) {
   container
+    ..invalidate(goalsAsideProvider)
     ..invalidate(debtPlanProvider)
     ..invalidate(lendingOverviewProvider)
     ..invalidate(goalsOverviewProvider);

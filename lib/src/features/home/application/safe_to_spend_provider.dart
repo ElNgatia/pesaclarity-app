@@ -9,6 +9,7 @@ import '../../../data/repositories/transactions_repository.dart';
 import '../../../domain/budget/safe_to_spend.dart';
 import '../../../domain/ledger/on_hand.dart';
 import '../../../domain/time/calendar.dart';
+import '../../goals/application/goals_aside_providers.dart';
 import '../../income/application/income_providers.dart';
 import '../../spaces/application/money_between_spaces_providers.dart';
 
@@ -34,19 +35,26 @@ final safeToSpendTodayProvider = FutureProvider<SafeToSpend?>((ref) async {
         to: today.addDays(1).startInstant,
       );
 
+  final goals = await ref.watch(goalsAsideProvider.future);
   return SafeToSpend.calculate(
     budgetMinor: budget,
     entries: entries,
     today: today,
     weekendWeightPercent: weekendWeightFromHistory(entries, today: today),
     // Below zero once Fuliza is counted: nothing is safe to spend.
-    onHandMinor: await _onHand(ref, today),
+    onHandMinor: await _onHand(ref, today, goalsKeptMinor: goals.totalMinor),
+    goalsKeptMinor: goals.totalMinor,
   );
 });
 
 /// Day-to-day money at the start of [today], Fuliza owed taken off, less
-/// the rainy day fund; null without day-to-day accounts.
-Future<int?> _onHand(Ref ref, CalendarDate today) async {
+/// the rainy day fund and the goals kept aside; null without day-to-day
+/// accounts.
+Future<int?> _onHand(
+  Ref ref,
+  CalendarDate today, {
+  required int goalsKeptMinor,
+}) async {
   final accounts = [
     for (final a in await ref.read(accountsRepositoryProvider).openings())
       if (!a.isSavings) a,
@@ -71,6 +79,7 @@ Future<int?> _onHand(Ref ref, CalendarDate today) async {
         balances: await readJournal(ref),
         today: today,
         rainyDayMinor: fund.balanceMinor,
+        goalsKeptMinor: goalsKeptMinor,
       ).totalMinor -
       notOwn;
 }

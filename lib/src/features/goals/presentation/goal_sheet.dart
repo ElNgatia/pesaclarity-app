@@ -8,13 +8,17 @@ import '../../../domain/goals/savings_goal.dart';
 import '../../../domain/savings/savings_account.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../shared/adaptive/adaptive.dart';
+import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/app_sheet.dart';
 import '../../../shared/widgets/form_fields.dart';
+import '../../../shared/widgets/marks.dart';
 import '../../../shared/widgets/selector_field.dart';
 import '../../currency/application/currency_controller.dart';
 import '../../savings/application/savings_providers.dart';
 import '../../savings/presentation/savings_text.dart';
+import '../application/goals_aside_providers.dart';
 import '../application/goals_overview_provider.dart';
+import 'goals_aside_text.dart';
 
 /// Opens the sheet to add a goal, or to edit or delete [goal].
 Future<void> showGoalSheet(
@@ -53,7 +57,24 @@ class _GoalSheetState extends ConsumerState<GoalSheet> {
   /// The savings app's goal the money is kept in, such as a Chumz goal;
   /// null when the person types what is saved.
   late int? _pocketId = widget.goal?.backing?.pocketId;
+
+  /// "Keep it aside" as switched here; null until the person touches it,
+  /// when the saved setting shows.
+  bool? _keep;
   var _busy = false;
+
+  bool get _kept =>
+      _keep ??
+      (widget.goal != null &&
+          (ref.read(keptAsideProvider).value?.isKept(widget.goal!.id) ??
+              false));
+
+  /// Whether the goal can be kept aside: its saved amount is typed, in the
+  /// base currency. A savings app's goal is already out of On hand.
+  bool get _canKeepAside =>
+      _pocketId == null &&
+      (widget.goal?.currency ?? ref.read(baseCurrencyProvider)) ==
+          ref.read(baseCurrencyProvider);
 
   @override
   void dispose() {
@@ -96,6 +117,13 @@ class _GoalSheetState extends ConsumerState<GoalSheet> {
     }
     if (_pocketId != existing?.backing?.pocketId) {
       await repository.setPocket(goalId, _pocketId);
+    }
+    final kept = container.read(keptAsideProvider.notifier);
+    final keep = _canKeepAside && _kept;
+    await kept.setKept(goalId, kept: keep);
+    // A new saved amount starts afresh after a dip that was left as it is.
+    if (keep && existing != null && saved != existing.savedMinor) {
+      await kept.savedChanged(goalId);
     }
     refreshGoals(container);
     if (mounted) Navigator.of(context).pop();
@@ -154,6 +182,41 @@ class _GoalSheetState extends ConsumerState<GoalSheet> {
     );
   }
 
+  /// The "Keep it aside" switch, and while it is on, a plain note that
+  /// this is not a bank lock.
+  List<Widget> _keepAside(BuildContext context) {
+    // Rebuilds once the saved setting has loaded.
+    ref.watch(keptAsideProvider);
+    final keep = _kept;
+    return [
+      const SizedBox(height: 12),
+      ValueListenableBuilder(
+        valueListenable: _saved,
+        builder: (context, value, _) {
+          final saved = AmountField.amountFrom(value.text) ?? 0;
+          return SwitchListTile.adaptive(
+            key: const Key('goal-keep-aside'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text(GoalsAsideText.keepItAside),
+            subtitle: Text(
+              GoalsAsideText.keepItAsideDetail(
+                saved <= 0 || _pocketId != null
+                    ? null
+                    : shownMoney(context, saved),
+              ),
+            ),
+            value: keep,
+            onChanged: (on) => setState(() => _keep = on),
+          );
+        },
+      ),
+      if (keep) ...[
+        const SizedBox(height: 8),
+        const Notice(GoalsAsideText.notABankLock, icon: Icons.info_outline),
+      ],
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final goal = widget.goal;
@@ -194,6 +257,7 @@ class _GoalSheetState extends ConsumerState<GoalSheet> {
             lastDate: CalendarDate(widget.today.year + 30, 12, 31),
             onChanged: (date) => setState(() => _date = date),
           ),
+          if (_canKeepAside) ..._keepAside(context),
           const SizedBox(height: 24),
           FilledButton(
             onPressed: _busy ? null : _save,

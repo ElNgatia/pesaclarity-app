@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../domain/goals/goals_aside.dart';
 import '../../../routing/app_routes.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/app_sheet.dart';
@@ -9,11 +10,14 @@ import '../../../shared/widgets/figures.dart';
 import '../../../shared/widgets/marks.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../activity/application/activity_providers.dart';
+import '../../goals/application/goals_aside_providers.dart';
+import '../../goals/presentation/goals_aside_text.dart';
 import '../../spaces/application/money_between_spaces_providers.dart';
 import '../application/balances_providers.dart';
 import 'balance_text.dart';
 
-/// What On hand adds up: each day-to-day account, less the rainy day fund.
+/// What On hand adds up: each day-to-day account, less the rainy day fund
+/// and what is set aside for goals.
 Future<void> showOnHandSheet(BuildContext context) => showAppSheet<void>(
   context: context,
   builder: (context) => const AmountsHiddenScope(child: OnHandSheet()),
@@ -30,6 +34,11 @@ class OnHandSheet extends ConsumerWidget {
     final accounts = ref.watch(activityAccountsProvider).value ?? const {};
     if (onHand == null) return const SheetBody(children: []);
     final between = ref.watch(moneyBetweenSpacesProvider).value;
+    final goalNames = [
+      for (final g
+          in ref.watch(goalsAsideProvider).value?.goals ?? const <GoalAside>[])
+        if (g.asideMinor > 0) g.goal.name,
+    ];
     String money(int minor) => shownMoney(context, minor);
     return SheetBody(
       title: BalanceText.onHandTitle(
@@ -48,6 +57,13 @@ class OnHandSheet extends ConsumerWidget {
             label: BalanceText.lessRainyDay,
             value: money(-onHand.rainyDayMinor),
           ),
+        if (onHand.goalsAsideMinor > 0)
+          LabelValueRow(
+            key: const Key('on-hand-goals'),
+            label: GoalsAsideText.setAsideForGoals,
+            detail: goalNames.isEmpty ? null : goalNames.join(', '),
+            value: money(-onHand.goalsAsideMinor),
+          ),
         const Divider(),
         LabelValueRow(
           key: const Key('on-hand-total'),
@@ -61,6 +77,7 @@ class OnHandSheet extends ConsumerWidget {
             if (onHand.fulizaOwedMinor > 0)
               '${BalanceText.fulizaTakenOff(money(onHand.fulizaOwedMinor))}.',
             BalanceText.savingsNotCounted,
+            if (onHand.goalsWantedMinor > 0) GoalsAsideText.onHandNote,
             if (heldLine(
                   between?.heldBySpace ?? const {},
                   ref.watch(spaceNamesProvider),

@@ -34,11 +34,13 @@ import '../../../theme/pesa_colors.dart';
 import '../../accounts/presentation/line_questions.dart';
 import '../../app_status/presentation/app_notice_cards.dart';
 import '../../ask/presentation/ask_entry.dart';
+import '../../balances/application/balances_providers.dart';
 import '../../balances/presentation/balance_text.dart';
 import '../../balances/presentation/balance_warning.dart';
 import '../../balances/presentation/on_hand_sheet.dart';
 import '../../business_insights/application/business_report_providers.dart';
 import '../../currency/application/currency_controller.dart';
+import '../../goals/presentation/goals_aside_text.dart';
 import '../../hours/application/hours_providers.dart';
 import '../../hours/presentation/log_hours_sheet.dart';
 import '../../income/application/income_providers.dart';
@@ -63,6 +65,7 @@ import '../application/health_index_provider.dart';
 import '../application/safe_to_spend_provider.dart';
 import '../application/upcoming_bills_provider.dart';
 import 'add_menu.dart';
+import 'goal_dip_cards.dart';
 import 'not_yet_sorted_card.dart';
 
 /// Bills shown under Coming up before "See all".
@@ -128,6 +131,18 @@ class HomeScreen extends ConsumerWidget {
             ref.watch(spaceNamesProvider),
             (minor) => shownMoney(context, minor, withCurrency: true),
           );
+    // What goals kept aside take off On hand (see GoalsAside).
+    final onHandParts = ref.watch(onHandProvider).value;
+    final goalsWanted = onHandParts?.goalsWantedMinor ?? 0;
+    final goalsAside = onHandParts?.goalsAsideMinor ?? 0;
+    final goalsNote = goalsWanted <= 0
+        ? null
+        : goalsAside < goalsWanted
+        ? GoalsAsideText.stillAside(
+            _plain(context, goalsAside),
+            _plain(context, goalsWanted),
+          )
+        : GoalsAsideText.setAsideLine(_plain(context, goalsWanted));
     final bills = ref.watch(upcomingBillsProvider).value ?? const [];
     final currency = ref.watch(currencyControllerProvider).value;
     final now = ref.watch(clockProvider)();
@@ -211,6 +226,8 @@ class HomeScreen extends ConsumerWidget {
                       rainyDayMinor:
                           ref.watch(rainyDayFundProvider).value?.balanceMinor ??
                           0,
+                      goalsAsideMinor: goalsAside,
+                      goalsKept: goalsWanted > 0,
                       onTap: () => openActivity(
                         ActivityFilter(
                           type: ActivityType.spending,
@@ -238,6 +255,7 @@ class HomeScreen extends ConsumerWidget {
                     ),
                   const BalanceWarningLine(),
                   const SizedBox(height: 12),
+                  const GoalDipCards(),
                   const AppNoticeCards(),
                   const RestoreCheckCard(),
                   const ReadAgainHomeCard(),
@@ -256,7 +274,9 @@ class HomeScreen extends ConsumerWidget {
                           key: const Key('home-on-hand'),
                           label: 'On hand',
                           value: _plain(context, untilNext.onHandMinor),
-                          note: held ?? second(untilNext.onHandMinor),
+                          note: held == null && goalsNote == null
+                              ? second(untilNext.onHandMinor)
+                              : [?held, ?goalsNote].join(' · '),
                           belowZero: untilNext.onHandMinor < 0,
                           onTap: () => showOnHandSheet(context),
                         )
@@ -430,7 +450,9 @@ class _SafeToSpendCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final today = result.today;
     final String detail;
-    if (result.nothingOnHand) {
+    if (result.nothingFreeAfterGoals) {
+      detail = GoalsAsideText.nothingFree;
+    } else if (result.nothingOnHand) {
       detail = BalanceText.belowZero;
     } else if (result.isBudgetUsedUp) {
       detail = 'This month\'s day-to-day budget is used up';
@@ -476,6 +498,8 @@ class _UntilNextMoneyCard extends StatelessWidget {
     this.result, {
     required this.onTap,
     this.rainyDayMinor = 0,
+    this.goalsAsideMinor = 0,
+    this.goalsKept = false,
     this.secondFigure,
   });
 
@@ -484,6 +508,13 @@ class _UntilNextMoneyCard extends StatelessWidget {
 
   /// Set aside in the fund, already out of [UntilNextMoney.onHandMinor].
   final int rainyDayMinor;
+
+  /// Set aside for goals, already out of [UntilNextMoney.onHandMinor].
+  final int goalsAsideMinor;
+
+  /// Whether any goal is kept aside: with nothing free, the card says the
+  /// goals took it.
+  final bool goalsKept;
   final VoidCallback onTap;
 
   @override
@@ -495,6 +526,8 @@ class _UntilNextMoneyCard extends StatelessWidget {
       when = result.fulizaOwedMinor > 0
           ? BalanceText.belowZeroFuliza
           : BalanceText.belowZero;
+    } else if (goalsKept && result.onHandMinor == 0) {
+      when = GoalsAsideText.nothingFree;
     } else if (result.nothingSafe) {
       when = BalanceText.billsTakeIt;
     } else if (result.overTodayMinor > 0) {
@@ -518,6 +551,8 @@ class _UntilNextMoneyCard extends StatelessWidget {
         ' · ${_plain(context, result.billsMinor)} for bills',
       if (rainyDayMinor > 0)
         ' · ${_plain(context, rainyDayMinor)} in your rainy day fund',
+      if (goalsAsideMinor > 0)
+        ' · ${GoalsAsideText.setAsideLine(_plain(context, goalsAsideMinor))}',
     ].join();
 
     return HeroFigureCard(

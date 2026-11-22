@@ -16,6 +16,7 @@ import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/ledger/ledger_role.dart';
 import '../../../domain/ledger/on_hand.dart';
 import '../../../domain/time/calendar.dart';
+import '../../goals/application/goals_aside_providers.dart';
 
 /// How money usually comes to the person, as they answered at setup.
 class IncomeSourcesController extends AsyncNotifier<IncomeSources> {
@@ -226,6 +227,8 @@ final untilNextMoneyProvider = FutureProvider<UntilNextMoney?>((ref) async {
     balances: await readJournal(ref),
     today: today,
     rainyDayMinor: fund.balanceMinor,
+    // Goals kept aside leave On hand as the fund does.
+    goalsKeptMinor: (await ref.watch(goalsAsideProvider.future)).totalMinor,
   );
   final pace = SpendingPace.fromHistory(
     entries,
