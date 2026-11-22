@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
@@ -9,10 +10,12 @@ import '../../../core/money/money_format.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/database_providers.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../data/repositories/categories_repository.dart';
 import '../../../data/repositories/lending_repository.dart';
 import '../../../data/repositories/plan_repository.dart';
 import '../../../data/repositories/subscriptions_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/budget/budget_alerts.dart';
 import '../../../domain/people/people.dart';
 import '../../../domain/plan/month_plan.dart';
 import '../../../domain/reminders/recurring_charges.dart';
@@ -140,6 +143,69 @@ class ReminderSync {
     final reminders = await _plan(settings);
     if (_disposed) return;
     await notifications.replaceAll(reminders);
+    await _budgetAlerts(settings, notifications);
+  }
+
+  /// Where the budget alerts sent this month are kept.
+  static const sentBudgetAlertsKey = 'reminders.budgetAlertsSent';
+
+  /// Shows each budget alert due now, once, and keeps a note of it.
+  Future<void> _budgetAlerts(
+    ReminderSettings settings,
+    ReminderNotifications notifications,
+  ) async {
+    if (!settings.budgetAlerts) return;
+    final today = CalendarDate.local(_ref.read(clockProvider)());
+    final month = today.yearMonth;
+    final review = MonthReview.of(
+      await _ref.read(planRepositoryProvider).monthPlan(month),
+      await _ref
+          .read(transactionsRepositoryProvider)
+          .ledgerEntries(
+            from: month.startInstant,
+            to: today.addDays(1).startInstant,
+          ),
+    );
+    final names = {
+      for (final c
+          in await _ref.read(categoriesRepositoryProvider).watchAll().first)
+        c.id: c.name,
+    };
+    final store = _ref.read(appSettingsRepositoryProvider);
+    final saved = await store.readJson(sentBudgetAlertsKey);
+    final due = budgetAlertsToSend(
+      alerts: budgetAlertsIn(
+        review,
+        settings: settings,
+        today: today,
+        names: names,
+      ),
+      sent: SentBudgetAlerts.fromJson(saved),
+      settings: settings,
+      month: month,
+    );
+    if (_disposed) return;
+    final now = _ref.read(clockProvider)();
+    for (final alert in due.send) {
+      await notifications.show(
+        Reminder(
+          id: budgetAlertReminderId(alert.categoryId),
+          kind: ReminderKind.budget,
+          at: now.toUtc(),
+          title: budgetAlertTitle(alert),
+          body: budgetAlertBody(
+            alert,
+            showAmounts: settings.budgetAlertAmountsOnLockScreen,
+          ),
+        ),
+      );
+    }
+    // Saving touches the settings table, which starts another sync: save
+    // only a change, so that one finds nothing to do.
+    final next = due.sent.toJson();
+    if (jsonEncode(next) != jsonEncode(saved)) {
+      await store.writeJson(sentBudgetAlertsKey, next);
+    }
   }
 
   Future<List<Reminder>> _plan(ReminderSettings settings) async {
