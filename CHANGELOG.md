@@ -2,6 +2,20 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from commit titles (pull request titles until pull requests into `dev` were rebase-merged).
 
+## [0.5.7](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.6...v0.5.7) (2026-11-22)
+
+
+### Features
+
+* **accounts:** edit, hide or remove an account ([16ef2b3](https://github.com/pesaclarity/pesaclarity-app/commit/16ef2b3491e99778542541e796af6589220a5b89))
+* **accounts:** SACCOs as one account with deposits, shares and loan ([c7de50f](https://github.com/pesaclarity/pesaclarity-app/commit/c7de50fcb63cbc6bbbfa49587b3ef49df145babc))
+* **goals:** keep a savings goal aside from Safe to spend and On hand ([b93879d](https://github.com/pesaclarity/pesaclarity-app/commit/b93879df3e226b23e4c50fc6a6fc595929417655))
+* **habits:** no-spend days, a plain streak and the Sunday check-in ([9be0bce](https://github.com/pesaclarity/pesaclarity-app/commit/9be0bce6adcac5d125d7a2c4080c4b53fc5a2442))
+* keep a goal aside; no-spend days and the Sunday check-in ([fe9e828](https://github.com/pesaclarity/pesaclarity-app/commit/fe9e8281214015170e38c0ef81c9285ff5cd689b))
+* paste M-Pesa messages on iPhone, and About you in setup ([59ee20b](https://github.com/pesaclarity/pesaclarity-app/commit/59ee20be079f7c6ebf8c74a482144125a576e5cb))
+* paste M-Pesa messages on iPhone, and About you in setup ([ca62d29](https://github.com/pesaclarity/pesaclarity-app/commit/ca62d290bc9d72278db5d1fa9c600d58285680f2))
+* **plan:** budget alerts and a bills calendar ([c5929aa](https://github.com/pesaclarity/pesaclarity-app/commit/c5929aa88c3b91c5337f4f27a451d7d85bd162d1))
+
 ## [0.5.6](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.5...v0.5.6) (2026-11-22)
 
 
