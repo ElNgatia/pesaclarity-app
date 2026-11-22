@@ -200,28 +200,34 @@ void main() {
     }
   });
 
-  test('where each kind of money goes', () {
+  test('where each kind of money goes, as the journal posts it', () {
     final books = Books.of(month(), accounts: accounts, categories: categories);
     int bal(BookAccount a) => books.balanceOf(a, currency: 'KES');
     expect(bal(BookAccount.ownerPay), -kes(6000)); // equity reduced
-    expect(bal(BookAccount.ownTransfers), 0); // both halves met
-    expect(
-      bal(BookAccount.borrowed),
-      kes(4000),
-    ); // Fuliza repaid, family loan owed
-    expect(bal(BookAccount.awaitingPayee), kes(700));
+    expect(bal(BookAccount.moneyInTransit), 0); // both halves met
+    // Fuliza drawn and repaid on M-Pesa; the family loan still owed.
+    expect(bal(const BookAccount.fulizaOwed(1)), 0);
+    expect(bal(BookAccount.borrowed), kes(4000));
+    // Someone not named yet: not yet sorted, never income.
+    expect(bal(BookAccount.notYetSorted), kes(700));
+    expect(bal(BookAccount.awaitingPayee), 0);
     expect(bal(BookAccount.savings), kes(1000));
     expect(bal(BookAccount.tax), kes(450));
     expect(bal(BookAccount.uncategorisedIncome), kes(800));
     expect(bal(BookAccount.uncategorisedSpending), kes(250));
     expect(bal(const BookAccount.category(2, income: false)), kes(11000 - 300));
     expect(bal(const BookAccount.category(1, income: true)), kes(15000 - 200));
-    // 30 + 29 transaction costs, 15 charge, 5 Fuliza fee.
-    expect(bal(BookAccount.fees), kes(79));
+    // 30 + 29 transaction costs and a 15 charge; the 5 the repayment took
+    // beyond the draw is what Fuliza charged.
+    expect(bal(BookAccount.fees), kes(74));
+    expect(bal(BookAccount.fulizaCharges), kes(5));
     expect(bal(BookAccount.openingBalances), kes(5000));
+    // No plug: nothing posts to balance differences.
+    expect(bal(BookAccount.balanceDifferences), 0);
   });
 
-  test('a reported balance the records miss becomes a balance difference', () {
+  test('a reported balance the records miss stays not yet sorted, with no '
+      'plug', () {
     final history = [
       inflow(
         at: eat(2026, 11, 2),
@@ -253,9 +259,13 @@ void main() {
       kes(7300),
     );
     expect(balanceAt(a, history, at: to), kes(7300));
+    // The first reported balance says what the account started from (the
+    // opening, as typed), so nothing is left over.
+    expect(books.balanceOf(BookAccount.balanceDifferences, currency: 'KES'), 0);
+    expect(books.balanceOf(BookAccount.notYetSorted, currency: 'KES'), 0);
     expect(
-      books.balanceOf(BookAccount.balanceDifferences, currency: 'KES'),
-      kes(2000),
+      books.balanceOf(BookAccount.openingBalances, currency: 'KES'),
+      kes(7000),
     );
     // The opening is walked back from the first reported balance.
     expect(
@@ -265,6 +275,46 @@ void main() {
         to: eat(2026, 11, 2, 18),
       ),
       balanceAt(a, history, at: eat(2026, 11, 2, 18)),
+    );
+  });
+
+  test('a gap after the first reported balance is not yet sorted until it '
+      'is put right', () {
+    final history = [
+      entry(
+        at: eat(2026, 11, 3),
+        amount: kes(500),
+        categoryId: 2,
+        categoryType: CategoryType.expense,
+        balanceAfter: kes(4500),
+      ),
+      // M-Pesa says 4,000 after 200 more: 300 the records do not explain.
+      entry(
+        at: eat(2026, 11, 4),
+        amount: kes(200),
+        categoryId: 2,
+        categoryType: CategoryType.expense,
+        balanceAfter: kes(4000),
+      ),
+    ];
+    final a = opening(1, balance: kes(5000));
+    final books = Books.of(history, accounts: [a], categories: categories);
+    expectBalanced(books);
+    expect(
+      books.balanceOf(const BookAccount.money(1), currency: 'KES'),
+      kes(4000),
+    );
+    // Money that left with no record of where: below zero in Not yet
+    // sorted.
+    expect(
+      books.balanceOf(BookAccount.notYetSorted, currency: 'KES'),
+      -kes(300),
+    );
+    expect(books.balanceOf(BookAccount.balanceDifferences, currency: 'KES'), 0);
+    // Not income or spending: profit is the two costs alone.
+    expect(
+      books.profit(currency: 'KES', from: eat(2026, 11, 1, 0), to: to),
+      -kes(700),
     );
   });
 

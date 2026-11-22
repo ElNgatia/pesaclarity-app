@@ -43,7 +43,13 @@ class FirstInsight {
       from: from,
       to: to,
       transactionCount: count,
-      totals: LedgerTotals.of(all, from: from, to: to, currency: currency),
+      totals: LedgerTotals.of(
+        all,
+        from: from,
+        to: to,
+        currency: currency,
+        journal: journal,
+      ),
       leakage: LeakageBreakdown.of(
         all,
         from: from,

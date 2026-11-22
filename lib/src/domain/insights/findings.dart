@@ -1,4 +1,5 @@
 import '../../core/money/money.dart';
+import '../books/journal_balances.dart';
 import '../ledger/activity_feed.dart';
 import '../ledger/fuliza.dart';
 import '../ledger/ledger_entry.dart';
@@ -68,10 +69,14 @@ ActivityFilter _monthSoFar(CalendarDate today) =>
 
 /// Up to three findings for the month to [today]: the category that moved
 /// most, fees and money in, each against the same days of last month.
+///
+/// With the space's [journal], spending and fees are what each entry's
+/// journal entry posts (see [spendingPartsOf]).
 List<Finding> findingsFor(
   Iterable<LedgerEntry> history, {
   required CalendarDate today,
   String? currency,
+  JournalBalances? journal,
 }) {
   currency ??= BaseCurrency.code;
   final all = history.where((e) => e.currency == currency).toList();
@@ -101,7 +106,11 @@ List<Finding> findingsFor(
     } else {
       continue;
     }
-    for (final (key, amount) in spendingPartsOf(entry, fuliza)) {
+    for (final (key, amount) in spendingPartsOf(
+      entry,
+      fuliza,
+      journal: journal,
+    )) {
       bucket[key] = (bucket[key] ?? 0) + amount;
     }
   }
@@ -139,6 +148,7 @@ List<Finding> findingsFor(
     from: from.startInstant,
     to: to.startInstant,
     currency: currency,
+    journal: journal,
   ).moneyInMinor;
   final incomeNow = income(start, end);
   final incomeBefore = income(lastStart, lastEnd);

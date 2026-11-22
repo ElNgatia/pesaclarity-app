@@ -13,11 +13,14 @@ import '../../../core/export/pdf_encoder.dart';
 import '../../../core/export/xlsx_encoder.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/repositories/export_repository.dart';
+import '../../../data/repositories/journal_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/books/journal_balances.dart';
 import '../../../domain/export/export_tables.dart';
 import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/tags/tag_totals.dart';
 import '../../../domain/time/calendar.dart';
+import '../../currency/application/currency_controller.dart';
 
 /// File formats an export can take.
 enum ExportFormat {
@@ -139,6 +142,7 @@ class ExportService {
     required this._cacheDirectory,
     required this._sharer,
     required this._clock,
+    this._journal,
   });
 
   final ExportRepository _exports;
@@ -146,6 +150,10 @@ class ExportService {
   final Future<Directory> Function() _cacheDirectory;
   final FileSharer _sharer;
   final DateTime Function() _clock;
+
+  /// The space's journal, which the totals read (decision 0018, stage 4);
+  /// without it they are worked out from the transactions.
+  final Future<JournalBalances> Function()? _journal;
 
   static final _allTimeFrom = DateTime.utc(1970);
   static final _allTimeTo = DateTime.utc(9999);
@@ -186,7 +194,12 @@ class ExportService {
           from: scope.from,
           to: scope.to,
         );
-        final totals = tagTotals(entries, from: scope.from, to: scope.to);
+        final totals = tagTotals(
+          entries,
+          from: scope.from,
+          to: scope.to,
+          journal: await _journal?.call(),
+        );
         final tagNames = await _exports.tagNames();
         return ExportWorkbook(
           title: scope.title,
@@ -205,7 +218,13 @@ class ExportService {
           from: _allTimeFrom,
           to: _allTimeTo,
         );
-        final totals = tagTotals(entries, from: _allTimeFrom, to: _allTimeTo);
+        final journal = await _journal?.call();
+        final totals = tagTotals(
+          entries,
+          from: _allTimeFrom,
+          to: _allTimeTo,
+          journal: journal,
+        );
         final tagNames = await _exports.tagNames();
         final categoryNames = await _exports.categoryNames();
         return ExportWorkbook(
@@ -213,7 +232,12 @@ class ExportService {
           tables: [
             transactionsTable(await _exports.transactions()),
             categorySpendingTable(
-              spendingByCategory(entries, from: _allTimeFrom, to: _allTimeTo),
+              spendingByCategory(
+                entries,
+                from: _allTimeFrom,
+                to: _allTimeTo,
+                journal: journal,
+              ),
               categoryNames,
             ),
             tagTotalsTable(totals, tagNames),
@@ -233,12 +257,16 @@ class ExportService {
     required DateTime to,
   }) async {
     final tagNames = await _exports.tagNames();
+    final journal = await _journal?.call();
     return [
       categorySpendingTable(
-        spendingByCategory(entries, from: from, to: to),
+        spendingByCategory(entries, from: from, to: to, journal: journal),
         await _exports.categoryNames(),
       ),
-      tagTotalsTable(tagTotals(entries, from: from, to: to), tagNames),
+      tagTotalsTable(
+        tagTotals(entries, from: from, to: to, journal: journal),
+        tagNames,
+      ),
     ];
   }
 
@@ -354,5 +382,8 @@ final exportServiceProvider = Provider<ExportService>(
     cacheDirectory: ref.watch(exportCacheDirectoryProvider),
     sharer: ref.watch(fileSharerProvider),
     clock: ref.watch(clockProvider),
+    journal: () => ref
+        .read(journalRepositoryProvider)
+        .read(converter: ref.read(currencyConverterProvider)),
   ),
 );

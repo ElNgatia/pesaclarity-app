@@ -88,7 +88,12 @@ final spendingChartProvider = FutureProvider<SpendingChart>((ref) async {
   final entries = await ref
       .watch(transactionsRepositoryProvider)
       .ledgerEntries(from: from, to: window.end.startInstant);
-  return SpendingChart.of(entries, period: period, today: today);
+  return SpendingChart.of(
+    entries,
+    period: period,
+    today: today,
+    journal: await readJournal(ref),
+  );
 });
 
 /// Category names by id.
@@ -111,5 +116,5 @@ final findingsProvider = FutureProvider<List<Finding>>((ref) async {
         from: today.yearMonth.addMonths(-2).startInstant,
         to: today.addDays(1).startInstant,
       );
-  return findingsFor(entries, today: today);
+  return findingsFor(entries, today: today, journal: await readJournal(ref));
 });

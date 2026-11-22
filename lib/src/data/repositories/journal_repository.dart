@@ -317,13 +317,17 @@ class JournalRepository {
     return (JournalSync(posted: posted, reversed: reversed), others);
   }
 
+  /// Entries (`j`) that are neither reversed nor reversals.
+  static const _liveOnly =
+      'j.reverses IS NULL AND j.id NOT IN '
+      '(SELECT reverses FROM journal_entries WHERE reverses IS NOT NULL)';
+
   /// Entries that are neither reversed nor reversals, with their postings:
   /// those of [accountIds], or all of them.
   Future<List<_Stored>> _live(Set<int>? accountIds) async {
     final ids = accountIds?.toList();
     final rows = await _withPostings(
-      'j.reverses IS NULL AND j.id NOT IN '
-      '(SELECT reverses FROM journal_entries WHERE reverses IS NOT NULL)'
+      '$_liveOnly'
       '${ids == null ? '' : ' AND j.account_id IN (${List.filled(ids.length, '?').join(', ')})'}',
       [for (final id in ids ?? const <int>[]) Variable(id)],
     );
@@ -407,10 +411,19 @@ class JournalRepository {
   /// currency count in its base, at the rate the person got for their
   /// transaction or else the rates of the day, as transactions do; without
   /// a rate they keep their own currency.
-  Future<List<JournalEntry>> entries({CurrencyConverter? converter}) async {
+  ///
+  /// With [live], only what the journal says now: entries that are neither
+  /// reversed nor reversals, which add up to the same balances. The books
+  /// read it, so each source has one entry.
+  Future<List<JournalEntry>> entries({
+    CurrencyConverter? converter,
+    bool live = false,
+  }) async {
     await sync();
     final byEntry = [
-      for (final (row, postings) in await _withPostings(null))
+      for (final (row, postings) in await _withPostings(
+        live ? _liveOnly : null,
+      ))
         if (postings.isNotEmpty) (row, postings),
     ];
     final got = converter == null
@@ -494,9 +507,20 @@ class JournalRepository {
     return out;
   }
 
-  /// The journal's balances, after a [sync] (see [entries]).
-  Future<JournalBalances> read({CurrencyConverter? converter}) async =>
-      JournalBalances(await entries(converter: converter));
+  /// The journal's balances, after a [sync] (see [entries]), and what each
+  /// transaction posted ([JournalBalances.partsOf]), including those that
+  /// posted nothing.
+  Future<JournalBalances> read({CurrencyConverter? converter}) async {
+    final all = await entries(converter: converter);
+    final j = _db.journalEntries;
+    final posted =
+        await (_db.selectOnly(j, distinct: true)
+              ..addColumns([j.sourceId])
+              ..where(j.sourceKind.equalsValue(JournalSource.transaction)))
+            .map((row) => row.read(j.sourceId)!)
+            .get();
+    return JournalBalances(all, posted: posted.toSet());
+  }
 
   /// Each account's stored balance in each currency from entries dated
   /// before [at] (all of them without), positive in the account's normal

@@ -175,6 +175,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         (e) => _filter.accountId == null || e.accountId == _filter.accountId,
       ),
       today: today,
+      journal: ref.watch(activityJournalProvider).value,
     );
 
     final askFilter = askAboutFilter(_filter, categories, today);

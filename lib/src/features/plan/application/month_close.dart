@@ -1,5 +1,6 @@
 import '../../../data/repositories/plan_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/books/journal_balances.dart';
 import '../../../domain/plan/month_plan.dart';
 import '../../../domain/plan/month_snapshot.dart';
 import '../../../domain/time/calendar.dart';
@@ -8,12 +9,14 @@ import '../../../domain/time/calendar.dart';
 /// so each month's arrears reach the next month's plan before it is frozen.
 ///
 /// [firstMonth] is where history starts, used when nothing is frozen yet.
-/// Returns the months frozen.
+/// With the space's [journal], actuals are read from its postings (see
+/// [MonthReview.of]). Returns the months frozen.
 Future<List<YearMonth>> closeFinishedMonths({
   required PlanRepository plan,
   required TransactionsRepository transactions,
   required YearMonth firstMonth,
   required DateTime now,
+  JournalBalances? journal,
 }) async {
   final months = monthsToFreeze(
     firstMonth: firstMonth,
@@ -25,7 +28,11 @@ Future<List<YearMonth>> closeFinishedMonths({
       from: month.startInstant,
       to: month.endInstant,
     );
-    final review = MonthReview.of(await plan.monthPlan(month), entries);
+    final review = MonthReview.of(
+      await plan.monthPlan(month),
+      entries,
+      journal: journal,
+    );
     await plan.saveSnapshot(MonthSnapshot.freeze(review, now: now));
   }
   return months;

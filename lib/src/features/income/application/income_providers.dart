@@ -113,6 +113,7 @@ final weekByWeekProvider = FutureProvider<WeekByWeek>((ref) async {
     entries,
     today: today,
     fund: await ref.watch(rainyDayFundProvider.future),
+    journal: await readJournal(ref),
   );
 });
 
