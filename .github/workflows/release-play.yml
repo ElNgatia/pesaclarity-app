@@ -164,6 +164,19 @@ jobs:
           keytool -printcert -jarfile build/app/outputs/bundle/playRelease/app-play-release.aab \
             | grep -q "Android Debug" && { echo "::error::Signed with the debug key"; exit 1; } || true
 
+      # Kept before the upload, so the bundle is there to upload by hand when
+      # Play refuses the API (the app's first release must be uploaded in
+      # Play Console).
+      - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
+        with:
+          name: pesaclarity-play-release
+          path: |
+            build/app/outputs/bundle/playRelease/app-play-release.aab
+            build/app/outputs/mapping/playRelease/mapping.txt
+            build/symbols
+          retention-days: 30
+
       - name: Upload to Google Play
         if: github.event_name != 'pull_request'
         uses: r0adkll/upload-google-play@v1
@@ -174,16 +187,6 @@ jobs:
           track: ${{ env.TRACK }}
           status: ${{ env.STATUS }}
           mappingFile: build/app/outputs/mapping/playRelease/mapping.txt
-
-      - uses: actions/upload-artifact@v7
-        if: github.event_name != 'pull_request'
-        with:
-          name: pesaclarity-play-release
-          path: |
-            build/app/outputs/bundle/playRelease/app-play-release.aab
-            build/app/outputs/mapping/playRelease/mapping.txt
-            build/symbols
-          retention-days: 30
 
       - name: Remove signing files
         if: always()
