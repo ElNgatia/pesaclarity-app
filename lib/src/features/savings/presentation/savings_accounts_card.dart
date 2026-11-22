@@ -25,7 +25,13 @@ class SavingsAccountsCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final accounts = ref.watch(savingsAccountsProvider).value ?? const [];
+    // M-Pesa's own, such as M-Shwari, sit under M-Pesa (decision 0026).
+    final accounts = <SavingsAccountSummary>[
+      for (final a
+          in ref.watch(savingsAccountsProvider).value ??
+              const <SavingsAccountSummary>[])
+        if (!(a.product?.inMpesaFamily ?? false)) a,
+    ];
     if (accounts.isEmpty) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final colors = PesaColors.of(context);
@@ -107,10 +113,15 @@ class _AccountRow extends StatelessWidget {
                       style: theme.textTheme.titleMedium,
                     ),
                     Text(
-                      SavingsText.goalsLine(
-                        account.pockets.length,
-                        account.lockedCount(today),
-                      ),
+                      // A fund with one balance, such as Etica MMF.
+                      account.product?.goalsByCode ?? true
+                          ? SavingsText.goalsLine(
+                              account.pockets.length,
+                              account.lockedCount(today),
+                            )
+                          : account.product!.invested
+                          ? SavingsText.invested
+                          : SavingsText.saved,
                       style: theme.textTheme.bodySmall!.copyWith(
                         color: colors.textMuted,
                       ),

@@ -17,6 +17,7 @@ import '../../../data/repositories/message_reads_repository.dart';
 import '../../../data/repositories/review_inbox_repository.dart';
 import '../../../data/repositories/space_move_repository.dart';
 import '../../../data/repositories/transactions_repository.dart';
+import '../../../domain/accounts/mpesa_family.dart';
 import '../../../domain/accounts/mpesa_lines.dart';
 import '../../../domain/spaces/space.dart';
 import '../../../domain/time/calendar.dart';
@@ -215,7 +216,8 @@ Future<void> countLines(Ref ref, {DateTime? from}) async {
     (l) => l.counted([
       for (final (i, result) in results.indexed)
         if (result is ParsedTransaction &&
-            result.accountInstitution == mpesaInstitutionId)
+            result.accountInstitution == mpesaInstitutionId &&
+            !isPochiOwnAccount(result.ownAccount))
           lineFactsOf(result, messages[i]),
     ]),
   );
@@ -515,7 +517,11 @@ class LineSplitController extends Notifier<LineSplitState> {
     final a = db.accounts;
     final rows =
         await (db.select(t).join([innerJoin(a, a.id.equalsExp(t.accountId))])
-              ..where(a.institutionId.equals(mpesaInstitutionId))
+              ..where(
+                a.institutionId.equals(mpesaInstitutionId) &
+                    (a.reference.isNull() |
+                        a.reference.equals(pochiReference).not()),
+              )
               ..orderBy([OrderingTerm.asc(t.occurredAt)]))
             .get();
     final stored = [

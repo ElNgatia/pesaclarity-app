@@ -54,9 +54,11 @@ class SavingsAccountScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(account?.name ?? SavingsText.savingsApps),
-        actions: const [
-          Center(child: _SavedLabel()),
-          SizedBox(width: Layout.gutter),
+        actions: [
+          Center(
+            child: _SavedLabel(invested: account?.product?.invested ?? false),
+          ),
+          const SizedBox(width: Layout.gutter),
         ],
       ),
       body: AmountsHiddenScope(
@@ -77,11 +79,14 @@ class SavingsAccountScreen extends ConsumerWidget {
 /// "Saved", in the app bar: plain muted text, saying what kind of account
 /// this is.
 class _SavedLabel extends StatelessWidget {
-  const _SavedLabel();
+  const _SavedLabel({this.invested = false});
+
+  /// Money invested, such as Ziidi: "Invested".
+  final bool invested;
 
   @override
   Widget build(BuildContext context) => Text(
-    SavingsText.saved,
+    invested ? SavingsText.invested : SavingsText.saved,
     style: Theme.of(context).textTheme.bodyMedium!
         .copyWith(color: PesaColors.of(context).textMuted),
   );
@@ -140,7 +145,7 @@ class _BodyState extends ConsumerState<_Body> {
     final account = _account;
     final today = widget.today;
     final others = ref.watch(activityAccountsProvider).value ?? const {};
-    final recent = _recent(account);
+    final recent = _recent(account, today);
     return ListView(
       padding: const EdgeInsets.fromLTRB(
         Layout.gutter,
@@ -151,9 +156,10 @@ class _BodyState extends ConsumerState<_Body> {
       children: [
         _BalanceCard(account: account, today: today),
         const SizedBox(height: Layout.cardGap),
-        _TotalsCard(account),
-        if (account.pockets.isNotEmpty ||
-            account.ignoredPockets.isNotEmpty) ...[
+        _TotalsCard(account, today: today),
+        if ((account.product?.goalsByCode ?? true) &&
+            (account.pockets.isNotEmpty ||
+                account.ignoredPockets.isNotEmpty)) ...[
           const SectionLabel(SavingsText.goals),
           Card(
             child: Column(
@@ -209,25 +215,33 @@ class _BodyState extends ConsumerState<_Body> {
           onPressed: () => _showRenameSheet(context, account),
           child: const Text(SavingsText.changeName),
         ),
-        const SizedBox(height: 8),
-        TextButton(
-          key: const Key('savings-remove'),
-          onPressed: _remove,
-          style: TextButton.styleFrom(
-            foregroundColor: Theme.of(context).colorScheme.error,
+        // An M-Pesa account, or a fund read from its own messages, is kept
+        // without asking: there is nothing to remove.
+        if (!(account.product?.keptOnItsOwn ?? false)) ...[
+          const SizedBox(height: 8),
+          TextButton(
+            key: const Key('savings-remove'),
+            onPressed: _remove,
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: Text(SavingsText.remove(account.name)),
           ),
-          child: Text(SavingsText.remove(account.name)),
-        ),
+        ],
       ],
     );
   }
 }
 
-/// Money in and out and each update, newest first.
-List<Object> _recent(SavingsAccountSummary account) {
+/// Money in and out and each update, newest first. A balance its messages
+/// print (M-Shwari's) that changed nothing is left out: the money in or
+/// out beside it says it all.
+List<Object> _recent(SavingsAccountSummary account, CalendarDate today) {
+  final fromMessages = account.product?.balanceInMessages ?? false;
   final items = <(DateTime, Object)>[
     for (final e in account.entries) (e.at, e),
-    for (final u in account.updates) (u.at, u),
+    for (final u in account.updates)
+      if (!fromMessages || u.changeMinor != 0) (u.at, u),
   ]..sort((a, b) => b.$1.compareTo(a.$1));
   return [for (final (_, item) in items) item];
 }
@@ -252,6 +266,10 @@ class _BalanceCard extends ConsumerWidget {
     final muted = theme.textTheme.bodySmall!.copyWith(color: colors.textMuted);
     final setAt = account.balanceSetAt;
     final name = account.product?.name ?? account.name;
+    final product = account.product;
+    if (product != null && product.keptOnItsOwn) {
+      return _MemberBalanceCard(account: account, today: today);
+    }
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(Layout.heroPadding),
@@ -316,16 +334,128 @@ class _BalanceCard extends ConsumerWidget {
   }
 }
 
-class _TotalsCard extends StatelessWidget {
-  const _TotalsCard(this.account);
+/// The balance of an account kept from its messages, such as Ziidi or
+/// M-Shwari (decision 0026): its value or balance, what it earned this
+/// month, and, where no message prints its balance, the way to type it.
+class _MemberBalanceCard extends StatelessWidget {
+  const _MemberBalanceCard({required this.account, required this.today});
 
   final SavingsAccountSummary account;
+  final CalendarDate today;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = PesaColors.of(context);
+    final product = account.product!;
+    final setAt = account.balanceSetAt;
+    final earned = account.updates
+        .where((u) {
+          final day = CalendarDate.local(u.at);
+          return day.year == today.year && day.month == today.month;
+        })
+        .fold(0, (sum, u) => sum + u.interestMinor);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(Layout.heroPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              product.invested ? SavingsText.value : SavingsText.balance,
+              style: theme.textTheme.bodyMedium!.copyWith(
+                color: colors.textMuted,
+              ),
+            ),
+            const SizedBox(height: 4),
+            FigureText(
+              shownMoney(
+                context,
+                account.balanceMinor,
+                currency: account.currency,
+                withCurrency: true,
+              ),
+              style: AppTypography.headlineFigure(theme.colorScheme.onSurface),
+            ),
+            if (earned > 0) ...[
+              const SizedBox(height: 10),
+              IconLine(
+                icon: Icons.trending_up,
+                iconSize: 18,
+                iconColor: colors.successText,
+                text: TextSpan(
+                  text: SavingsText.earnedThisMonth(
+                    shownMoney(
+                      context,
+                      earned,
+                      currency: account.currency,
+                      withCurrency: false,
+                    ),
+                    invested: product.invested,
+                  ),
+                ),
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  color: colors.successText,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            // No message prints its value: the person types it.
+            if (!product.balanceInMessages) ...[
+              const SizedBox(height: 14),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: Layout.cardGap,
+                runSpacing: 8,
+                children: [
+                  Text(
+                    setAt == null
+                        ? SavingsText.fromPayments
+                        : SavingsText.setByYou(
+                            dayLabel(
+                              CalendarDate.local(setAt),
+                              thisYear: today.year,
+                            ),
+                          ),
+                    style: theme.textTheme.bodyMedium!.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  PillButton(
+                    key: const Key('savings-update-balance'),
+                    label: SavingsText.updateBalance,
+                    onPressed: account.pockets.isEmpty
+                        ? null
+                        : () => showUpdateSavingsBalanceSheet(context, account),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TotalsCard extends StatelessWidget {
+  const _TotalsCard(this.account, {required this.today});
+
+  final SavingsAccountSummary account;
+  final CalendarDate today;
 
   @override
   Widget build(BuildContext context) {
     final currency = account.currency;
     String plain(int minor) =>
         shownMoney(context, minor, currency: currency, withCurrency: false);
+    final product = account.product;
+    if (product != null && product.keptOnItsOwn) {
+      return _MemberTotals(account: account, today: today);
+    }
     final rows = [
       _Fact(SavingsText.putIn, plain(account.putInMinor)),
       _Fact(SavingsText.takenOut, plain(account.takenOutMinor)),
@@ -345,6 +475,88 @@ class _TotalsCard extends StatelessWidget {
           SavingsText.otherChanges,
           _signed(context, account.otherChangesMinor, currency),
         ),
+    ];
+    return Card(
+      child: Column(
+        children: [
+          for (final (i, row) in rows.indexed) ...[
+            if (i > 0) const Divider(height: 1),
+            row,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The totals of an account kept from its messages: what was put in, net
+/// of what came out, what it earned, and where its figures come from.
+class _MemberTotals extends StatelessWidget {
+  const _MemberTotals({required this.account, required this.today});
+
+  final SavingsAccountSummary account;
+  final CalendarDate today;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = PesaColors.of(context);
+    final currency = account.currency;
+    final product = account.product!;
+    String plain(int minor) =>
+        shownMoney(context, minor, currency: currency, withCurrency: false);
+    final latest = account.entries.isEmpty ? null : account.entries.first.at;
+    final muted = theme.textTheme.bodySmall!.copyWith(color: colors.textMuted);
+    final rows = <Widget>[
+      _Fact(
+        SavingsText.putIn,
+        plain(account.putInMinor - account.takenOutMinor),
+      ),
+      _Fact(
+        product.invested
+            ? SavingsText.returnsEarned
+            : SavingsText.interestEarned,
+        _signed(context, account.interestMinor, currency),
+      ),
+      if (account.wasThereBeforeMinor != 0)
+        _Fact(
+          SavingsText.wasThereBefore,
+          _signed(context, account.wasThereBeforeMinor, currency),
+        ),
+      if (account.otherChangesMinor != 0)
+        _Fact(
+          SavingsText.otherChanges,
+          _signed(context, account.otherChangesMinor, currency),
+        ),
+      Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Layout.cardPadding,
+          vertical: 12,
+        ),
+        child: IconLine(
+          icon: Icons.chat_bubble_outline,
+          iconSize: 16,
+          gap: 10,
+          text: TextSpan(
+            children: [
+              const TextSpan(text: 'From your '),
+              TextSpan(
+                text: SavingsText.messagesFrom(product),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              TextSpan(
+                text: latest == null
+                    ? ' messages'
+                    : ' messages · ${dayLabel(CalendarDate.local(latest), thisYear: today.year)}',
+              ),
+            ],
+          ),
+          style: muted,
+        ),
+      ),
     ];
     return Card(
       child: Column(
@@ -650,24 +862,28 @@ class _EntryRow extends ConsumerWidget {
     final pocket = account.pocket(entry.pocketId);
     final day = SavingsText.day(CalendarDate.local(entry.at), today.year);
     final paidIn = entry.isPaidIn;
+    final product = account.product;
+    final byCode = product?.goalsByCode ?? true;
     final lead = paidIn
-        ? SavingsText.fromAccount(other)
+        ? (product != null && product.keptOnItsOwn
+              ? SavingsText.movedFrom(other, invested: product.invested)
+              : SavingsText.fromAccount(other))
         : SavingsText.withdrawnTo(other);
     return _RecentRow(
       key: Key('savings-entry-${entry.transactionId}'),
       icon: Icons.swap_horiz,
       // As money in names its goal after the account, money out names it
       // in the line under.
-      title: paidIn ? [lead, ?pocket?.name].join(' · ') : lead,
+      title: paidIn && byCode ? [lead, ?pocket?.name].join(' · ') : lead,
       subtitle: [
         SavingsText.ownTransfer,
-        if (!paidIn) pocket?.name ?? SavingsText.whichGoal,
+        if (!paidIn && byCode) pocket?.name ?? SavingsText.whichGoal,
         day,
       ].join(' · '),
       amount: _signed(context, entry.signedMinor, account.currency),
       // Money taken out can be put in a goal; money paid in stays in its
       // code's.
-      onTap: paidIn || account.pockets.isEmpty
+      onTap: paidIn || !byCode || account.pockets.isEmpty
           ? null
           : () => _chooseGoal(context, ref),
     );
@@ -722,6 +938,24 @@ class _UpdateRow extends ConsumerWidget {
         ),
     ];
     final change = update.changeMinor;
+    final product = account.product;
+    final fromMessages = product?.balanceInMessages ?? false;
+    // What an M-Pesa account earned reads as its returns or interest, as
+    // Activity files it.
+    if (product != null &&
+        product.keptOnItsOwn &&
+        update.interestMinor != 0 &&
+        update.wasThereBeforeMinor == 0 &&
+        update.otherChangesMinor == 0) {
+      return _RecentRow(
+        key: Key('savings-update-${update.at.millisecondsSinceEpoch}'),
+        icon: Icons.trending_up,
+        title: product.invested ? SavingsText.returns : SavingsText.interest,
+        subtitle: [SavingsText.interest, day].join(' · '),
+        amount: _signed(context, update.interestMinor, currency),
+        onTap: fromMessages ? null : () => _undo(context, ref, day),
+      );
+    }
     return _RecentRow(
       key: Key('savings-update-${update.at.millisecondsSinceEpoch}'),
       icon: Icons.refresh,
@@ -731,7 +965,8 @@ class _UpdateRow extends ConsumerWidget {
         day,
       ].join(' · '),
       amount: change == 0 ? '0' : _signed(context, change, currency),
-      onTap: () => _undo(context, ref, day),
+      // A balance its messages print follows them.
+      onTap: fromMessages ? null : () => _undo(context, ref, day),
     );
   }
 }

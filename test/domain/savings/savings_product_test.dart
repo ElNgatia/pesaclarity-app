@@ -56,7 +56,8 @@ void main() {
     test('knows Chumz by its paybill, as a savings account', () {
       expect(savingsProducts, contains(chumz));
       expect(savingsProductById('chumz'), same(chumz));
-      expect(savingsProductById('mshwari'), isNull);
+      expect(savingsProductById('mshwari'), same(mshwari));
+      expect(savingsProductById('kcb_mpesa'), isNull);
       expect(savingsProductById(null), isNull);
       expect(chumz.name, 'Chumz');
       expect(chumz.provider, 'Nabo Capital');
@@ -178,6 +179,47 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  group('the M-Pesa family (decision 0026)', () {
+    test('M-Shwari, Ziidi and Etica MMF are kept without asking', () {
+      for (final product in [mshwari, ziidi, eticaMmf]) {
+        expect(product.keptOnItsOwn, isTrue, reason: product.id);
+        expect(product.goalsByCode, isFalse, reason: product.id);
+      }
+      expect(chumz.keptOnItsOwn, isFalse);
+      expect(mshwari.inMpesaFamily, isTrue);
+      expect(mshwari.balanceInMessages, isTrue);
+      expect(ziidi.invested, isTrue);
+      expect(eticaMmf.inMpesaFamily, isFalse);
+      expect(savingsProductOfInstitution('etica'), same(eticaMmf));
+      expect(savingsProductOfInstitution('mpesa'), isNull);
+    });
+
+    test('a plain send to ZIIDI is paying in; to Nabo Capital it is not', () {
+      final ziidiSend = savingsMoveOf(
+        kind: TransactionKind.sent,
+        direction: TransactionDirection.outflow,
+        counterpartyName: 'ZIIDI',
+      );
+      expect(ziidiSend, isA<SavingsPayIn>());
+      expect(ziidiSend!.product, same(ziidi));
+      expect(
+        savingsMoveOf(
+          kind: TransactionKind.sent,
+          direction: TransactionDirection.outflow,
+          counterpartyName: 'NABO CAPITAL LTD',
+        ),
+        isNull,
+      );
+      final back = savingsMoveOf(
+        kind: TransactionKind.received,
+        direction: TransactionDirection.inflow,
+        counterpartyName: 'ETICA CAPITAL LTD',
+      );
+      expect(back, isA<SavingsMoneyBack>());
+      expect(back!.product, same(eticaMmf));
     });
   });
 }

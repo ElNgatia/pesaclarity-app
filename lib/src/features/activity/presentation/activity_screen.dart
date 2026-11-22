@@ -8,6 +8,7 @@ import '../../../core/money/money_format.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart';
 import '../../../data/repositories/app_settings_repository.dart';
+import '../../../domain/accounts/mpesa_family.dart';
 import '../../../domain/categoriser/suggester.dart';
 import '../../../domain/ledger/activity_feed.dart';
 import '../../../domain/ledger/activity_lines.dart';
@@ -601,6 +602,23 @@ class _ActivityRow extends StatelessWidget {
     TextStyle muted,
   ) {
     return switch (line) {
+      // Money into the person's own Pochi la Biashara is their business's
+      // (decision 0026): it reads as such, not as money from a person.
+      EntryLine(:final entry)
+          when entry.isInflow &&
+              isPochiReference(accounts[entry.accountId]?.reference) =>
+        _row(
+          context,
+          avatar: _Avatar.icon(Icons.storefront_outlined, colors: colors),
+          title: 'Received into your Pochi',
+          subtitle: DetailLine(
+            categoryName(entry) ?? 'Business',
+            _account(entry.accountId),
+            style: muted,
+          ),
+          amount: _entryAmount(context, entry),
+          onTap: () => showTransactionSheet(context, entry.id),
+        ),
       EntryLine(:final entry) when _canName(entry) => _row(
         context,
         avatar: _Avatar.text('?', colors: colors, warning: true),
