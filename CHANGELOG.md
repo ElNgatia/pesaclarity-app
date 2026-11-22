@@ -2,6 +2,23 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from commit titles (pull request titles until pull requests into `dev` were rebase-merged).
 
+## [0.5.5](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.4...v0.5.5) (2026-11-22)
+
+
+### Features
+
+* **ledger:** one rule that stops double entries for every account (0030) ([73b5bf1](https://github.com/pesaclarity/pesaclarity-app/commit/73b5bf1c83ca22ce2eedd6b5024c40b3ba0045ed))
+* **sms:** two M-Pesa lines on one phone ([e24eef8](https://github.com/pesaclarity/pesaclarity-app/commit/e24eef8bf730e21036a13b5f92ead87a1e55f1b2))
+* **spaces:** money between spaces (decision 0027) ([c3085b4](https://github.com/pesaclarity/pesaclarity-app/commit/c3085b442a35769982a3146f24ebbc541734f6d1))
+* **spaces:** put money in, pay yourself by bank, restore check and clear data question (0027) ([47e833e](https://github.com/pesaclarity/pesaclarity-app/commit/47e833e2cdfa8545d158b6a3b04ce3a5ac1af184))
+* **spaces:** the rest of money between spaces (0027): put money in, pay by bank, restore check, clear data ([adf6e9e](https://github.com/pesaclarity/pesaclarity-app/commit/adf6e9e27bc1dffb5b367740a9c3d29435adbac5))
+
+
+### Fixes
+
+* **firefly:** send Held for another space, so a switch adds up there ([a8f1d56](https://github.com/pesaclarity/pesaclarity-app/commit/a8f1d5609a9eb8b58471c39c140d382ac1a3644a))
+* **spaces:** every M-Pesa line for Put money in; a restore never fails on its check ([3d6aadc](https://github.com/pesaclarity/pesaclarity-app/commit/3d6aadccc25631b40a6ec093b06d71933dafb878))
+
 ## [0.5.4](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.3...v0.5.4) (2026-11-21)
 
 
