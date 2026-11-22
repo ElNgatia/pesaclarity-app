@@ -76,7 +76,7 @@ The steps the `Release to Google Play` workflow automates, done by hand:
    ```
 
    It reads the address from Secret Manager when asked (with your `gcloud` login), refuses anything but https, points the vault at the same server unless `PESACLARITY_VAULT_URL` says otherwise, and prints where the bundle, mapping and Dart symbols are.
-3. **Upload by hand** in Play Console › Test and release › Internal testing (or Closed testing): create a release, upload `app-play-release.aab`, add the notes from `fastlane/metadata/android/en-US/changelogs/<code>.txt`, then send it for review. Google reviews the SMS permission declaration (section 4) and the Data safety form before the first release goes out; new personal developer accounts also need a closed test with at least 12 testers for 14 days before production.
+3. **Upload by hand** in Play Console › Test and release › Internal testing (or Closed testing): create a release, upload `app-play-release.aab`, add the notes from `fastlane/metadata/android/en-US/changelogs/<code>.txt` (or the "What's new" text from `tool/release_notes --version X.Y.Z`, also in the `pesaclarity-play-release` artifact of a workflow run), then send it for review. Google reviews the SMS permission declaration (section 4) and the Data safety form before the first release goes out; new personal developer accounts also need a closed test with at least 12 testers for 14 days before production.
 
 The address is kept out of the repository, but it is compiled into the app, so anyone with the APK can read it. The server must not rely on it staying secret.
 

@@ -1,0 +1,203 @@
+// The plain release notes (tool/release_notes.dart): title cleanup,
+// grouping, Play's 500 characters and the idempotent release body, on the
+// pull requests in test/fixtures/release_notes/.
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../tool/release_notes.dart';
+
+List<PullRequest> _fixture() => [
+  for (final pr in (jsonDecode(
+    File('test/fixtures/release_notes/pull_requests.json').readAsStringSync(),
+  ) as List).cast<Map<String, Object?>>())
+    PullRequest(
+      pr['number']! as int,
+      pr['title']! as String,
+      pr['body']! as String,
+    ),
+];
+
+void main() {
+  group('plainTitle', () {
+    test('drops the type, scope, decision numbers, references and hashes', () {
+      expect(
+        plainTitle('feat(spaces): money between spaces (decision 0027)'),
+        'Money between spaces.',
+      );
+      expect(
+        plainTitle('feat(ledger): one rule that stops double entries (0030)'),
+        'One rule that stops double entries.',
+      );
+      expect(
+        plainTitle(
+          'fix(firefly): send Held for another space, so a switch adds up there (a8f1d56)',
+        ),
+        'Send Held for another space, so a switch adds up there.',
+      );
+      expect(
+        plainTitle(
+          'feat(spaces): the rest of money between spaces (0027): put money in, pay by bank',
+        ),
+        'The rest of money between spaces: put money in, pay by bank.',
+      );
+      expect(
+        plainTitle('feat(accounts): ask first (0026 item 5)'),
+        'Ask first.',
+      );
+      expect(
+        plainTitle('perf(home): open Today faster (#123)'),
+        'Open Today faster.',
+      );
+      expect(plainTitle('refactor: one place, app#358'), 'One place.');
+      expect(
+        plainTitle('fix: \u{1F41B} stop the crash [PC-42]'),
+        'Stop the crash.',
+      );
+      expect(
+        plainTitle('feat!: sign in with email only.'),
+        'Sign in with email only.',
+      );
+    });
+
+    test('leaves words that only look like hashes', () {
+      expect(
+        plainTitle('fix: a defaced M-Pesa line'),
+        'A defaced M-Pesa line.',
+      );
+    });
+  });
+
+  group('releaseNoteSection', () {
+    test('is null without a note, or with only the template', () {
+      expect(releaseNoteSection('Some description.'), isNull);
+      expect(
+        releaseNoteSection(
+          '## Release note\n<one or two plain sentences for users, or "none">\n',
+        ),
+        isNull,
+      );
+    });
+
+    test('is empty for none', () {
+      expect(releaseNoteSection('## Release note\r\n\r\nnone\r\n'), isEmpty);
+      expect(releaseNoteSection('## Release note\nNone.\n## Tests\n'), isEmpty);
+    });
+
+    test('stops at the next heading and splits bullets', () {
+      expect(
+        releaseNoteSection(
+          '## Release note\nOne line,\nwrapped.\n\n## Tests\nx',
+        ),
+        ['One line, wrapped.'],
+      );
+      expect(
+        releaseNoteSection('## Release notes\n- first\n- second\n\n## Screens'),
+        ['first', 'second'],
+      );
+    });
+  });
+
+  test('groups, cleans and removes duplicates', () {
+    final notes = buildNotes(_fixture());
+    expect(notes.groups[Group.added], [
+      'Money between spaces.',
+      'A payment that two of your accounts both report now counts once, not twice.',
+      'You can now give each M-Pesa line its own name.',
+      'Move a payment to the right line.',
+      'Sign in with email only.',
+    ]);
+    expect(notes.groups[Group.improved], [
+      'Open Today faster.',
+      'One place for answers.',
+      'Clearer buttons on Today.',
+    ]);
+    expect(notes.groups[Group.fixed], [
+      'Send Held for another space, so a switch adds up there.',
+      'Stop the crash on start.',
+    ]);
+  });
+
+  test('the user notes have no emoji, hashes or pull request numbers', () {
+    final text = buildNotes(_fixture()).markdown('0.5.5');
+    expect(text, startsWith("## What's new in v0.5.5\n\n### New\n\n- Money"));
+    expect(
+      text,
+      isNot(matches(RegExp(r'#\d|\b[0-9a-f]{7}\b|\u{1F41B}', unicode: true))),
+    );
+  });
+
+  test('says something when nothing users see changed', () {
+    final notes = buildNotes([
+      const PullRequest(1, 'chore: tidy', ''),
+      const PullRequest(2, 'fix: x', '## Release note\nnone'),
+    ]);
+    expect(notes.isEmpty, isTrue);
+    expect(notes.whatsNew(), 'Small fixes and improvements.');
+    expect(notes.markdown('1.0.0'), contains('Small fixes and improvements.'));
+  });
+
+  test("Play's text fits in 500 characters, dropping Improved, then New", () {
+    final notes = ReleaseNotes({
+      Group.added: [
+        for (var i = 0; i < 6; i++)
+          'New thing number $i that people will like.',
+      ],
+      Group.improved: [
+        for (var i = 0; i < 6; i++) 'Improved thing number $i, a bit faster.',
+      ],
+      Group.fixed: [
+        for (var i = 0; i < 6; i++) 'Fixed thing number $i that went wrong.',
+      ],
+    });
+    final text = notes.whatsNew();
+    expect(text.length, lessThanOrEqualTo(500));
+    for (var i = 0; i < 6; i++) {
+      expect(text, contains('Fixed thing number $i'));
+    }
+    expect(text, contains('New thing number 0'));
+    expect(text, isNot(contains('Improved')));
+    expect(text, startsWith('New\n- New thing number 0'));
+
+    final long = ReleaseNotes({
+      Group.added: ['word ' * 200],
+      Group.improved: [],
+      Group.fixed: [],
+    });
+    expect(long.whatsNew().length, lessThanOrEqualTo(500));
+  });
+
+  test('rewriting the release body twice gives the same body', () {
+    const changelog =
+        '## [0.5.5](https://example.org/compare/v0.5.4...v0.5.5)\n\n'
+        '### Features\n\n* **spaces:** money between spaces ([c3085b4](https://example.org/c))';
+    final notes = buildNotes(_fixture());
+    final once = releaseBody('0.5.5', notes, changelog);
+    expect(
+      once,
+      contains(
+        '<details><summary>Full changelog</summary>\n\n$changelog\n\n</details>',
+      ),
+    );
+    expect(releaseBody('0.5.5', notes, once), once);
+    expect(originalChangelog(once), changelog);
+  });
+
+  test('the previous release is the highest tag below this one', () {
+    expect(
+      previousTag([
+        'v0.5.5',
+        'v0.5.4',
+        'v0.10.0',
+        'test-build',
+        'v0.4.9',
+        'v0.5.5-rc.1',
+      ], '0.5.5'),
+      'v0.5.4',
+    );
+    expect(previousTag(['v0.5.4', 'v0.4.0'], '0.6.0'), 'v0.5.4');
+    expect(previousTag(['v0.5.5'], '0.5.5'), isNull);
+  });
+}

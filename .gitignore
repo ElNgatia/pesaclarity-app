@@ -55,3 +55,6 @@ release.env
 
 # SQLCipher sources for the foss build (tool/foss/build_sqlcipher_sources.sh)
 /tool/foss/sqlcipher/
+
+# Play "What's new" text written by tool/release_notes in CI
+/distribution/
