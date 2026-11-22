@@ -30,6 +30,11 @@ abstract interface class StatementImportsRepository {
     required int balanceMinor,
     required DateTime at,
   });
+
+  /// Sets transaction [id]'s fee to [feeMinor] when it has none: a bank SMS
+  /// that left out the charge its statement shows. Returns whether it
+  /// changed.
+  Future<bool> fillMissingFee(int id, int feeMinor);
 }
 
 class DriftStatementImportsRepository implements StatementImportsRepository {
@@ -85,6 +90,15 @@ class DriftStatementImportsRepository implements StatementImportsRepository {
                 openingDate: Value(at),
               ),
             );
+    return updated > 0;
+  }
+
+  @override
+  Future<bool> fillMissingFee(int id, int feeMinor) async {
+    final updated =
+        await (_db.update(_db.transactions)
+              ..where((t) => t.id.equals(id) & t.feeMinor.equals(0)))
+            .write(TransactionsCompanion(feeMinor: Value(feeMinor)));
     return updated > 0;
   }
 }

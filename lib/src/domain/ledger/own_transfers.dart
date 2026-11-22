@@ -41,6 +41,38 @@ const defaultTransferWindow = Duration(minutes: 30);
 /// how far apart a suggested match may be.
 const waitingTransferWindow = Duration(days: 3);
 
+/// The offset statements print their dates at (East Africa Time): a
+/// statement row with a date and no time falls at midnight there.
+const statementDateOffset = Duration(hours: 3);
+
+/// Whether [entry] is a statement row that printed only its date, such as
+/// a KCB statement's, so its time is midnight rather than when it happened.
+bool isDateOnly(LedgerEntry entry) {
+  if (entry.source != TransactionSource.statement) return false;
+  final t = entry.occurredAt.toUtc().add(statementDateOffset);
+  return t.hour == 0 && t.minute == 0 && t.second == 0 && t.millisecond == 0;
+}
+
+Duration _gapOf(LedgerEntry a, LedgerEntry b) =>
+    a.occurredAt.difference(b.occurredAt).abs();
+
+/// How far apart [a] and [b] are, taking a date-only side ([isDateOnly])
+/// as the whole of its day: zero when the other side is on that day.
+Duration dayAwareGap(LedgerEntry a, LedgerEntry b) {
+  final (day, other) = isDateOnly(a)
+      ? (a, b)
+      : isDateOnly(b)
+      ? (b, a)
+      : (null, null);
+  if (day == null || other == null) return _gapOf(a, b);
+  final start = day.occurredAt;
+  final end = start.add(const Duration(days: 1));
+  final t = other.occurredAt;
+  if (t.isBefore(start)) return start.difference(t);
+  if (!t.isBefore(end)) return t.difference(end);
+  return Duration.zero;
+}
+
 /// The largest fee a transfer is taken to have cost when its message gives
 /// none: KES 100, or 2% of the amount when that is more.
 int transferFeeAllowanceMinor(int outflowMinor, String currency) {
@@ -424,16 +456,17 @@ List<TransferPair> findOwnTransfers(
         }
         final fit = transferFit(out, into);
         if (fit == null || fit == TransferFit.loose) continue;
-        final gap = out.occurredAt.difference(into.occurredAt).abs();
         final byNumber = paidIntoAccount(out, into, references);
+        final namesOwn =
+            own.namedBy(out) == into.accountId ||
+            own.namedBy(into) == out.accountId;
+        // A statement row with only a date happened some time that day.
+        final gap = namesOwn ? dayAwareGap(out, into) : _gapOf(out, into);
         final allowed = _named(out, into) || byNumber
             ? waitingTransferWindow
             : window;
         if (gap > allowed) continue;
-        final sure =
-            byNumber ||
-            own.namedBy(out) == into.accountId ||
-            own.namedBy(into) == out.accountId;
+        final sure = byNumber || namesOwn;
         candidates.add((sure ? 0 : 1, fit.index, gap, out, into));
       }
     }

@@ -178,7 +178,8 @@ List<String> _wrap(String text, int width) {
   return lines..add(line);
 }
 
-/// The first lines of a synthetic KCB statement.
+/// The first lines of a synthetic KCB statement in an older layout, which
+/// no statement pack reads yet.
 const kcbStatementText = '''
 KCB Bank Kenya Limited
 ACCOUNT STATEMENT
