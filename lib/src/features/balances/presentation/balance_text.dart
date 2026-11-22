@@ -170,11 +170,11 @@ abstract final class BalanceText {
   static String whereItWent(
     String period,
     String fees,
-    String fuliza,
+    String? fuliza,
     String notExplained,
   ) => [
     '$period: fees $fees',
-    'Fuliza charges $fuliza',
+    if (fuliza != null) 'Fuliza charges $fuliza',
     'not explained $notExplained',
   ].join(' · ');
   static const thisMonth = 'This month';

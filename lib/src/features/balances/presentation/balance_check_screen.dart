@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/time/clock.dart';
 import '../../../data/database/app_database.dart' show ReviewItem;
 import '../../../data/repositories/balances_repository.dart';
+import '../../../data/repositories/fuliza_tracking.dart';
 import '../../../domain/enums.dart';
 import '../../../domain/ledger/balance_check.dart';
 import '../../../domain/ledger/fuliza_debt.dart';
@@ -394,7 +395,12 @@ class GapSheet extends ConsumerWidget {
     );
     final flagged = {for (final h in gap.hints) ...h.entries.map((e) => e.id)};
     final inGap = {for (final e in gap.between) e.id};
-    final auto = {for (final a in picture.fuliza) a.entry.id: a};
+    // Not tracking Fuliza, nothing here is put down to it.
+    final fuliza = ref.watch(fulizaTrackingProvider).value?.shown ?? false;
+    final auto = {
+      if (fuliza)
+        for (final a in picture.fuliza) a.entry.id: a,
+    };
 
     Future<void> act(Future<void> Function() action) async {
       final navigator = Navigator.of(context);
@@ -404,7 +410,10 @@ class GapSheet extends ConsumerWidget {
       messenger.showSnackBar(const SnackBar(content: Text(BalanceText.fixed)));
     }
 
-    final leads = picture.leads;
+    final leads = [
+      for (final lead in picture.leads)
+        if (fuliza || lead is! FulizaLead) lead,
+    ];
     return SheetBody(
       title: '$name gap',
       children: [
@@ -750,7 +759,7 @@ class _AroundRow extends StatelessWidget {
 
 /// "This month: fees 230 · Fuliza charges 64 · not explained 307", with a
 /// link to leakage in Insights.
-class WhereItWentLine extends StatelessWidget {
+class WhereItWentLine extends ConsumerWidget {
   const WhereItWentLine(
     this.leaks, {
     required this.currency,
@@ -765,14 +774,16 @@ class WhereItWentLine extends StatelessWidget {
   final String? account;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final colors = PesaColors.of(context);
     String money(int minor) => shownMoney(context, minor, currency: currency);
+    // Not tracking Fuliza, its charges are fees like any other.
+    final fuliza = ref.watch(fulizaTrackingProvider).value?.shown ?? false;
     final line = BalanceText.whereItWent(
       account == null ? BalanceText.thisMonth : '$account this month',
-      money(leaks.feesMinor),
-      money(leaks.fulizaMinor),
+      money(fuliza ? leaks.feesMinor : leaks.feesMinor + leaks.fulizaMinor),
+      fuliza ? money(leaks.fulizaMinor) : null,
       money(leaks.notExplainedMinor),
     );
     return Padding(

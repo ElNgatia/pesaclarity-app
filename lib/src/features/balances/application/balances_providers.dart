@@ -206,8 +206,10 @@ final balancesOverviewProvider = FutureProvider<BalancesOverview>((ref) async {
 
 /// What M-Pesa's balances show Fuliza did with no message of its own, by
 /// the entry whose balance shows it, for Activity.
+/// Empty while the space does not show Fuliza.
 final fulizaAutoProvider = FutureProvider<Map<int, FulizaAuto>>((ref) async {
   final overview = await ref.watch(balancesOverviewProvider.future);
+  if (!(await readJournal(ref)).fulizaShown) return const {};
   return {
     for (final a in overview.accounts)
       if (a.opening.canOweFuliza)

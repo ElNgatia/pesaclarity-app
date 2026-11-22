@@ -43,8 +43,9 @@ void main() {
     expect(find.text('1,865'), findsOneWidget);
     expect(find.text('Leakages'), findsOneWidget);
     expect(find.text('15'), findsOneWidget);
-    await tester.ensureVisible(find.text('Fuliza fees'));
-    expect(find.text('Clear of Fuliza'), findsOneWidget);
+    // No Fuliza message among them: Fuliza is not named (its fees would
+    // be in Leakages).
+    expect(find.textContaining('Fuliza'), findsNothing);
     await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
     await expectLater(tester, meetsGuideline(textContrastGuideline));
 

@@ -87,7 +87,9 @@ class JournalBalances {
   /// posted with no postings, which a stored journal keeps as entries
   /// without lines.
   JournalBalances(Iterable<JournalEntry> entries, {Set<int> posted = const {}})
-    : _posted = {...posted} {
+    : _data = _JournalData({...posted}),
+      fulizaShown = true {
+    final _JournalData(:_posted, :_byTransaction, :_lines, :_running) = _data;
     for (final e in entries) {
       if (e.source == JournalSource.transaction) _posted.add(e.sourceId);
       final own = e.source == JournalSource.transaction
@@ -118,15 +120,21 @@ class JournalBalances {
     postJournal(accounts: accounts, history: history, categories: categories),
   );
 
-  final _lines = <(BookAccount, String), List<(DateTime, int)>>{};
-  final _running = Expando<List<int>>();
+  JournalBalances._view(this._data, {required this.fulizaShown});
 
-  /// Each transaction's net postings by account, by its id and currency.
-  final _byTransaction = <(int, String), Map<BookAccount, int>>{};
-  final _parts = <(int, String), PostedParts>{};
+  /// The postings, shared by every view of them ([withFuliza]).
+  final _JournalData _data;
 
-  /// The transactions the journal has an entry for, lines or not.
-  final Set<int> _posted;
+  /// Whether the space shows Fuliza (see `FulizaTracking`). Hidden, the
+  /// postings stay as they are, but Fuliza owed reads as nothing, so each
+  /// M-Pesa account is worth its wallet: the balance M-Pesa reports.
+  final bool fulizaShown;
+
+  /// These balances with Fuliza [shown] or hidden, read from the same
+  /// postings.
+  JournalBalances withFuliza({required bool shown}) => shown == fulizaShown
+      ? this
+      : JournalBalances._view(_data, fulizaShown: shown);
 
   /// What transaction [e] did by its entry's postings, in [e]'s currency;
   /// null when the journal has no entry for it (not posted yet, or a
@@ -134,19 +142,22 @@ class JournalBalances {
   /// Fuliza repayment whose money in already paid what was owed, did
   /// nothing.
   PostedParts? partsOf(LedgerEntry e) {
-    if (e.isBalanceRecord || !_posted.contains(e.id)) return null;
+    final data = _data;
+    if (e.isBalanceRecord || !data._posted.contains(e.id)) return null;
     final key = (e.id, e.currency);
-    final known = _parts[key];
+    final known = data._parts[key];
     if (known != null) return known;
-    return _parts[key] = PostedParts.of(_byTransaction[key] ?? const {});
+    return data._parts[key] = PostedParts.of(
+      data._byTransaction[key] ?? const {},
+    );
   }
 
   /// Debit-positive total of [account] in [currency] from postings dated
   /// before [at], or all of them.
   int _debits(BookAccount account, String currency, DateTime? at) {
-    final list = _lines[(account, currency)];
+    final list = _data._lines[(account, currency)];
     if (list == null || list.isEmpty) return 0;
-    final sums = _running[list]!;
+    final sums = _data._running[list]!;
     if (at == null) return sums.last;
     // The last posting dated before [at].
     var lo = 0;
@@ -189,9 +200,9 @@ class JournalBalances {
   );
 
   /// Fuliza owed on [account] just before [at]; nothing for accounts that
-  /// cannot owe Fuliza.
+  /// cannot owe Fuliza, or while Fuliza is hidden.
   int fulizaOwedAt(AccountOpening account, {required DateTime at}) =>
-      account.canOweFuliza
+      account.canOweFuliza && fulizaShown
       ? balanceOf(
           BookAccount.fulizaOwed(account.id),
           currency: account.currency,
@@ -218,4 +229,19 @@ class JournalBalances {
     required DateTime at,
     required bool Function(AccountOpening account) where,
   }) => accounts.where(where).fold(0, (sum, a) => sum + heldAt(a, at: at));
+}
+
+/// What [JournalBalances] reads, kept once for all its views.
+class _JournalData {
+  _JournalData(this._posted);
+
+  final _lines = <(BookAccount, String), List<(DateTime, int)>>{};
+  final _running = Expando<List<int>>();
+
+  /// Each transaction's net postings by account, by its id and currency.
+  final _byTransaction = <(int, String), Map<BookAccount, int>>{};
+  final _parts = <(int, String), PostedParts>{};
+
+  /// The transactions the journal has an entry for, lines or not.
+  final Set<int> _posted;
 }

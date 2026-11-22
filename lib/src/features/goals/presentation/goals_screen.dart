@@ -97,8 +97,11 @@ class GoalsScreen extends ConsumerWidget {
       // See debts above is the one way in, so an empty list only says what
       // will show, as Saving for does.
       if (open.isEmpty)
-        const EmptyNote(
-          'Debts show here, such as loans, cards, Fuliza and family loans.',
+        EmptyNote(
+          overview.fulizaShown
+              ? 'Debts show here, such as loans, cards, Fuliza and family '
+                    'loans.'
+              : 'Debts show here, such as loans, cards and family loans.',
         )
       else
         _DebtsCard(
@@ -146,9 +149,11 @@ class _DebtFreeCard extends StatelessWidget {
     if (!hasDebts) {
       label = 'Debt-free by';
       figure = null;
-      caption =
-          'Add loans, cards, Fuliza or money from family to see the month '
-          'you will be debt-free.';
+      caption = overview.fulizaShown
+          ? 'Add loans, cards, Fuliza or money from family to see the month '
+                'you will be debt-free.'
+          : 'Add loans, cards or money from family to see the month you '
+                'will be debt-free.';
     } else if (debts.remainingMinor == 0) {
       label = 'Debts';
       figure = 'Debt-free';
