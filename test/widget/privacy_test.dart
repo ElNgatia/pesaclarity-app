@@ -32,8 +32,8 @@ void main() {
     expect(choice(tester, 'Help improve the app').value, isTrue);
     expect(choice(tester, 'Contribute to licensed models').value, isFalse);
     expect(choice(tester, 'Send crash reports').value, isFalse);
-    await scrollTo(tester, find.text('Version 2.5 · updated 21 Nov 2026'));
-    expect(find.text('Version 2.5 · updated 21 Nov 2026'), findsOneWidget);
+    await scrollTo(tester, find.text('Version 2.6 · updated 23 Nov 2026'));
+    expect(find.text('Version 2.6 · updated 23 Nov 2026'), findsOneWidget);
   });
 
   testAppWidgets('saves a choice with the policy version and time', (
@@ -53,7 +53,7 @@ void main() {
     final licensed =
         (saved!['choices']! as Map)['licensedModels'] as Map<String, Object?>;
     expect(licensed['value'], isTrue);
-    expect(licensed['policyVersion'], '2.5');
+    expect(licensed['policyVersion'], '2.6');
     expect(DateTime.tryParse(licensed['changedAt']! as String), isNotNull);
   });
 
@@ -130,11 +130,11 @@ void main() {
       () =>
           DriftAppSettingsRepository(db).readJson(ConsentController.recordKey),
     );
-    expect(saved!['acceptedVersion'], '2.5');
+    expect(saved!['acceptedVersion'], '2.6');
     final licensed =
         (saved['choices']! as Map)['licensedModels'] as Map<String, Object?>;
     expect(licensed['value'], isTrue);
-    expect(licensed['policyVersion'], '2.5');
+    expect(licensed['policyVersion'], '2.6');
   });
 
   testAppWidgets('asks someone who agreed to 2.4 to read 2.5', (tester) async {
@@ -175,7 +175,7 @@ void main() {
       () =>
           DriftAppSettingsRepository(db).readJson(ConsentController.recordKey),
     );
-    expect(saved!['acceptedVersion'], '2.5');
+    expect(saved!['acceptedVersion'], '2.6');
   });
 
   testAppWidgets('opens the terms from Privacy', (tester) async {
