@@ -81,13 +81,19 @@ Future<void> share(
     await owner.repo.start(myName: owner.name);
   }
   for (final MapEntry(key: phone, value: role) in others.entries) {
+    // Their phone makes its own key and a join request; the Owner's phone
+    // makes the invite from it.
+    final (request, pair, _) = await ShareRepository.makeJoinRequest(
+      phone.name,
+    );
     final (invite, _, _) = await owner.repo.invite(
-      name: phone.name,
+      request: request,
       role: role,
       spaceName: 'Home at Kilimani',
     );
     await phone.repo.join(
       invite,
+      mine: pair,
       myName: phone.name,
       hasAccount: withAccount.contains(phone),
     );
@@ -187,3 +193,7 @@ Future<(Phone, List<int>)> kilimani() async {
   me.now = eat(2026, 11, 22, 9, 41).millisecondsSinceEpoch;
   return (me, out.bytes);
 }
+
+/// A join request from a phone that is never used again.
+Future<String> joinRequest(String name) async =>
+    (await ShareRepository.makeJoinRequest(name)).$1;

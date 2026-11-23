@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pesaclarity/src/core/share/share_codec.dart';
 import 'package:pesaclarity/src/domain/sharing/hlc.dart';
@@ -5,6 +7,7 @@ import 'package:pesaclarity/src/domain/sharing/safety_words.dart';
 import 'package:pesaclarity/src/domain/sharing/share_merge.dart';
 import 'package:pesaclarity/src/domain/sharing/share_model.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
+import 'package:pesaclarity/src/features/sharing/presentation/share_scanner.dart';
 
 ShareChange _c(
   int millis,
@@ -337,25 +340,82 @@ void main() {
       expect(opened.spaceKey, newKey);
     });
 
-    test('an invite opens to the space key and the invitee key pair', () async {
+    test('an invite opens only with the key pair that asked for it', () async {
       final codec = ShareCodec();
       final owner = await ShareKeyPair.generate();
       final invitee = await ShareKeyPair.generate();
+      final other = await ShareKeyPair.generate();
       final key = codec.newSpaceKey();
+      final request = codec.joinRequest(
+        name: 'Jane',
+        publicKey: invitee.publicKey,
+      );
+      final (name, theirKey) = codec.openJoinRequest(request);
+      expect(name, 'Jane');
       final text = await codec.invite(
         owner: owner,
-        invitee: invitee,
+        inviteePublicKey: theirKey,
         spaceKey: key,
         details: const {'space': 's'},
       );
-      final (body, pair, opened) = await codec.openInvite(text);
+      final (body, opened) = await codec.openInvite(text, invitee);
       expect(body['space'], 's');
-      expect(pair.publicKey, invitee.publicKey);
       expect(opened, key);
       await expectLater(
-        codec.openInvite('${text.substring(0, text.length - 4)}AAAA'),
+        codec.openInvite(text, other),
+        throwsA(isA<ShareFileException>()),
+      );
+      await expectLater(
+        codec.openInvite('${text.substring(0, text.length - 4)}AAAA', invitee),
         throwsA(isA<ShareFileException>()),
       );
     });
+
+    test(
+      'a scanned code is read as a file is, and a bad one refused',
+      () async {
+        final codec = ShareCodec();
+        final owner = await ShareKeyPair.generate();
+        final invitee = await ShareKeyPair.generate();
+        final request = codec.joinRequest(
+          name: 'Jane',
+          publicKey: invitee.publicKey,
+        );
+        final invite = await codec.invite(
+          owner: owner,
+          inviteePublicKey: invitee.publicKey,
+          spaceKey: codec.newSpaceKey(),
+          details: const {
+            'space': 's',
+            'name': 'Home',
+            'kind': 'household',
+            'owner': {'id': 'o'},
+            'you': {'id': 'j'},
+          },
+        );
+        // What the camera reads may carry spaces or a line break around it.
+        expect(readShareCode(' $request\n'), ShareCodeKind.joinRequest);
+        expect(readShareCode(invite), ShareCodeKind.invite);
+        expect(scannedProblem(request, ShareCodeKind.joinRequest), isNull);
+        expect(scannedProblem(invite, ShareCodeKind.invite), isNull);
+        expect(
+          scannedProblem(request, ShareCodeKind.invite),
+          "That code isn't an invite.",
+        );
+        final shortKey = base64Url.encode(
+          utf8.encode('{"name":"x","key":"AA=="}'),
+        );
+        for (final bad in [
+          'https://example.com',
+          '${ShareCodec.joinPrefix}not-base64!',
+          '${ShareCodec.joinPrefix}$shortKey',
+          'pcshare-invite:1:old',
+        ]) {
+          expect(() => readShareCode(bad), throwsA(isA<ShareFileException>()));
+          expect(scannedProblem(bad, ShareCodeKind.joinRequest), isNotNull);
+        }
+        expect(scannedProblem(null, ShareCodeKind.invite), isNotNull);
+      },
+    );
   });
 }

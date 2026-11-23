@@ -5,17 +5,24 @@
 // with who added each transaction, Space history and joining. Not
 // marketing screenshots, so tool/screenshots.sh skips them. Made-up names
 // and amounts.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pesaclarity/src/core/share/share_codec.dart';
 import 'package:pesaclarity/src/core/time/clock.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
 import 'package:pesaclarity/src/data/repositories/share_repository.dart';
 import 'package:pesaclarity/src/domain/sharing/share_model.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/features/activity/presentation/activity_screen.dart';
+import 'package:pesaclarity/src/features/backup/application/backup_providers.dart';
+import 'package:pesaclarity/src/features/backup/data/backup_sharing.dart';
 import 'package:pesaclarity/src/features/currency/application/currency_controller.dart';
 import 'package:pesaclarity/src/features/sharing/application/share_providers.dart';
+import 'package:pesaclarity/src/features/sharing/presentation/share_scanner.dart';
 import 'package:pesaclarity/src/features/sharing/presentation/share_screens.dart';
 import 'package:pesaclarity/src/features/spaces/application/spaces_providers.dart';
 import 'package:pesaclarity/src/features/spaces/presentation/manage_spaces_screens.dart';
@@ -46,6 +53,7 @@ Future<void> _pump(
   Widget home, {
   Space space = _kilimani,
   int? tab,
+  List<Override> overrides = const [],
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -62,6 +70,7 @@ Future<void> _pump(
         spacesProvider.overrideWith(() => _Spaces(space)),
         shareRepositoryProvider.overrideWithValue(phone.repo),
         ...appLockOverrides(),
+        ...overrides,
       ],
       child: shotApp(
         tab == null ? home : tabShell(home, tabs: personalTabs, index: tab),
@@ -106,7 +115,7 @@ Future<(Phone, ShareMember)> _umojaPhone() async {
   late ShareMember chosen;
   for (var i = 1; i < 14; i++) {
     final (_, m, _) = await p.repo.invite(
-      name: i == 1 ? 'Wanjiku Otieno' : 'Member $i',
+      request: await joinRequest(i == 1 ? 'Wanjiku Otieno' : 'Member $i'),
       role: i == 1 ? ShareRole.treasurer : ShareRole.member,
       spaceName: 'Umoja',
     );
@@ -148,7 +157,11 @@ void main() {
 
   screenshot('share-add-member', (tester) async {
     late Phone me;
-    await tester.runAsync(() async => (me, _) = await kilimani());
+    late String request;
+    await tester.runAsync(() async {
+      (me, _) = await kilimani();
+      request = await joinRequest('Otieno Ouma');
+    });
     await _pump(
       tester,
       me,
@@ -161,8 +174,50 @@ void main() {
           ),
         ),
       ),
+      overrides: [
+        shareCodeScannerProvider.overrideWithValue(_Scanner(request)),
+        fileSharerProvider.overrideWithValue(_NoSharing()),
+      ],
     );
     await _open(tester);
+    await snap(tester);
+    await tester.ensureVisible(find.byKey(const Key('share-request-scan')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('share-request-scan')));
+    await tester.pumpAndSettle();
+    await snap(tester, variant: 'request');
+    await tester.ensureVisible(find.byKey(const Key('share-invite-make')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('share-invite-make')));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pumpAndSettle();
+    await snap(tester, variant: 'invite');
+  });
+
+  screenshot('share-join-request', (tester) async {
+    final phone = Phone('Brian');
+    await _pump(
+      tester,
+      phone,
+      const JoinRequestScreen(),
+      overrides: [pendingJoinProvider.overrideWith((ref) async => null)],
+    );
+    await snap(tester);
+  });
+
+  screenshot('share-join-request-ready', (tester) async {
+    final phone = Phone('Brian');
+    final made = await tester.runAsync(
+      () => ShareRepository.makeJoinRequest('Brian'),
+    );
+    await _pump(
+      tester,
+      phone,
+      const JoinRequestScreen(),
+      overrides: [
+        pendingJoinProvider.overrideWith((ref) async => ('Brian', made!.$2)),
+      ],
+    );
     await snap(tester);
   });
 
@@ -248,19 +303,54 @@ void main() {
   screenshot('share-join', (tester) async {
     late Phone brian;
     late String invite;
+    late ShareKeyPair pair;
     await tester.runAsync(() async {
       final jane = Phone('Jane Wairimu');
       await jane.repo.start(myName: 'Jane Wairimu');
+      final String request;
+      (request, pair, _) = await ShareRepository.makeJoinRequest('Brian');
       (invite, _, _) = await jane.repo.invite(
-        name: 'Brian',
+        request: request,
         role: ShareRole.member,
         spaceName: 'Home at Kilimani',
       );
       brian = Phone('Brian');
     });
-    await _pump(tester, brian, JoinSpaceScreen(invite: invite));
-    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await _pump(
+      tester,
+      brian,
+      JoinSpaceScreen(invite: invite),
+      overrides: [
+        pendingJoinProvider.overrideWith((ref) async => ('Brian', pair)),
+      ],
+    );
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+    }
     await tester.pumpAndSettle();
     await snap(tester);
   });
+}
+
+class _Scanner implements ShareCodeScanner {
+  _Scanner(this.text);
+
+  final String text;
+
+  @override
+  Future<String?> scan(BuildContext context, ShareCodeKind expect) async =>
+      text;
+}
+
+class _NoSharing implements FileSharer {
+  @override
+  Future<void> shareFile(
+    File file, {
+    required String subject,
+    String? text,
+  }) async {}
+
+  @override
+  Future<void> shareText(String text, {required String subject}) async {}
 }

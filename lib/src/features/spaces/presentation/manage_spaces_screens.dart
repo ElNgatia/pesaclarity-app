@@ -130,9 +130,9 @@ class _SpacesScreenState extends ConsumerState<SpacesScreen> {
               ListTile(
                 key: const Key('spaces-join'),
                 title: const Text('Join a shared space'),
-                subtitle: const Text('Open the invite file someone sent'),
+                subtitle: const Text('Send a join request to the owner'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => receiveShareFile(context, ref),
+                onTap: () => context.push(AppRoutes.joinRequest),
               ),
               ListTile(
                 key: const Key('spaces-recently-deleted'),

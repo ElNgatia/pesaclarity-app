@@ -281,3 +281,14 @@ const _words = [
   'sofa',
   'wheel',
 ];
+
+/// The words a join request shows on the invitee's phone, and the Owner's
+/// phone shows on adding it: worked out from the invitee's public key, so
+/// a request swapped on the way shows other words.
+List<String> joinWords(List<int> publicKey) {
+  final digest = sha256.convert([
+    ...'pcshare join words v1|'.codeUnits,
+    ...publicKey,
+  ]).bytes;
+  return [for (var i = 0; i < 4; i++) _words[digest[i]]];
+}

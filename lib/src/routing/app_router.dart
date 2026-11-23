@@ -349,6 +349,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                                 const DeleteAllScreen(),
                           ),
                           GoRoute(
+                            path: 'join-request',
+                            builder: (context, state) =>
+                                const JoinRequestScreen(),
+                          ),
+                          GoRoute(
                             path: 'join',
                             builder: (context, state) =>
                                 JoinSpaceScreen(invite: state.extra! as String),

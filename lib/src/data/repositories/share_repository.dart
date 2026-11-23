@@ -160,27 +160,55 @@ class ShareRepository {
         await recordLocalChanges();
       });
 
-  /// Joins from [invite] as [myName]: the space's records come with the
-  /// Owner's first update file.
-  static Future<Map<String, Object?>> readInvite(String invite) async =>
-      (await ShareCodec().openInvite(invite)).$1;
-
-  /// The safety words an invite shows, worked out from the invite itself.
-  static Future<List<String>> inviteWords(String invite) async {
-    final (body, pair, _) = await ShareCodec().openInvite(invite);
-    return safetyWords(
-      spaceShareId: body['space']! as String,
-      keyA: base64Url.decode(body['ownerKey']! as String),
-      keyB: pair.publicKey,
+  /// Step 1 of joining, on the invitee's phone: a key pair made here and
+  /// a join request carrying its public key and [name], with the safety
+  /// words both phones show. The private key never leaves this phone.
+  static Future<(String, ShareKeyPair, List<String>)> makeJoinRequest(
+    String name,
+  ) async {
+    final pair = await ShareKeyPair.generate();
+    final codec = ShareCodec();
+    return (
+      codec.joinRequest(name: name, publicKey: pair.publicKey),
+      pair,
+      joinWords(pair.publicKey),
     );
   }
 
+  /// A join request's name and safety words, as the Owner's phone shows
+  /// them.
+  static (String, List<String>) readJoinRequest(String request) {
+    final (name, key) = ShareCodec().openJoinRequest(request);
+    return (name, joinWords(key));
+  }
+
+  /// An invite's details. Anyone holding it can read them; only the phone
+  /// that made the join request can open the space key in it.
+  static Map<String, Object?> readInvite(String invite) =>
+      ShareCodec().readInvite(invite);
+
+  /// The safety words an invite shows on the phone it was made for: from
+  /// the space, the Owner's key in it and [mine].
+  static List<String> inviteWords(String invite, ShareKeyPair mine) {
+    final body = ShareCodec().readInvite(invite);
+    return safetyWords(
+      spaceShareId: body['space']! as String,
+      keyA: base64Url.decode(body['ownerKey']! as String),
+      keyB: mine.publicKey,
+    );
+  }
+
+  /// Step 3, on the invitee's phone: joins from [invite] with [mine], the
+  /// key pair its join request was made with, as [myName]. The space's
+  /// records come with the Owner's first update file.
   Future<void> join(
     String invite, {
+    required ShareKeyPair mine,
     required String myName,
     bool hasAccount = false,
   }) => _db.transaction(() async {
-    final (body, pair, key) = await _codec.openInvite(invite);
+    final pair = mine;
+    final (body, key) = await _codec.openInvite(invite, mine);
     if (await state() != null) throw StateError('Already shared');
     final owner = body['owner']! as Map;
     final you = body['you']! as Map;
@@ -474,10 +502,12 @@ class ShareRepository {
 
   Future<List<SharePeerRow>> peers() => _db.select(_db.sharePeers).get();
 
-  /// Invites [name] as [role]: a member record, and the invite the QR code
-  /// and the invite file carry.
+  /// Step 2, on the Owner's phone: from someone's join request, a member
+  /// record with their own public key, and the invite that seals the space
+  /// key to it. Returns the invite, the member, and the safety words their
+  /// phone shows on opening it.
   Future<(String, ShareMember, List<String>)> invite({
-    required String name,
+    required String request,
     required ShareRole role,
     required String spaceName,
   }) => _db.transaction(() async {
@@ -491,20 +521,20 @@ class ShareRepository {
     }
     final count = log.members.values.where((m) => !m.removed).length;
     if (count >= memberLimit(kind)!) throw const ShareLimitReached();
+    final (name, theirKey) = _codec.openJoinRequest(request);
     final me = await ShareKeyPair.fromSeed(s.seed);
-    final invitee = await ShareKeyPair.generate();
     final id = _uuid();
     final member = ShareMember(
       id: id,
       name: name,
       role: role,
-      publicKey: invitee.publicKey,
+      publicKey: theirKey,
     );
     await _log(
       await _newChange(ShareEntity.member, id, insertField, {
         'name': name,
         'role': role.name,
-        'key': invitee.publicKey,
+        'key': theirKey,
         'account': false,
       }),
     );
@@ -516,7 +546,7 @@ class ShareRepository {
     final owner = log.members[s.myMemberId];
     final text = await _codec.invite(
       owner: me,
-      invitee: invitee,
+      inviteePublicKey: theirKey,
       spaceKey: _keys(s)[s.epoch]!,
       details: {
         'space': s.spaceShareId,
@@ -531,12 +561,17 @@ class ShareRepository {
         'you': {'id': id, 'name': name, 'role': role.name},
       },
     );
-    final words = safetyWords(
-      spaceShareId: s.spaceShareId,
-      keyA: me.publicKey,
-      keyB: invitee.publicKey,
+    // The words both phones show once the invite is open: they cover the
+    // Owner's key too, so an invite from anyone else shows other words.
+    return (
+      text,
+      member,
+      safetyWords(
+        spaceShareId: s.spaceShareId,
+        keyA: me.publicKey,
+        keyB: theirKey,
+      ),
     );
-    return (text, member, words);
   });
 
   Future<void> setRole(String memberId, ShareRole role) async {

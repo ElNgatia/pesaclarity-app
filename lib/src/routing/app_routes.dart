@@ -72,6 +72,7 @@ abstract final class AppRoutes {
   static String spaceHistory(String id) =>
       '/home/profile/spaces/$id/share/history';
   static const joinSpace = '/home/profile/spaces/join';
+  static const joinRequest = '/home/profile/spaces/join-request';
   static const supportGifts = '/home/profile/support/gifts';
   static const signIn = '/home/profile/sign-in';
   static const devices = '/home/profile/devices';

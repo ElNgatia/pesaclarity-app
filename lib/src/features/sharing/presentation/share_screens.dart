@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../../core/share/share_codec.dart';
 import '../../../data/database/database_providers.dart';
+import '../../../data/repositories/app_settings_repository.dart';
 import '../../../data/repositories/share_repository.dart';
 import '../../../domain/sharing/safety_words.dart';
 import '../../../domain/sharing/share_merge.dart';
@@ -34,6 +35,7 @@ import '../../auth/application/auth_controller.dart';
 import '../../backup/application/backup_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../application/share_providers.dart';
+import 'share_scanner.dart';
 
 /// The privacy note on every sharing screen.
 const sharePrivacyNote =
@@ -711,8 +713,9 @@ class _ShareSendSheetState extends ConsumerState<ShareSendSheet> {
   }
 }
 
-/// Add a member: their name and role, then the invite as a QR code and a
-/// file, with the safety words.
+/// Add a member, in two steps: their role, then their join request
+/// (made on their phone, with their own key) and its safety words; then
+/// the invite, sealed to their key, to send back.
 class AddMemberSheet extends ConsumerStatefulWidget {
   const AddMemberSheet({
     required this.spaceName,
@@ -728,46 +731,60 @@ class AddMemberSheet extends ConsumerStatefulWidget {
 }
 
 class _AddMemberSheetState extends ConsumerState<AddMemberSheet> {
-  final _name = TextEditingController();
   var _role = ShareRole.member;
+
+  /// Their join request, its name and words, once added.
+  (String, String, List<String>)? _request;
   (String, ShareMember, List<String>)? _invite;
   String? _problem;
 
   @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final request = _request;
     final invite = _invite;
-    if (invite == null) {
+    if (invite != null) {
+      final (text, member, words) = invite;
       return SheetBody(
-        title: 'Add a member',
+        title: 'Invite ${member.name}',
+        subtitle:
+            'Let their phone scan the code, or send the invite file. '
+            'Only their phone can open it.',
         children: [
-          LabeledField(
-            label: 'Their name',
-            child: TextField(
-              key: const Key('share-invite-name'),
-              controller: _name,
-              textCapitalization: TextCapitalization.words,
+          _card(context, [
+            Text(
+              'Read these out once they open it. They should see the same.',
+              style: _muted(context),
             ),
+            const SizedBox(height: 6),
+            SafetyWordsText(words),
+            const SizedBox(height: 12),
+            ShareQrCode(text, size: 220),
+          ]),
+          const SizedBox(height: 12),
+          FilledButton(
+            key: const Key('share-invite-send'),
+            onPressed: () => _sendInvite(text, member.name),
+            child: const Text('Send the invite file'),
           ),
-          const SectionLabel('Role'),
-          GroupedSection(
-            children: [
-              for (final r in ShareRole.offeredIn(widget.kind))
-                if (r != ShareRole.owner)
-                  LinePick(
-                    key: Key('share-invite-${r.name}'),
-                    title: r.label,
-                    hint: r.hint,
-                    chosen: _role == r,
-                    onTap: () => setState(() => _role = r),
-                  ),
-            ],
-          ),
+          const SizedBox(height: 8),
+          const SharePrivacyNote(),
+        ],
+      );
+    }
+    if (request != null) {
+      final (_, name, words) = request;
+      return SheetBody(
+        title: 'Add $name',
+        subtitle: '${_role.label} · ${widget.spaceName}',
+        children: [
+          _card(context, [
+            Text(
+              'Check these words match their screen',
+              style: _muted(context),
+            ),
+            const SizedBox(height: 6),
+            SafetyWordsText(words),
+          ]),
           if (_problem != null) ...[
             const SizedBox(height: 8),
             Notice(_problem!, problem: true),
@@ -776,62 +793,112 @@ class _AddMemberSheetState extends ConsumerState<AddMemberSheet> {
           FilledButton(
             key: const Key('share-invite-make'),
             onPressed: _make,
-            child: const Text('Show the QR code'),
+            child: const Text('The words match, send the invite'),
           ),
+          const SizedBox(height: 8),
+          TextButton(
+            key: const Key('share-request-no'),
+            onPressed: () => setState(() => _request = null),
+            child: const Text("They don't match"),
+          ),
+          const SizedBox(height: 8),
+          const SharePrivacyNote(),
         ],
       );
     }
-    final (text, member, words) = invite;
     return SheetBody(
-      title: 'Invite ${member.name}',
-      subtitle: 'Let their phone scan the code, or send the invite file.',
+      title: 'Add a member',
       children: [
-        _card(context, [
-          Text(
-            'Read these out. They should see the same.',
-            style: _muted(context),
-          ),
+        const SectionLabel('Role', padding: EdgeInsets.only(bottom: 8)),
+        GroupedSection(
+          children: [
+            for (final r in ShareRole.offeredIn(widget.kind))
+              if (r != ShareRole.owner)
+                LinePick(
+                  key: Key('share-invite-${r.name}'),
+                  title: r.label,
+                  hint: r.hint,
+                  chosen: _role == r,
+                  onTap: () => setState(() => _role = r),
+                ),
+          ],
+        ),
+        const SectionLabel('Ask them for their join request'),
+        Text(
+          'On their phone: Profile, Spaces, Join a shared space, then Send '
+          'this to the owner. Their key stays on their phone.',
+          style: _muted(context),
+        ),
+        if (_problem != null) ...[
           const SizedBox(height: 8),
-          SafetyWordsText(words),
-          const SizedBox(height: 12),
-          ShareQrCode(text, size: 220),
-        ]),
-        const SizedBox(height: 12),
+          Notice(_problem!, problem: true),
+        ],
+        const SizedBox(height: 16),
         FilledButton(
-          key: const Key('share-invite-send'),
+          key: const Key('share-request-scan'),
           onPressed: () async {
-            final dir = await getTemporaryDirectory();
-            final file = File(
-              '${dir.path}/invite-${_slug(member.name)}.pcshare',
-            );
-            await file.writeAsString(text, flush: true);
-            await ref
-                .read(fileSharerProvider)
-                .shareFile(file, subject: 'Join ${widget.spaceName}');
+            final text = await ref
+                .read(shareCodeScannerProvider)
+                .scan(context, ShareCodeKind.joinRequest);
+            if (text != null) _takeRequest(text);
           },
-          child: const Text('Send the invite file'),
+          child: const Text('Scan their join request'),
         ),
         const SizedBox(height: 8),
-        const SharePrivacyNote(),
+        OutlinedButton(
+          key: const Key('share-request-add'),
+          onPressed: _addRequest,
+          child: const Text('Add their join request file'),
+        ),
       ],
     );
   }
 
-  Future<void> _make() async {
-    final name = _name.text.trim();
-    if (name.isEmpty) {
-      setState(() => _problem = 'Enter their name.');
-      return;
-    }
+  Future<void> _addRequest() async {
+    final picked = await ref.read(shareFilePickerProvider).pick();
+    if (picked == null) return;
+    _takeRequest(utf8.decode(picked.$2, allowMalformed: true));
+  }
+
+  /// A join request, scanned or from a file: read the same way either way.
+  void _takeRequest(String text) {
     try {
-      final invite = await ref
+      if (readShareCode(text) != ShareCodeKind.joinRequest) {
+        throw const ShareFileException('not a join request');
+      }
+      final (name, words) = ShareRepository.readJoinRequest(text);
+      setState(() {
+        _request = (text, name, words);
+        _problem = null;
+      });
+    } on ShareFileException {
+      setState(() => _problem = "That isn't a join request.");
+    }
+  }
+
+  Future<void> _make() async {
+    try {
+      final (text, member, words) = await ref
           .read(shareRepositoryProvider)!
-          .invite(name: name, role: _role, spaceName: widget.spaceName);
+          .invite(
+            request: _request!.$1,
+            role: _role,
+            spaceName: widget.spaceName,
+          );
       ref.invalidate(shareOverviewProvider);
-      setState(() => _invite = invite);
+      setState(() => _invite = (text, member, words));
     } on ShareLimitReached catch (e) {
       setState(() => _problem = e.toString());
     }
+  }
+
+  Future<void> _sendInvite(String text, String name) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/invite-${_slug(name)}.pcshare');
+    await file.writeAsString(text, flush: true);
+    await ref
+        .read(fileSharerProvider)
+        .shareFile(file, subject: 'Join ${widget.spaceName}');
   }
 }
 
@@ -844,8 +911,14 @@ Future<void> receiveShareFile(BuildContext context, WidgetRef ref) async {
   final picked = await ref.read(shareFilePickerProvider).pick();
   if (picked == null || !context.mounted) return;
   final (name, bytes) = picked;
-  if (_isInvite(bytes)) {
+  if (_starts(bytes, ShareCodec.invitePrefix)) {
     await context.push(AppRoutes.joinSpace, extra: utf8.decode(bytes));
+    return;
+  }
+  if (_starts(bytes, ShareCodec.joinPrefix)) {
+    if (context.mounted) {
+      _say(context, 'This is a join request. Add it from Add a member.');
+    }
     return;
   }
   final repo = ref.read(shareRepositoryProvider);
@@ -865,8 +938,8 @@ Future<void> receiveShareFile(BuildContext context, WidgetRef ref) async {
   }
 }
 
-bool _isInvite(List<int> bytes) {
-  final prefix = ascii.encode(ShareCodec.invitePrefix);
+bool _starts(List<int> bytes, String text) {
+  final prefix = ascii.encode(text);
   if (bytes.length < prefix.length) return false;
   for (var i = 0; i < prefix.length; i++) {
     if (bytes[i] != prefix[i]) return false;
@@ -1074,8 +1147,163 @@ class _HistoryRow extends ConsumerWidget {
   }
 }
 
-/// Joining for the first time: opened from the invite file or the QR
-/// code. No sign-in: check the words, give a name, join.
+/// Where the join request's key pair waits, on the invitee's phone, until
+/// the invite comes: in the main database, which is encrypted.
+const joinRequestKey = 'share.joinRequest';
+
+/// The join request this phone is waiting on: its name and key pair.
+final pendingJoinProvider = FutureProvider<(String, ShareKeyPair)?>((
+  ref,
+) async {
+  final json = await ref
+      .watch(mainSettingsRepositoryProvider)
+      .readJson(joinRequestKey);
+  final seed = json?['seed'];
+  final name = json?['name'];
+  if (seed is! String || name is! String) return null;
+  return (name, await ShareKeyPair.fromSeed(base64Url.decode(seed)));
+});
+
+/// Join a shared space, step 1: this phone makes its own key and a join
+/// request to send to the owner, then opens the invite they send back.
+class JoinRequestScreen extends ConsumerStatefulWidget {
+  const JoinRequestScreen({super.key});
+
+  @override
+  ConsumerState<JoinRequestScreen> createState() => _JoinRequestScreenState();
+}
+
+class _JoinRequestScreenState extends ConsumerState<JoinRequestScreen> {
+  final _name = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _name.text = ref.read(displayNameProvider) ?? '';
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pending = ref.watch(pendingJoinProvider);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Join a shared space')),
+      body: switch (pending) {
+        AsyncData(value: final (String, ShareKeyPair) p) => _ready(p),
+        AsyncData() => _ask(),
+        AsyncError() => const EmptyNote("This can't be opened."),
+        _ => const LoadingView(),
+      },
+    );
+  }
+
+  Widget _ask() => ListView(
+    padding: _pad,
+    children: [
+      Text(
+        'You make a join request here, with a key that stays on this phone. '
+        'The owner adds it and sends back an invite only this phone can '
+        "open. You don't need an account.",
+        style: _muted(context),
+      ),
+      const SizedBox(height: 16),
+      LabeledField(
+        label: 'Your name in this space',
+        child: TextField(
+          key: const Key('join-request-name'),
+          controller: _name,
+          textCapitalization: TextCapitalization.words,
+        ),
+      ),
+      const SizedBox(height: 16),
+      FilledButton(
+        key: const Key('join-request-make'),
+        onPressed: () async {
+          final name = _name.text.trim();
+          if (name.isEmpty) return;
+          final (_, pair, _) = await ShareRepository.makeJoinRequest(name);
+          await ref.read(mainSettingsRepositoryProvider).writeJson(
+            joinRequestKey,
+            {'name': name, 'seed': base64Url.encode(pair.seed)},
+          );
+          ref.invalidate(pendingJoinProvider);
+        },
+        child: const Text('Make my join request'),
+      ),
+      const SharePrivacyNote(),
+    ],
+  );
+
+  Widget _ready((String, ShareKeyPair) p) {
+    final (name, pair) = p;
+    final text = ShareCodec().joinRequest(
+      name: name,
+      publicKey: pair.publicKey,
+    );
+    return ListView(
+      padding: _pad,
+      children: [
+        Text(
+          'Send this to the owner, or let their phone scan the code. When '
+          'the invite comes back, open it here.',
+          style: _muted(context),
+        ),
+        const SizedBox(height: 16),
+        _card(context, [
+          Text(
+            "Read these out. They should see the same on the owner's phone.",
+            style: _muted(context),
+          ),
+          const SizedBox(height: 6),
+          SafetyWordsText(joinWords(pair.publicKey)),
+          const SizedBox(height: 12),
+          ShareQrCode(text),
+        ]),
+        const SizedBox(height: 12),
+        FilledButton(
+          key: const Key('join-request-send'),
+          onPressed: () async {
+            final dir = await getTemporaryDirectory();
+            final file = File('${dir.path}/join-${_slug(name)}.pcshare');
+            await file.writeAsString(text, flush: true);
+            await ref
+                .read(fileSharerProvider)
+                .shareFile(file, subject: 'Join request from $name');
+          },
+          child: const Text('Send this to the owner'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          key: const Key('join-request-scan'),
+          onPressed: () async {
+            final text = await ref
+                .read(shareCodeScannerProvider)
+                .scan(context, ShareCodeKind.invite);
+            if (text != null && mounted) {
+              await context.push(AppRoutes.joinSpace, extra: text);
+            }
+          },
+          child: const Text('Scan the invite'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          key: const Key('join-request-open'),
+          onPressed: () => receiveShareFile(context, ref),
+          child: const Text('Open the invite file'),
+        ),
+        const SharePrivacyNote(),
+      ],
+    );
+  }
+}
+
+/// Joining, step 3: opened from the invite file. No sign-in: check the
+/// words, give a name, join.
 class JoinSpaceScreen extends ConsumerStatefulWidget {
   const JoinSpaceScreen({required this.invite, super.key});
 
@@ -1087,9 +1315,9 @@ class JoinSpaceScreen extends ConsumerStatefulWidget {
 
 class _JoinSpaceScreenState extends ConsumerState<JoinSpaceScreen> {
   Map<String, Object?>? _details;
-  List<String>? _words;
+  ShareKeyPair? _pair;
   String? _name;
-  var _bad = false;
+  String? _bad;
   var _joining = false;
 
   @override
@@ -1097,16 +1325,30 @@ class _JoinSpaceScreenState extends ConsumerState<JoinSpaceScreen> {
     super.initState();
     Future(() async {
       try {
-        final details = await ShareRepository.readInvite(widget.invite);
-        final words = await ShareRepository.inviteWords(widget.invite);
+        final details = ShareRepository.readInvite(widget.invite);
+        final pending = await ref.read(pendingJoinProvider.future);
+        if (pending == null) {
+          if (mounted) {
+            setState(
+              () => _bad =
+                  'This invite was made for another phone. Make a join '
+                  'request first, from Join a shared space.',
+            );
+          }
+          return;
+        }
+        // Only the phone whose key the invite was sealed to opens it.
+        await ShareCodec().openInvite(widget.invite, pending.$2);
         if (!mounted) return;
         setState(() {
           _details = details;
-          _words = words;
-          _name = (details['you'] as Map?)?['name'] as String?;
+          _pair = pending.$2;
+          _name = pending.$1;
         });
       } on Object {
-        if (mounted) setState(() => _bad = true);
+        if (mounted) {
+          setState(() => _bad = 'This invite was made for another phone.');
+        }
       }
     });
   }
@@ -1115,11 +1357,8 @@ class _JoinSpaceScreenState extends ConsumerState<JoinSpaceScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final d = _details;
-    if (_bad) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: const EmptyNote("This invite can't be opened."),
-      );
+    if (_bad != null) {
+      return Scaffold(appBar: AppBar(), body: EmptyNote(_bad!));
     }
     if (d == null) return const Scaffold(body: LoadingView());
     final owner = ((d['owner'] as Map?)?['name'] as String? ?? 'The owner')
@@ -1151,7 +1390,7 @@ class _JoinSpaceScreenState extends ConsumerState<JoinSpaceScreen> {
               style: _muted(context),
             ),
             const SizedBox(height: 6),
-            SafetyWordsText(_words!),
+            SafetyWordsText(ShareRepository.inviteWords(widget.invite, _pair!)),
           ]),
           const SizedBox(height: 12),
           GroupedSection(
@@ -1224,16 +1463,22 @@ class _JoinSpaceScreenState extends ConsumerState<JoinSpaceScreen> {
     if (kind == null || !canShare(kind)) return;
     setState(() => _joining = true);
     final router = GoRouter.of(context);
+    final settings = ref.read(mainSettingsRepositoryProvider);
     final id = await ref
         .read(spacesProvider.notifier)
         .add(d['name']! as String, kind);
     final repo = ShareRepository(ref.read(appDatabaseProvider), kind: kind);
     await repo.join(
       widget.invite,
+      mine: _pair!,
       myName: _name ?? '',
       hasAccount: ref.read(authControllerProvider).value != null,
     );
-    ref.invalidate(shareOverviewProvider);
+    // The key now lives in the space's own database.
+    await settings.writeJson(joinRequestKey, const {});
+    ref
+      ..invalidate(pendingJoinProvider)
+      ..invalidate(shareOverviewProvider);
     router.go(AppRoutes.shareSpace(id));
   }
 }

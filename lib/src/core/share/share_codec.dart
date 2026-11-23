@@ -15,6 +15,36 @@ class ShareFileException implements Exception {
   String toString() => 'ShareFileException: $reason';
 }
 
+/// What a QR code or a small `.pcshare` file can hold besides an update.
+enum ShareCodeKind { joinRequest, invite }
+
+/// The kind of [text], read and checked the same way whether it came from
+/// the camera or a file. Throws [ShareFileException] for anything else.
+ShareCodeKind readShareCode(String text) {
+  final codec = ShareCodec();
+  final trimmed = text.trim();
+  if (trimmed.startsWith(ShareCodec.joinPrefix)) {
+    codec.openJoinRequest(trimmed);
+    return ShareCodeKind.joinRequest;
+  }
+  if (trimmed.startsWith(ShareCodec.invitePrefix)) {
+    final body = codec.readInvite(trimmed);
+    for (final key in [
+      'space',
+      'name',
+      'kind',
+      'ownerKey',
+      'wrap',
+      'owner',
+      'you',
+    ]) {
+      if (body[key] == null) throw const ShareFileException('invite');
+    }
+    return ShareCodeKind.invite;
+  }
+  throw const ShareFileException('not a Pesa Clarity code');
+}
+
 /// A member's key pair: an X25519 private key kept as its 32-byte seed.
 class ShareKeyPair {
   const ShareKeyPair(this.seed, this.publicKey);
@@ -135,7 +165,8 @@ final class ShareCodec {
 
   static const version = 1;
   static const _magic = 'PCSHARE';
-  static const invitePrefix = 'pcshare-invite:1:';
+  static const invitePrefix = 'pcshare-invite:2:';
+  static const joinPrefix = 'pcshare-join:1:';
   static final _aes = AesGcm.with256bits();
   static final _hkdf = Hkdf(hmac: Hmac.sha256(), outputLength: 32);
   static final _x25519 = X25519();
@@ -294,17 +325,39 @@ final class ShareCodec {
     return OpenedShareFile(header, spaceKey, json);
   }
 
-  /// An invite: what the QR code holds and the invite file carries. The
-  /// space key is sealed to a key pair made for the invitee, whose private
-  /// half rides in the invite; the safety words, read out face to face or
-  /// on a call, show both phones have the Owner's real key.
+  /// A join request, made on the invitee's phone: their name and public
+  /// key. Their private key never leaves that phone.
+  String joinRequest({required String name, required List<int> publicKey}) =>
+      '$joinPrefix${base64Url.encode(utf8.encode(jsonEncode({'name': name, 'key': base64Url.encode(publicKey)})))}';
+
+  /// The name and public key in a join request.
+  (String, List<int>) openJoinRequest(String text) {
+    final trimmed = text.trim();
+    if (!trimmed.startsWith(joinPrefix)) {
+      throw const ShareFileException('not a join request');
+    }
+    try {
+      final body = jsonDecode(
+        utf8.decode(base64Url.decode(trimmed.substring(joinPrefix.length))),
+      ) as Map<String, Object?>;
+      final key = base64Url.decode(body['key']! as String);
+      if (key.length != 32) throw const FormatException('key');
+      return (body['name']! as String, key);
+    } on Object {
+      throw const ShareFileException('join request');
+    }
+  }
+
+  /// An invite, made by the Owner from a join request: the space key
+  /// sealed to the invitee's own public key (X25519 and HKDF), so only the
+  /// phone that made the request can open it.
   Future<String> invite({
     required ShareKeyPair owner,
-    required ShareKeyPair invitee,
+    required List<int> inviteePublicKey,
     required List<int> spaceKey,
     required Map<String, Object?> details,
   }) async {
-    final dh = await _shared(owner.seed, invitee.publicKey);
+    final dh = await _shared(owner.seed, inviteePublicKey);
     final nonce = randomBytes(12, _random);
     final wrapKey = await _derive(dh, 'invite', 'pcshare v1 invite');
     final box = await _aes.encrypt(
@@ -316,29 +369,37 @@ final class ShareCodec {
     final body = {
       ...details,
       'ownerKey': base64Url.encode(owner.publicKey),
-      'seed': base64Url.encode(invitee.seed),
       'wrap': base64Url.encode(box.concatenation()),
     };
     return '$invitePrefix${base64Url.encode(utf8.encode(jsonEncode(body)))}';
   }
 
-  /// Opens an invite: its details, the invitee's key pair and the space key.
-  Future<(Map<String, Object?>, ShareKeyPair, List<int>)> openInvite(
-    String text,
-  ) async {
+  /// An invite's details, readable by anyone who has it; the space key
+  /// is not among them.
+  Map<String, Object?> readInvite(String text) {
     final trimmed = text.trim();
     if (!trimmed.startsWith(invitePrefix)) {
       throw const ShareFileException('not an invite');
     }
     try {
-      final body = jsonDecode(
+      return jsonDecode(
         utf8.decode(base64Url.decode(trimmed.substring(invitePrefix.length))),
       ) as Map<String, Object?>;
-      final pair = await ShareKeyPair.fromSeed(
-        base64Url.decode(body['seed']! as String),
-      );
+    } on Object {
+      throw const ShareFileException('invite');
+    }
+  }
+
+  /// Opens an invite with the key pair that made the join request: its
+  /// details and the space key.
+  Future<(Map<String, Object?>, List<int>)> openInvite(
+    String text,
+    ShareKeyPair mine,
+  ) async {
+    final body = readInvite(text);
+    try {
       final ownerKey = base64Url.decode(body['ownerKey']! as String);
-      final dh = await _shared(pair.seed, ownerKey);
+      final dh = await _shared(mine.seed, ownerKey);
       final wrapKey = await _derive(dh, 'invite', 'pcshare v1 invite');
       final key = await _aes.decrypt(
         SecretBox.fromConcatenation(
@@ -349,9 +410,7 @@ final class ShareCodec {
         secretKey: wrapKey,
         aad: utf8.encode('invite|${body['space']}'),
       );
-      return (body, pair, key);
-    } on ShareFileException {
-      rethrow;
+      return (body, key);
     } on Object {
       throw const ShareFileException('invite');
     }

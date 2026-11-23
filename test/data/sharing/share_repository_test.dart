@@ -368,14 +368,14 @@ void main() {
       await me.repo.start(myName: 'Achieng');
       for (var i = 1; i < 6; i++) {
         await me.repo.invite(
-          name: 'Person $i',
+          request: await joinRequest('Person $i'),
           role: ShareRole.member,
           spaceName: 'Home',
         );
       }
       expect(
-        () => me.repo.invite(
-          name: 'Seventh',
+        () async => me.repo.invite(
+          request: await joinRequest('Seventh'),
           role: ShareRole.member,
           spaceName: 'Home',
         ),
@@ -388,14 +388,14 @@ void main() {
       await me.repo.start(myName: 'Wanjiku');
       for (var i = 1; i < 30; i++) {
         await me.repo.invite(
-          name: 'Member $i',
+          request: await joinRequest('Member $i'),
           role: i == 1 ? ShareRole.treasurer : ShareRole.member,
           spaceName: 'Umoja',
         );
       }
       expect(
-        () => me.repo.invite(
-          name: 'One more',
+        () async => me.repo.invite(
+          request: await joinRequest('One more'),
           role: ShareRole.member,
           spaceName: 'Umoja',
         ),
@@ -407,8 +407,8 @@ void main() {
       final me = Phone('Achieng');
       await me.repo.start(myName: 'Achieng');
       expect(
-        () => me.repo.invite(
-          name: 'Jane',
+        () async => me.repo.invite(
+          request: await joinRequest('Jane'),
           role: ShareRole.treasurer,
           spaceName: 'Home',
         ),
@@ -422,20 +422,69 @@ void main() {
     });
   });
 
-  test('the safety words match on both phones', () async {
+  test('the safety words match on both phones, at each step', () async {
     final me = Phone('Achieng');
     final jane = Phone('Jane');
     await me.repo.start(myName: 'Achieng');
+    // Jane's phone makes the request; the Owner sees the same words.
+    final (request, pair, janeWords) = await ShareRepository.makeJoinRequest(
+      'Jane',
+    );
+    final (name, ownerSees) = ShareRepository.readJoinRequest(request);
+    expect(name, 'Jane');
+    expect(ownerSees, janeWords);
+    expect(janeWords, hasLength(4));
+    // The invite's words, on both phones.
     final (invite, member, words) = await me.repo.invite(
-      name: 'Jane',
+      request: request,
       role: ShareRole.member,
       spaceName: 'Home',
     );
-    expect(await ShareRepository.inviteWords(invite), words);
-    expect(words, hasLength(4));
-    await jane.repo.join(invite, myName: 'Jane');
+    expect(ShareRepository.inviteWords(invite, pair), words);
+    await jane.repo.join(invite, mine: pair, myName: 'Jane');
     expect(await jane.repo.wordsWith(await me.id), words);
     expect(await me.repo.wordsWith(member.id), words);
+  });
+
+  test("the private key never leaves the invitee's phone", () async {
+    final me = Phone('Achieng');
+    await me.repo.start(myName: 'Achieng');
+    final (request, pair, _) = await ShareRepository.makeJoinRequest('Jane');
+    final (invite, _, _) = await me.repo.invite(
+      request: request,
+      role: ShareRole.member,
+      spaceName: 'Home',
+    );
+    final seed = base64Url.encode(pair.seed);
+    for (final text in [request, invite]) {
+      final body = utf8.decode(base64Url.decode(text.split(':').last));
+      expect(body, isNot(contains(seed)));
+    }
+  });
+
+  test('an intercepted invite cannot be opened by a third phone', () async {
+    final me = Phone('Achieng');
+    final eve = Phone('Eve');
+    await me.repo.start(myName: 'Achieng');
+    final (request, _, _) = await ShareRepository.makeJoinRequest('Jane');
+    final (invite, _, _) = await me.repo.invite(
+      request: request,
+      role: ShareRole.member,
+      spaceName: 'Home',
+    );
+    // Eve has the invite file and a key pair of her own, not Jane's.
+    final (_, evePair, _) = await ShareRepository.makeJoinRequest('Eve');
+    await expectLater(
+      eve.repo.join(invite, mine: evePair, myName: 'Eve'),
+      throwsA(isA<ShareFileException>()),
+    );
+    expect(await eve.repo.state(), isNull);
+  });
+
+  test('a swapped join request shows other words', () async {
+    final (_, _, real) = await ShareRepository.makeJoinRequest('Jane');
+    final (swapped, _, _) = await ShareRepository.makeJoinRequest('Jane');
+    expect(ShareRepository.readJoinRequest(swapped).$2, isNot(real));
   });
 
   test(
