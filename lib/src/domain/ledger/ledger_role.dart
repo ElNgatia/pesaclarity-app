@@ -107,6 +107,13 @@ LedgerRole roleOf(LedgerEntry entry) {
       return LedgerRole.reversal;
     case TransactionKind.correction:
       return LedgerRole.correction;
+    // Cash taken out at an agent or put in: the person's own money moving
+    // between the wallet and their hand, never spending or income, unless
+    // they filed it under a category of their own.
+    case TransactionKind.withdrawal when entry.categoryType == null:
+      return LedgerRole.ownTransfer;
+    case TransactionKind.deposit when entry.categoryType == null:
+      return LedgerRole.ownTransfer;
     case TransactionKind.sent ||
         TransactionKind.received ||
         TransactionKind.paybill ||
