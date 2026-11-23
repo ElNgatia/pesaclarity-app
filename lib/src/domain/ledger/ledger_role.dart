@@ -153,6 +153,24 @@ LedgerRole roleOf(LedgerEntry entry) {
   };
 }
 
+/// What [entry] adds to spending as it reads alone: its amount when it is
+/// spending, less a refund's (a reversal coming in), otherwise zero. The
+/// one rule every spending figure (totals, categories, budgets, charts,
+/// tags, summaries) follows, so they all add up to the same number.
+int spendingOf(LedgerEntry entry) => switch (roleOf(entry)) {
+  LedgerRole.spending => entry.amountMinor,
+  LedgerRole.reversal when entry.isInflow => -entry.amountMinor,
+  _ => 0,
+};
+
+/// What [entry] adds to income as it reads alone: its amount when it is
+/// income, less money given back (a reversal going out), otherwise zero.
+int incomeOf(LedgerEntry entry) => switch (roleOf(entry)) {
+  LedgerRole.income when entry.isInflow => entry.amountMinor,
+  LedgerRole.reversal when entry.isOutflow => -entry.amountMinor,
+  _ => 0,
+};
+
 /// Whether [entry] is money moved into the person's own savings: an own
 /// transfer out under a savings category, such as one into a savings
 /// account of theirs (see `TransactionsRepository.ledgerEntries`) or a
