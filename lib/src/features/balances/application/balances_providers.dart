@@ -117,6 +117,15 @@ class BalancesOverview {
       )
       .length;
 
+  /// Cash accounts that count on hand and hold less than nothing: more was
+  /// put in at agents than the records took out, so the person should set
+  /// what they have.
+  List<AccountBalance> get cashBelowZero => [
+    for (final a in accounts)
+      if (a.account.type == AccountType.cash && !a.isSavings && a.heldMinor < 0)
+        a,
+  ];
+
   /// What the day-to-day accounts are worth, in the base currency: savings
   /// are left out, as On hand leaves them out.
   int totalMinor(String base) => accounts

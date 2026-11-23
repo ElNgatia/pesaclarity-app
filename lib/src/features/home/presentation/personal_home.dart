@@ -24,6 +24,7 @@ import '../application/home_period_providers.dart';
 import '../application/home_safe_provider.dart';
 import '../application/things_to_sort_provider.dart';
 import '../application/upcoming_bills_provider.dart';
+import 'cash_below_zero_card.dart';
 import 'home_cards.dart';
 
 /// Text sizes from which Home's three figures stack, label then amount,
@@ -74,6 +75,7 @@ class PersonalHome extends ConsumerWidget {
         _InOutCard(view: view),
         const SizedBox(height: Layout.cardGap),
         // Real problems, each on its own.
+        const CashBelowZeroCard(),
         const WhatWasThisCard(),
         for (final alert in over)
           BudgetAlertCard(

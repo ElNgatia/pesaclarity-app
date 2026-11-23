@@ -41,6 +41,7 @@ import '../application/health_index_provider.dart';
 import '../application/safe_to_spend_provider.dart';
 import '../application/upcoming_bills_provider.dart';
 import 'add_menu.dart';
+import 'cash_below_zero_card.dart';
 import 'home_cards.dart';
 import 'not_yet_sorted_card.dart';
 import 'personal_home.dart';
@@ -131,6 +132,7 @@ class HomeScreen extends ConsumerWidget {
                   if (space.kind == SpaceKind.business)
                     const BusinessSetupCard(),
                   const SharedLineCard(),
+                  const CashBelowZeroCard(),
                   const NotYetSortedCard(),
                   const WhatWasThisCard(),
                   if (sources.irregular) const WeekByWeekCard(),
