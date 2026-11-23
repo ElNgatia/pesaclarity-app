@@ -71,6 +71,38 @@ Future<void> linkAgentCash(
   );
 }
 
+/// Runs [linkAgentCash] over every agent withdrawal and deposit stored in
+/// [db], oldest first, so those read before agent cash moved to a cash
+/// account get their side there too. Safe to run again: one already
+/// paired is left as it is. Returns how many it linked.
+Future<int> linkStoredAgentCash(AppDatabase db) async {
+  final rows =
+      await (db.select(db.transactions)
+            ..where(
+              (t) =>
+                  t.kind.isInValues(const [
+                    TransactionKind.withdrawal,
+                    TransactionKind.deposit,
+                  ]) &
+                  t.transferPairId.isNull() &
+                  t.transferAccountId.isNull() &
+                  t.categoryOverrideId.isNull(),
+            )
+            ..orderBy([(t) => OrderingTerm(expression: t.occurredAt)]))
+          .get();
+  if (rows.isEmpty) return 0;
+  var linked = 0;
+  for (final row in rows) {
+    final accounts = await db.select(db.accounts).get();
+    await linkAgentCash(db, row.id, accounts: accounts);
+    final after = await (db.select(
+      db.transactions,
+    )..where((t) => t.id.equals(row.id))).getSingle();
+    if (after.transferPairId != null) linked++;
+  }
+  return linked;
+}
+
 /// The name of the cash account made for the first agent withdrawal.
 const cashInHandName = 'Cash in hand';
 
