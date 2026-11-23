@@ -54,6 +54,7 @@ import '../features/review/presentation/review_inbox_screen.dart';
 import '../features/review/presentation/review_message_screen.dart';
 import '../features/sales/presentation/sell_screen.dart';
 import '../features/security/application/app_lock_controller.dart';
+import '../features/sharing/presentation/share_screens.dart';
 import '../features/sms/presentation/connect_messages_screen.dart';
 import '../features/sms/presentation/paste_messages_screen.dart';
 import '../features/sms/presentation/sms_scan_screen.dart';
@@ -348,6 +349,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                                 const DeleteAllScreen(),
                           ),
                           GoRoute(
+                            path: 'join-request',
+                            builder: (context, state) =>
+                                const JoinRequestScreen(),
+                          ),
+                          GoRoute(
+                            path: 'join',
+                            builder: (context, state) =>
+                                JoinSpaceScreen(invite: state.extra! as String),
+                          ),
+                          GoRoute(
                             path: ':id',
                             builder: (context, state) => SpaceSettingsScreen(
                               spaceId: state.pathParameters['id']!,
@@ -358,6 +369,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                                 builder: (context, state) => ClearSpaceScreen(
                                   spaceId: state.pathParameters['id']!,
                                 ),
+                              ),
+                              GoRoute(
+                                path: 'share',
+                                builder: (context, state) => ShareSpaceScreen(
+                                  spaceId: state.pathParameters['id']!,
+                                ),
+                                routes: [
+                                  GoRoute(
+                                    path: 'history',
+                                    builder: (context, state) =>
+                                        const SpaceHistoryScreen(),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
