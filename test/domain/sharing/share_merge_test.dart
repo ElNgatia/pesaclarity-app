@@ -201,7 +201,7 @@ void main() {
       expect(out.refused, hasLength(1));
     });
 
-    test('in a chama only the Owner and Treasurer change the plan', () {
+    test("in a chama a member's plan change waits for approval", () {
       final log = _space(SpaceKind.savingsGroup, {
         'owner': ShareRole.owner,
         'mary': ShareRole.treasurer,
@@ -211,13 +211,10 @@ void main() {
         _c(10, 'jane', ShareEntity.budget, 'b', insertField, {}),
         _c(11, 'jane', ShareEntity.transaction, 't', insertField, {}),
       ]);
-      expect(out.refused.single.entity, ShareEntity.budget);
-      expect(
-        log.merge('mary', [
-          _c(12, 'mary', ShareEntity.budget, 'b', insertField, {}),
-        ]).refused,
-        isEmpty,
-      );
+      expect(out.refused, isEmpty);
+      expect(out.waiting.single.entity, ShareEntity.budget);
+      expect(log.exists(ShareEntity.budget, 'b'), isFalse);
+      expect(log.exists(ShareEntity.transaction, 't'), isTrue);
     });
 
     test('opening the same changes twice skips them', () {

@@ -197,3 +197,41 @@ Future<(Phone, List<int>)> kilimani() async {
 /// A join request from a phone that is never used again.
 Future<String> joinRequest(String name) async =>
     (await ShareRepository.makeJoinRequest(name)).$1;
+
+/// Home at Kilimani with changes that wait (group approvals): Wanjiku
+/// (Owner) added a taxi, Brian a Mama Mboga; Jane asks to delete the taxi
+/// and to change Mama Mboga from 450 to 540, in a file Wanjiku has
+/// applied. Returns Wanjiku's phone, then Jane's.
+Future<(Phone, Phone)> waitingKilimani() async {
+  final me = Phone('Wanjiku');
+  final jane = Phone('Jane Wairimu');
+  final brian = Phone('Brian');
+  final cash = await me.account('Cash box');
+  me.now = eat(2026, 11, 3, 9).millisecondsSinceEpoch;
+  await share(me, {jane: ShareRole.member, brian: ShareRole.member});
+  me.now = eat(2026, 11, 21, 9).millisecondsSinceEpoch;
+  await me.spend(cash, 'Taxi', 600);
+  await me.sendTo(brian);
+  brian.now = eat(2026, 11, 21, 10).millisecondsSinceEpoch;
+  final brianCash = (await (brian.db.select(
+    brian.db.accounts,
+  )..where((a) => a.name.equals('Cash box'))).getSingle()).id;
+  await brian.spend(brianCash, 'Mama Mboga', 450);
+  await brian.sendTo(me);
+  me.now = eat(2026, 11, 21, 13).millisecondsSinceEpoch;
+  await me.sendTo(jane);
+  jane.now = eat(2026, 11, 22, 8).millisecondsSinceEpoch;
+  await jane.db.customStatement(
+    "DELETE FROM transactions WHERE counterparty_name = 'Taxi'",
+  );
+  await jane.db.customStatement(
+    'UPDATE transactions SET amount_minor = ? '
+    "WHERE counterparty_name = 'Mama Mboga'",
+    [kes(540)],
+  );
+  await jane.repo.recordLocalChanges();
+  me.now = eat(2026, 11, 22, 9).millisecondsSinceEpoch;
+  await jane.sendTo(me);
+  me.now = eat(2026, 11, 22, 9, 41).millisecondsSinceEpoch;
+  return (me, jane);
+}

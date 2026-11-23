@@ -35,6 +35,7 @@ import '../../auth/application/auth_controller.dart';
 import '../../backup/application/backup_providers.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../application/share_providers.dart';
+import 'approval_screens.dart';
 import 'share_scanner.dart';
 
 /// The privacy note on every sharing screen.
@@ -204,6 +205,7 @@ class _ShareBody extends ConsumerWidget {
           style: muted,
         ),
         const SizedBox(height: 12),
+        if (overview.shared) ApprovalsCard(spaceId: spaceId),
         GroupedSection(
           children: [
             _IconRow(
@@ -264,6 +266,10 @@ class _ShareBody extends ConsumerWidget {
                 ),
           ],
         ),
+        if (overview.shared) ...[
+          const SizedBox(height: 12),
+          RulesRow(spaceId: spaceId),
+        ],
         const SizedBox(height: 12),
         GroupedSection(
           children: [
@@ -450,6 +456,7 @@ class RoleSheet extends ConsumerStatefulWidget {
 
 class _RoleSheetState extends ConsumerState<RoleSheet> {
   late var _role = widget.member.role;
+  late var _approver = widget.member.approver;
 
   @override
   Widget build(BuildContext context) {
@@ -476,6 +483,23 @@ class _RoleSheetState extends ConsumerState<RoleSheet> {
               ),
           ],
         ),
+        if (_role == ShareRole.member) ...[
+          const SizedBox(height: 12),
+          GroupedSection(
+            children: [
+              SwitchListTile.adaptive(
+                key: const Key('share-can-approve'),
+                title: const Text('Can approve'),
+                subtitle: const Text(
+                  "Says yes or no to other members' changes that need "
+                  'approval',
+                ),
+                value: _approver,
+                onChanged: (on) => setState(() => _approver = on),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 8),
         Text(
           '${chama ? 'Treasurer is offered in Savings groups only. ' : ''}'
@@ -487,10 +511,15 @@ class _RoleSheetState extends ConsumerState<RoleSheet> {
         FilledButton(
           key: const Key('share-role-save'),
           onPressed: () async {
-            await ref
-                .read(shareRepositoryProvider)!
-                .setRole(widget.member.id, _role);
-            ref.invalidate(shareOverviewProvider);
+            final repo = ref.read(shareRepositoryProvider)!;
+            await repo.setRole(widget.member.id, _role);
+            await repo.setApprover(
+              widget.member.id,
+              approver: _role == ShareRole.member && _approver,
+            );
+            ref
+              ..invalidate(shareOverviewProvider)
+              ..invalidate(toApproveProvider);
             if (context.mounted) Navigator.pop(context);
           },
           child: const Text('Save'),
@@ -952,10 +981,12 @@ void _say(BuildContext context, String text) =>
 
 /// The title of the receive sheet: "From Jane: 14 new, 2 changed, 1
 /// conflict (later wins)".
-String receiveTitle(String from, MergeOutcome o) {
+String receiveTitle(String from, MergeOutcome o, {bool mine = false}) {
+  final waiting = o.waiting.length;
   final parts = [
     '${o.added.length} new',
-    '${o.changed.length} changed',
+    if (waiting == 0 || o.changed.isNotEmpty) '${o.changed.length} changed',
+    if (waiting > 0) '$waiting waiting for ${mine ? 'your ' : ''}approval',
     if (o.conflicts.isNotEmpty)
       '${o.conflicts.length} conflict${o.conflicts.length == 1 ? '' : 's'} '
           '(later wins)',
@@ -986,8 +1017,17 @@ class _ShareReceiveSheetState extends ConsumerState<ShareReceiveSheet> {
     final i = widget.incoming;
     final o = i.outcome;
     final conflicts = o.conflicts.length;
+    final waiting = o.waiting.length;
+    final overview = ref.watch(shareOverviewProvider).value;
+    final mine =
+        overview != null &&
+        overview.myRole != ShareRole.viewer &&
+        (overview.myRole == ShareRole.owner ||
+            (overview.kind == SpaceKind.savingsGroup &&
+                overview.myRole == ShareRole.treasurer) ||
+            (overview.me?.approver ?? false));
     return SheetBody(
-      title: receiveTitle(i.from.name, o),
+      title: receiveTitle(i.from.name, o, mine: mine),
       subtitle:
           '${widget.fileName}${i.wordsChecked ? ' · key checked' : ''} · '
           '${_day(i.header.at)}',
@@ -999,6 +1039,12 @@ class _ShareReceiveSheetState extends ConsumerState<ShareReceiveSheet> {
               value: '${o.added.length}',
             ),
             LabelValueRow(label: 'Changed', value: '${o.changed.length}'),
+            if (waiting > 0)
+              LabelValueRow(
+                key: const Key('share-waiting'),
+                label: 'Waiting for approval',
+                value: '$waiting',
+              ),
             if (conflicts > 0)
               ListTile(
                 key: const Key('share-conflicts'),
@@ -1007,6 +1053,16 @@ class _ShareReceiveSheetState extends ConsumerState<ShareReceiveSheet> {
               ),
           ],
         ),
+        if (waiting > 0 && !i.alreadyApplied) ...[
+          const SizedBox(height: 8),
+          Text(
+            'The ${o.added.length} new one${o.added.length == 1 ? '' : 's'} '
+            'count now. The $waiting change${waiting == 1 ? '' : 's'} '
+            '${waiting == 1 ? 'waits' : 'wait'} '
+            '${mine ? 'in Changes to approve' : 'for an approver'}.',
+            style: _muted(context),
+          ),
+        ],
         const SizedBox(height: 8),
         Text(
           i.alreadyApplied
@@ -1035,7 +1091,9 @@ class _ShareReceiveSheetState extends ConsumerState<ShareReceiveSheet> {
     setState(() => _applying = true);
     try {
       await ref.read(shareRepositoryProvider)!.apply(widget.incoming.bytes);
-      ref.invalidate(shareOverviewProvider);
+      ref
+        ..invalidate(shareOverviewProvider)
+        ..invalidate(toApproveProvider);
       if (mounted) Navigator.pop(context);
     } on ShareRefused catch (e) {
       if (mounted) _say(context, e.message);

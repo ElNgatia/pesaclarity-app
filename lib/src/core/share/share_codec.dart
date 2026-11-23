@@ -327,8 +327,28 @@ final class ShareCodec {
 
   /// A join request, made on the invitee's phone: their name and public
   /// key. Their private key never leaves that phone.
-  String joinRequest({required String name, required List<int> publicKey}) =>
-      '$joinPrefix${base64Url.encode(utf8.encode(jsonEncode({'name': name, 'key': base64Url.encode(publicKey)})))}';
+  String joinRequest({
+    required String name,
+    required List<int> publicKey,
+    List<int>? signKey,
+  }) =>
+      '$joinPrefix${base64Url.encode(utf8.encode(jsonEncode({'name': name, 'key': base64Url.encode(publicKey), if (signKey != null) 'sign': base64Url.encode(signKey)})))}';
+
+  /// The signing key in a join request, which the member's answers to
+  /// waiting changes are checked with; null in an older request.
+  List<int>? joinSignKey(String text) {
+    try {
+      final body = jsonDecode(
+        utf8.decode(base64Url.decode(text.trim().substring(joinPrefix.length))),
+      ) as Map<String, Object?>;
+      final sign = body['sign'];
+      if (sign is! String) return null;
+      final key = base64Url.decode(sign);
+      return key.length == 32 ? key : null;
+    } on Object {
+      return null;
+    }
+  }
 
   /// The name and public key in a join request.
   (String, List<int>) openJoinRequest(String text) {
@@ -413,6 +433,53 @@ final class ShareCodec {
       return (body, key);
     } on Object {
       throw const ShareFileException('invite');
+    }
+  }
+}
+
+/// Signs and checks a member's answers to waiting changes (Ed25519). The
+/// signing key comes from the member's own seed, so it never leaves the
+/// phone; its public half is in the space's member list.
+abstract final class ShareSigner {
+  static final _ed = Ed25519();
+
+  static Future<SimpleKeyPair> _pair(List<int> seed) async {
+    final h = await Sha256().hash([
+      ...utf8.encode('pcshare v1 sign|'),
+      ...seed,
+    ]);
+    return _ed.newKeyPairFromSeed(h.bytes);
+  }
+
+  static Future<List<int>> publicKey(List<int> seed) async =>
+      (await (await _pair(seed)).extractPublicKey()).bytes;
+
+  static Future<List<int>> sign(List<int> seed, String message) async {
+    final sig = await _ed.sign(
+      utf8.encode(message),
+      keyPair: await _pair(seed),
+    );
+    return sig.bytes;
+  }
+
+  static Future<bool> verify(
+    List<int>? publicKey,
+    String message,
+    Object? signature,
+  ) async {
+    if (publicKey == null || publicKey.length != 32 || signature is! String) {
+      return false;
+    }
+    try {
+      return await _ed.verify(
+        utf8.encode(message),
+        signature: Signature(
+          base64Url.decode(signature),
+          publicKey: SimplePublicKey(publicKey, type: KeyPairType.ed25519),
+        ),
+      );
+    } on Object {
+      return false;
     }
   }
 }

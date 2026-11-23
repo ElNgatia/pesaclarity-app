@@ -54,6 +54,7 @@ import '../features/review/presentation/review_inbox_screen.dart';
 import '../features/review/presentation/review_message_screen.dart';
 import '../features/sales/presentation/sell_screen.dart';
 import '../features/security/application/app_lock_controller.dart';
+import '../features/sharing/presentation/approval_screens.dart';
 import '../features/sharing/presentation/share_screens.dart';
 import '../features/sms/presentation/connect_messages_screen.dart';
 import '../features/sms/presentation/paste_messages_screen.dart';
@@ -380,6 +381,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                                     path: 'history',
                                     builder: (context, state) =>
                                         const SpaceHistoryScreen(),
+                                  ),
+                                  GoRoute(
+                                    path: 'approvals',
+                                    builder: (context, state) =>
+                                        const ApprovalsScreen(),
+                                  ),
+                                  GoRoute(
+                                    path: 'rules',
+                                    builder: (context, state) =>
+                                        const ShareRulesScreen(),
                                   ),
                                 ],
                               ),
