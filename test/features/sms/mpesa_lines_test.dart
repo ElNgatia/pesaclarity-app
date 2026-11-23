@@ -9,11 +9,13 @@ import 'package:pesaclarity/src/data/database/app_database.dart';
 import 'package:pesaclarity/src/data/database/database_providers.dart';
 import 'package:pesaclarity/src/data/repositories/app_settings_repository.dart';
 import 'package:pesaclarity/src/data/repositories/institutions_repository.dart';
+import 'package:pesaclarity/src/data/repositories/own_moves.dart';
 import 'package:pesaclarity/src/data/repositories/space_leak_repair.dart';
 import 'package:pesaclarity/src/domain/accounts/mpesa_lines.dart';
 import 'package:pesaclarity/src/domain/spaces/space.dart';
 import 'package:pesaclarity/src/features/accounts/application/mpesa_lines_providers.dart';
 import 'package:pesaclarity/src/features/accounts/domain/institution.dart';
+import 'package:pesaclarity/src/features/balances/application/balances_providers.dart';
 import 'package:pesaclarity/src/features/review/application/review_providers.dart';
 import 'package:pesaclarity/src/features/sms/application/sms_capture_providers.dart';
 import 'package:pesaclarity/src/features/sms/data/sms_source.dart';
@@ -394,6 +396,244 @@ void main() {
       );
       expect(await c.read(whichLineItemsProvider.future), isEmpty);
     });
+  });
+
+  group('many lines', () {
+    Future<ProviderContainer> splitTwo(SmsSource sms) async {
+      final c = await app(sms: sms);
+      await scan(c, personal);
+      await c.read(lineSplitControllerProvider.notifier).split({
+        '1': const LineSetting(spaceId: personalSpaceId, name: 'My line'),
+        '2': const LineSetting(spaceId: personalSpaceId, name: 'Old line'),
+      });
+      return c;
+    }
+
+    Future<Account> lineAccount(String id) => (personal.select(
+      personal.accounts,
+    )..where((a) => a.reference.equals(lineReference(id)))).getSingle();
+
+    Future<void> live(ProviderContainer c, SmsMessage message) => c
+        .read(smsIngestorProvider)
+        .ingest(
+          [message],
+          [institutionCatalogue.singleWhere((i) => i.id == mpesaInstitutionId)],
+        );
+
+    test("Don't track, keeping its past records: they stay, its balance "
+        'leaves the totals, and its new messages are skipped live and when '
+        'read again', () async {
+      final phone = FakeSmsSource(inbox: _twoLines());
+      final c = await splitTwo(phone);
+      await c.read(mpesaLineRoutingProvider).untrack('2', deleteRecords: false);
+
+      expect((await byAccount(personal))['line:2'], {
+        'TKA0000002',
+        'TKA0000004',
+      });
+      expect((await lineAccount('2')).countsOnHand, isFalse);
+      final skipped = _sent('TKA0000030', 100, 24130, 30, sim: 'sim:5');
+      await live(c, skipped);
+      phone.inbox
+        ..add(skipped)
+        ..add(_sent('TKA0000031', 100, 11750, 31, sim: 'sim:3'));
+      await scan(c, personal);
+      await scan(c, personal);
+      final after = await byAccount(personal);
+      expect(after['line:2'], {'TKA0000002', 'TKA0000004'});
+      expect(after['line:1'], contains('TKA0000031'));
+      final lines = await c.read(mpesaLinesProvider.future);
+      expect(lines.skipNote, SkipNote.due);
+      expect(lines.skippedLineId, '2');
+
+      // A role tracks it again, and its balance counts.
+      await c.read(mpesaLineRoutingProvider).setRole('2', LineRole.second);
+      expect((await lineAccount('2')).countsOnHand, isNull);
+      expect(
+        (await c.read(mpesaLinesProvider.future)).line('2')!.tracked,
+        isTrue,
+      );
+    });
+
+    test("Don't track, deleting its records: they go, their messages set "
+        'aside, and reading again never brings them back', () async {
+      final phone = FakeSmsSource(inbox: _twoLines());
+      final c = await splitTwo(phone);
+      expect(await c.read(mpesaLineRoutingProvider).recordCount('2'), 2);
+      await c.read(mpesaLineRoutingProvider).untrack('2', deleteRecords: true);
+      expect((await byAccount(personal))['line:2'], isEmpty);
+      expect(
+        await personal.select(personal.setAsideMessages).get(),
+        hasLength(2),
+      );
+      expect(await count(personal), 3);
+
+      phone.inbox.add(_sent('TKA0000032', 100, 24130, 32, sim: 'sim:5'));
+      await scan(c, personal);
+      await scan(c, personal);
+      expect((await byAccount(personal))['line:2'], isEmpty);
+      expect(await count(personal), 3);
+    });
+
+    test('Same line as: the older line joins the kept one, with its records '
+        'and SIM', () async {
+      final phone = FakeSmsSource(inbox: _twoLines());
+      final c = await splitTwo(phone);
+      await c.read(mpesaLineRoutingProvider).merge('2', '1');
+      final accounts = await byAccount(personal);
+      expect(accounts.containsKey('line:2'), isFalse);
+      expect(accounts['line:1'], {
+        'TKA0000001',
+        'TKA0000002',
+        'TKA0000003',
+        'TKA0000004',
+        'TKA0000005',
+      });
+      expect(
+        await DriftInstitutionsRepository(personal).selectedIds(),
+        isNot(contains(lineSelectionId('2'))),
+      );
+      final lines = await c.read(mpesaLinesProvider.future);
+      expect(lines.line('2'), isNull);
+      expect(lines.line('1')!.sims, {'sim:3', 'sim:5'});
+      expect(lines.line('1')!.messages, 5);
+      // Its SIM now reads onto the kept line.
+      phone.inbox.add(_sent('TKA0000033', 100, 24130, 33, sim: 'sim:5'));
+      await scan(c, personal);
+      expect((await byAccount(personal))['line:1'], contains('TKA0000033'));
+    });
+
+    test('the quick setup splits the lines, keeps the two most recent and '
+        'skips the rest from then on', () async {
+      final phone = FakeSmsSource(
+        inbox: [
+          _sent('TKA0000040', 50, 950, 0, sim: 'sim:7'),
+          ..._twoLines(),
+        ],
+      );
+      final c = await app(sms: phone);
+      await scan(c, personal);
+      var lines = await c.read(mpesaLinesProvider.future);
+      expect(lines.lines, hasLength(3));
+      expect(lines.split, isFalse);
+      expect(lines.offersQuickSetup, isTrue);
+
+      await c.read(mpesaLineRoutingProvider).keepTwoMostRecent();
+      lines = await c.read(mpesaLinesProvider.future);
+      expect(lines.split, isTrue);
+      expect(lines.offersQuickSetup, isFalse);
+      final seven = lines.lines.singleWhere((l) => l.sims.contains('sim:7'));
+      expect(seven.tracked, isFalse);
+      expect(lines.mainId, lines.line('1')!.sims.contains('sim:3') ? '1' : '2');
+      // Its past record stays; new ones are skipped.
+      expect((await byAccount(personal))[lineReference(seven.id)], {
+        'TKA0000040',
+      });
+      phone.inbox.add(_sent('TKA0000041', 50, 900, 41, sim: 'sim:7'));
+      await scan(c, personal);
+      expect((await byAccount(personal))[lineReference(seven.id)], {
+        'TKA0000040',
+      });
+    });
+
+    test('the main line shows first in Balances, Money and On hand', () async {
+      final c = await splitTwo(FakeSmsSource(inbox: _twoLines()));
+      await c.read(mpesaLineRoutingProvider).setRole('2', LineRole.main);
+      final sub = c.listen(balancesOverviewProvider, (_, _) {});
+      addTearDown(sub.close);
+      await c.read(mpesaLinesProvider.future);
+      final overview = await c.read(balancesOverviewProvider.future);
+      expect(
+        [
+          for (final a in overview.accounts)
+            if (lineOfReference(a.account.reference) != null)
+              a.account.reference,
+        ],
+        ['line:2', 'line:1'],
+      );
+      // On hand lists accounts in the same line order.
+      final accounts = await personal.select(personal.accounts).get();
+      final lines = await c.read(mpesaLinesProvider.future);
+      final ordered = [...accounts]
+        ..sort(byLineOrder(lines, [for (final a in accounts) a.id]));
+      expect(ordered.first.reference, 'line:2');
+    });
+
+    test("a line's typed number reaches every space, and a send to it from "
+        'the other line is a move between own accounts', () async {
+      final c = await splitTwo(FakeSmsSource(inbox: _twoLines()));
+      final one = (await lineAccount('1')).id;
+      final two = (await lineAccount('2')).id;
+      Future<int> add(int account, TransactionDirection d, String? phone) =>
+          personal
+              .into(personal.transactions)
+              .insert(
+                TransactionsCompanion.insert(
+                  accountId: account,
+                  amountMinor: 70000,
+                  direction: d,
+                  occurredAt: DateTime.utc(2026, 11, 20, 8),
+                  source: TransactionSource.sms,
+                  kind: Value(
+                    d == TransactionDirection.outflow
+                        ? TransactionKind.sent
+                        : TransactionKind.received,
+                  ),
+                  counterpartyKind: Value(
+                    phone == null ? null : PayeeIdentifierKind.phone,
+                  ),
+                  counterpartyValue: Value(phone),
+                ),
+              );
+      final sent = await add(one, TransactionDirection.outflow, '0712***678');
+      await add(two, TransactionDirection.inflow, null);
+
+      await c.read(mpesaLineRoutingProvider).setNumber('2', '0712 345 678');
+      expect(
+        (await c.read(mpesaLinesProvider.future)).line('2')!.maskedNumber,
+        '0712 ••• 678',
+      );
+      for (final db in [personal, shop]) {
+        expect(await readLinePhones(db), {'2': '0712345678'});
+      }
+      final own = ownAccountsOf(
+        await personal.select(personal.accounts).get(),
+        linePhones: await readLinePhones(personal),
+      );
+      expect(own.phoneOf(two), '0712345678');
+      final row = await (personal.select(
+        personal.transactions,
+      )..where((t) => t.id.equals(sent))).getSingle();
+      expect(row.transferPairId, isNotNull);
+    });
+
+    test(
+      'iPhone: a line told apart by balance alone can stop being tracked',
+      () async {
+        final queue = _ShortcutQueue(
+          inbox: [
+            for (final m in _twoLines())
+              SmsMessage(
+                sender: m.sender,
+                body: m.body,
+                receivedAt: m.receivedAt,
+              ),
+          ],
+        );
+        final c = await splitTwo(queue);
+        await c
+            .read(mpesaLineRoutingProvider)
+            .untrack('2', deleteRecords: false);
+        queue.inbox
+          ..add(_sent('TKA0000050', 100, 24130, 50))
+          ..add(_sent('TKA0000051', 100, 11750, 51));
+        await scan(c, personal);
+        final after = await byAccount(personal);
+        expect(after['line:2'], {'TKA0000002', 'TKA0000004'});
+        expect(after['line:1'], contains('TKA0000051'));
+        expect(await personal.select(personal.reviewItems).get(), isEmpty);
+      },
+    );
   });
 
   test('the inbox is counted once, so two lines read as one are offered '

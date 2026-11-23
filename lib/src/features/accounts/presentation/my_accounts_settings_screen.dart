@@ -29,6 +29,7 @@ import '../domain/institution.dart';
 import 'account_page.dart';
 import 'line_questions.dart';
 import 'mpesa_family_card.dart';
+import 'mpesa_lines_screen.dart';
 import 'mpesa_lines_sheet.dart';
 import 'sacco_screens.dart';
 
@@ -70,6 +71,7 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
               const <(Account, SaccoDetailsRow)>[])
         a.id,
     };
+    final saccoHoldings = ref.watch(saccoHoldingsProvider);
     final named = withLineNames({...?loaded.value}, lineAccounts);
     // Savings apps, such as Chumz, have a card of their own. A line given
     // to another space leaves an empty account here, not shown.
@@ -81,7 +83,7 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
             !hidden.contains(a.id) &&
             !grouped.contains(a.id))
           a,
-    ]..sort((a, b) => a.id.compareTo(b.id));
+    ]..sort(byLineOrder(lines, lineAccounts.keys));
     // Accounts the person hid, still in totals and history.
     final hiddenByPerson = [
       for (final a in named.values)
@@ -108,8 +110,8 @@ class MyAccountsSettingsScreen extends ConsumerWidget {
           : ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               children: [
-                if (families.isNotEmpty) ...[
-                  OwnAndOweCard(families: families),
+                if (families.isNotEmpty || saccoHoldings.isNotEmpty) ...[
+                  OwnAndOweCard(families: families, saccos: saccoHoldings),
                   const SizedBox(height: 16),
                 ],
                 Text(
@@ -342,7 +344,7 @@ class _LinesRow extends ConsumerWidget {
             : elsewhere.join('. '),
       ),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => showMpesaLinesSheet(context),
+      onTap: () => openMpesaLines(context),
     );
   }
 }
