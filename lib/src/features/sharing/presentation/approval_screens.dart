@@ -84,33 +84,27 @@ class ApprovalsCard extends ConsumerWidget {
   }
 }
 
-/// A one-line summary of the rules, under "Who can change what".
+/// A one-line summary of the rules, under "Who can change what", in the
+/// mockup's words: for Household defaults "Changes by others to the plan
+/// are free; deletions need approval". Accounts are named only when their
+/// level differs from the plan's.
 String policySummary(SharePolicy p) {
-  final free = [
-    for (final a in RuleArea.values)
-      if (p.level(a) == ChangeLevel.anyone) a,
-  ];
-  final waits = [
-    for (final a in RuleArea.values)
-      if (p.level(a) == ChangeLevel.approval) a,
-  ];
-  String name(RuleArea a) => switch (a) {
-    RuleArea.plan => 'the plan',
-    RuleArea.accounts => 'accounts',
-    RuleArea.others => "others' transactions",
+  String verb(ChangeLevel l) => switch (l) {
+    ChangeLevel.anyone => 'are free',
+    ChangeLevel.approval => 'need approval',
+    ChangeLevel.restricted =>
+      'are ${p.kind == SpaceKind.savingsGroup ? 'Owner and Treasurer only' : 'Owner only'}',
   };
-  if (waits.length == RuleArea.values.length) {
-    return 'Changes by others need approval';
-  }
-  if (free.length == RuleArea.values.length) {
-    return 'Changes by others are free';
+  final plan = p.level(RuleArea.plan);
+  final accounts = p.level(RuleArea.accounts);
+  final others = p.level(RuleArea.others);
+  if (plan == accounts && plan == others) {
+    return 'Changes by others ${verb(plan)}';
   }
   return [
-    if (free.isNotEmpty)
-      'Changes by others to ${_names([for (final a in free) name(a)])} are '
-          'free',
-    if (waits.isNotEmpty)
-      '${_names([for (final a in waits) name(a)])} need approval',
+    'Changes by others to the plan ${verb(plan)}',
+    if (accounts != plan) 'accounts ${verb(accounts)}',
+    'deletions ${verb(others)}',
   ].join('; ');
 }
 
