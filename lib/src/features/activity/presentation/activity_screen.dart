@@ -131,7 +131,19 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final loaded = ref.watch(activityEntriesProvider(from));
     final entries = loaded.value ?? const <LedgerEntry>[];
     final plain = ref.watch(activityAccountsProvider).value ?? const {};
-    final addedBy = ref.watch(addedByLinesProvider).value ?? const {};
+    final addedByOnly = ref.watch(addedByLinesProvider).value ?? const {};
+    final waiting = ref.watch(myWaitingLinesProvider).value ?? const {};
+    // "Added by Brian · you asked to change it to 540 · Waiting for
+    // approval": a change of this member's that needed approval.
+    final addedBy = waiting.isEmpty
+        ? addedByOnly
+        : {
+            ...addedByOnly,
+            for (final MapEntry(:key, :value) in waiting.entries)
+              key: addedByOnly[key] == null
+                  ? _cap(value)
+                  : '${addedByOnly[key]} · $value',
+          };
     final lineAccounts = ref.watch(readLineAccountsProvider);
     final hiddenLines = ref.watch(hiddenLineAccountsProvider);
     // The menu names each M-Pesa line; the rows do only where this space
@@ -1167,3 +1179,5 @@ class _Choosable extends StatelessWidget {
     ),
   );
 }
+
+String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);

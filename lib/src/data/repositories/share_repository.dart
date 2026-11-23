@@ -7,6 +7,7 @@ import '../../domain/sharing/hlc.dart';
 import '../../domain/sharing/safety_words.dart';
 import '../../domain/sharing/share_merge.dart';
 import '../../domain/sharing/share_model.dart';
+import '../../domain/sharing/share_rules.dart';
 import '../../domain/spaces/space.dart';
 import '../database/app_database.dart';
 import 'journal_repository.dart';
@@ -76,6 +77,41 @@ class HistoryLine {
 
   /// The record "Bring it back" restores, as `entity|uid`.
   final String? bringBack;
+}
+
+/// A change that needed approval, in words.
+class WaitingChange {
+  const WaitingChange({
+    required this.id,
+    required this.entity,
+    required this.record,
+    required this.title,
+    required this.detail,
+    required this.at,
+    required this.state,
+    this.fromMember,
+    this.mineLine,
+  });
+
+  /// The change's clock, which [ShareRepository.answer] takes.
+  final String id;
+  final ShareEntity entity;
+  final String record;
+
+  /// Such as 'Jane wants to delete "Taxi" (KES 600)'.
+  final String title;
+
+  /// Such as "Added by you on Sat 21 Nov".
+  final String detail;
+  final DateTime at;
+  final ApprovalState state;
+
+  /// Whose file it came in; null for one made on this phone.
+  final String? fromMember;
+
+  /// On the author's own row: "you asked to delete it · Waiting for
+  /// approval", or "Declined by Jane".
+  final String? mineLine;
 }
 
 /// Space history's changes, grouped by the file they came in or the day
@@ -154,6 +190,7 @@ class ShareRepository {
             'role': ShareRole.owner.name,
             'key': pair.publicKey,
             'account': hasAccount,
+            'sign': await ShareSigner.publicKey(pair.seed),
           }),
         );
         await _markAllDirty();
@@ -169,7 +206,11 @@ class ShareRepository {
     final pair = await ShareKeyPair.generate();
     final codec = ShareCodec();
     return (
-      codec.joinRequest(name: name, publicKey: pair.publicKey),
+      codec.joinRequest(
+        name: name,
+        publicKey: pair.publicKey,
+        signKey: await ShareSigner.publicKey(pair.seed),
+      ),
       pair,
       joinWords(pair.publicKey),
     );
@@ -247,6 +288,7 @@ class ShareRepository {
           'role': you['role'],
           'key': pair.publicKey,
           'account': hasAccount,
+          'sign': await ShareSigner.publicKey(pair.seed),
         },
       ),
     ]) {
@@ -404,7 +446,9 @@ class ShareRepository {
             'LEFT JOIN categories c ON c.id = '
             'COALESCE(t.category_override_id, t.auto_category_id) '
             "WHERE t.id = ? AND a.type <> 'heldForSpace'",
-      ShareEntity.member => throw ArgumentError(entity),
+      ShareEntity.member ||
+      ShareEntity.policy ||
+      ShareEntity.approval => throw ArgumentError(entity),
     };
     final row = await _db
         .customSelect(sql, variables: [Variable.withInt(id)])
@@ -493,6 +537,17 @@ class ShareRepository {
       }
     }
     await _db.delete(_db.shareDirty).go();
+    // A change that waits for approval does not count yet, here either:
+    // the row shows the old value until an approver says yes.
+    final waiting = {
+      for (final c in log.needingApproval)
+        if (c.hlc.node == s.myMemberId && log.answer(c.id) == null)
+          '${c.entity.name}|${c.record}',
+    };
+    if (waiting.isNotEmpty) {
+      await _writeRecords(log, waiting);
+      await JournalRepository(_db).sync();
+    }
     return count;
   });
 
@@ -536,6 +591,7 @@ class ShareRepository {
         'role': role.name,
         'key': theirKey,
         'account': false,
+        'sign': ?_codec.joinSignKey(request),
       }),
     );
     await _db
@@ -687,7 +743,7 @@ class ShareRepository {
     final added = <String>{};
     final changed = <String>{};
     for (final c in changes) {
-      if (c.entity == ShareEntity.member) continue;
+      if (c.entity.logOnly) continue;
       (c.isInsert && !changed.contains(c.record) ? added : changed).add(
         c.record,
       );
@@ -812,7 +868,12 @@ class ShareRepository {
     final already = await (_db.select(
       _db.shareFiles,
     )..where((f) => f.fileId.equals(opened.header.file))).getSingleOrNull();
-    final outcome = log.merge(from.id, _changes(opened));
+    final incoming = _changes(opened);
+    final outcome = log.merge(
+      from.id,
+      incoming,
+      signed: await _signed(s, log, incoming),
+    );
     final peer = await (_db.select(
       _db.sharePeers,
     )..where((p) => p.memberId.equals(from.id))).getSingleOrNull();
@@ -836,7 +897,12 @@ class ShareRepository {
   Future<MergeOutcome> apply(List<int> bytes) => _db.transaction(() async {
     final (s, log, opened, from) = await _open(bytes);
     final fileId = opened.header.file;
-    final outcome = log.merge(from.id, _changes(opened));
+    final incoming = _changes(opened);
+    final outcome = log.merge(
+      from.id,
+      incoming,
+      signed: await _signed(s, log, incoming),
+    );
     final already = await (_db.select(
       _db.shareFiles,
     )..where((f) => f.fileId.equals(fileId))).getSingleOrNull();
@@ -893,6 +959,231 @@ class ShareRepository {
     await JournalRepository(_db).sync();
     return outcome;
   });
+
+  // ----------------------------------------------------------- approvals
+
+  static String _answerMessage(String space, ShareChange d) =>
+      'pcshare approval|$space|${d.id}|${d.record}|${d.field}';
+
+  /// The answers in [incoming] whose signature checks out against the
+  /// approver's key in the member list. Nothing else vouches for them: a
+  /// file can carry answers it was handed by others.
+  Future<Set<String>> _signed(
+    ShareStateRow s,
+    ShareLog log,
+    List<ShareChange> incoming,
+  ) async {
+    final members = log.members;
+    final out = <String>{};
+    for (final d in incoming) {
+      if (d.entity != ShareEntity.approval || d.value is! Map) continue;
+      if (await ShareSigner.verify(
+        members[d.author]?.signKey,
+        _answerMessage(s.spaceShareId, d),
+        (d.value! as Map)['sig'],
+      )) {
+        out.add(d.id);
+      }
+    }
+    return out;
+  }
+
+  /// Who can change what in this space now.
+  Future<SharePolicy> policy() async => (await log()).policyAt();
+
+  /// Sets one of the rules. The Owner's alone.
+  Future<void> setPolicy(SharePolicy policy) => _db.transaction(() async {
+    final s = await _state();
+    final log = await this.log();
+    if (log.roleOf(s.myMemberId) != ShareRole.owner) {
+      throw StateError('Only the Owner sets who can change what');
+    }
+    final now = log.policyAt();
+    final fields = policy.toFields();
+    final insert = log.latest(ShareEntity.policy, policyRecord, insertField);
+    if (insert == null) {
+      await _log(
+        await _newChange(ShareEntity.policy, policyRecord, insertField, fields),
+      );
+      return;
+    }
+    final before = now.toFields();
+    for (final MapEntry(:key, :value) in fields.entries) {
+      if (before[key] == value) continue;
+      await _log(
+        await _newChange(
+          ShareEntity.policy,
+          policyRecord,
+          key,
+          value,
+          previous: before[key],
+        ),
+      );
+    }
+  });
+
+  /// Marks [memberId] "Can approve", or not. The Owner's alone.
+  Future<void> setApprover(String memberId, {required bool approver}) async {
+    final s = await _state();
+    final log = await this.log();
+    if (log.roleOf(s.myMemberId) != ShareRole.owner) {
+      throw StateError('Only the Owner chooses who can approve');
+    }
+    final m = log.members[memberId];
+    if (m == null || m.removed || m.approver == approver) return;
+    await _log(
+      await _newChange(
+        ShareEntity.member,
+        memberId,
+        'approver',
+        approver,
+        previous: m.approver,
+      ),
+    );
+  }
+
+  /// Changes waiting for an answer from this phone's member, oldest first.
+  /// Lapsed ones and this member's own are left out.
+  Future<List<WaitingChange>> toApprove() async {
+    await recordLocalChanges();
+    final s = await _state();
+    final log = await this.log();
+    if (!log.canApprove(s.myMemberId)) return const [];
+    return _describe(s, log, (c) => c.hlc.node != s.myMemberId);
+  }
+
+  /// This member's own changes and their answers, by record uid, for the
+  /// line under a row.
+  Future<List<WaitingChange>> mine() async {
+    final s = await _state();
+    final log = await this.log();
+    return _describe(s, log, (c) => c.hlc.node == s.myMemberId, answered: true);
+  }
+
+  Future<List<WaitingChange>> _describe(
+    ShareStateRow s,
+    ShareLog log,
+    bool Function(ShareChange) which, {
+    bool answered = false,
+  }) async {
+    final now = _now();
+    final members = log.members;
+    String who(String id) => id == s.myMemberId
+        ? 'you'
+        : (members[id]?.name.split(' ').first ?? 'someone');
+    final out = <WaitingChange>[];
+    for (final c in log.needingApproval) {
+      if (!which(c)) continue;
+      final state = log.stateOf(c.id, now)!;
+      if (state == ApprovalState.lapsed) continue;
+      if (!answered && state != ApprovalState.waiting) continue;
+      final row = await (_db.select(
+        _db.shareChanges,
+      )..where((r) => r.hlc.equals(c.id))).getSingleOrNull();
+      final from = row?.fromFile == null
+          ? null
+          : (await (_db.select(_db.shareFiles)
+                      ..where((f) => f.fileId.equals(row!.fromFile!)))
+                    .getSingleOrNull())
+                ?.fromMember;
+      final fields =
+          log.fields(c.entity, c.record) ??
+          (c.isInsert ? (c.value as Map?)?.cast<String, Object?>() : null) ??
+          (c.previous as Map?)?.cast<String, Object?>();
+      final label = _label(c.entity, fields);
+      final (addedBy, _) = log.addedBy(c.entity, c.record) ?? (c.author, null);
+      final by = who(c.hlc.node);
+      final cap = by[0].toUpperCase() + by.substring(1);
+      final amount = fields?['amount'];
+      final money = amount is int ? ' (KES ${_money(amount)})' : '';
+      final owner = addedBy == c.hlc.node
+          ? ''
+          : addedBy == s.myMemberId
+          ? 'your '
+          : "${who(addedBy)[0].toUpperCase()}${who(addedBy).substring(1)}'s ";
+      final String title;
+      final String mineLine;
+      if (c.isRemove) {
+        title = '$cap wants to delete "$label"$money';
+        mineLine = 'you asked to delete it';
+      } else if (c.isInsert) {
+        title = '$cap wants to add "$label"$money';
+        mineLine = 'you added it';
+      } else {
+        final to = c.value is int ? _money(c.value! as int) : '${c.value}';
+        final was = c.previous is int
+            ? _money(c.previous! as int)
+            : c.previous?.toString();
+        title = c.field == 'amount' && was != null
+            ? '$cap wants to change $owner"$label" from $was to $to'
+            : '$cap wants to change $owner"$label"\'s ${_fieldName(c.field)}';
+        mineLine = c.field == 'amount'
+            ? 'you asked to change it to $to'
+            : 'you asked to change its ${_fieldName(c.field)}';
+      }
+      final added = log.latest(c.entity, c.record, insertField);
+      final addedOn = added == null || added.hlc.millis == 0
+          ? ''
+          : ' on ${_dayLabel(added.hlc.millis)}';
+      final a = log.answer(c.id);
+      out.add(
+        WaitingChange(
+          id: c.id,
+          entity: c.entity,
+          record: c.record,
+          title: title,
+          detail: 'Added by ${who(addedBy)}$addedOn',
+          fromMember: from,
+          at: DateTime.fromMillisecondsSinceEpoch(c.hlc.millis),
+          state: state,
+          mineLine: switch (state) {
+            ApprovalState.waiting => '$mineLine · Waiting for approval',
+            ApprovalState.declined => 'Declined by ${who(a!.author)}',
+            _ => null,
+          },
+        ),
+      );
+    }
+    out.sort((x, y) => x.at.compareTo(y.at));
+    return out;
+  }
+
+  /// Says yes or no to waiting change [id], signed with this member's key.
+  /// The answer goes to the others in the next update file.
+  Future<void> answer(String id, {required bool yes}) =>
+      _db.transaction(() async {
+        await recordLocalChanges();
+        final s = await _state();
+        final log = await this.log();
+        final target = log.needingApproval.where((c) => c.id == id).firstOrNull;
+        if (target == null) throw StateError('Nothing waits with that id');
+        final unsigned = await _newChange(
+          ShareEntity.approval,
+          id,
+          yes ? approveField : declineField,
+          null,
+        );
+        if (!log.validAnswer(unsigned, target)) {
+          throw StateError('You cannot answer this change');
+        }
+        if (log.answer(id) != null) return;
+        final sig = await ShareSigner.sign(
+          s.seed,
+          _answerMessage(s.spaceShareId, unsigned),
+        );
+        final d = ShareChange(
+          hlc: unsigned.hlc,
+          entity: unsigned.entity,
+          record: unsigned.record,
+          field: unsigned.field,
+          value: {'sig': base64Url.encode(sig)},
+          author: unsigned.author,
+        );
+        await _log(d);
+        log.add(d);
+        await _writeRecords(log, {'${target.entity.name}|${target.record}'});
+        await JournalRepository(_db).sync();
+      });
 
   /// "Use mine instead": puts the value of the change that lost back, as a
   /// new change that is later than the one that won.
@@ -957,7 +1248,7 @@ class ShareRepository {
     ]..sort((a, b) => _order(a.$1).compareTo(_order(b.$1)));
     final members = log.members;
     for (final (entity, uid) in items) {
-      if (entity == ShareEntity.member) continue;
+      if (entity.logOnly) continue;
       final fields = log.fields(entity, uid);
       if (fields == null) {
         await _deleteRow(entity, uid);
@@ -1145,7 +1436,7 @@ class ShareRepository {
             [...values, id],
           );
         }
-      case ShareEntity.member:
+      case ShareEntity.member || ShareEntity.policy || ShareEntity.approval:
         break;
     }
   }
@@ -1216,7 +1507,19 @@ class ShareRepository {
           inserts.putIfAbsent(c.entity, () => []).add(r);
           continue;
         }
-        final line = _historyLine(log, c, r, who, s.myMemberId);
+        var line = _historyLine(log, c, r, who, s.myMemberId);
+        final state = log.stateOf(c.id, _now());
+        if (line != null && state != null && state != ApprovalState.approved) {
+          final a = log.answer(c.id);
+          line = HistoryLine(
+            line.title,
+            detail: switch (state) {
+              ApprovalState.declined => 'Declined by ${who(a!.author)}',
+              ApprovalState.lapsed => 'No answer in 30 days, so it lapsed',
+              _ => 'Waiting for approval',
+            },
+          );
+        }
         if (line != null) lines.add(line);
       }
       for (final MapEntry(key: _, value: adds) in inserts.entries) {
@@ -1276,6 +1579,19 @@ class ShareRepository {
   ) {
     final by = who(c.author);
     final members = log.members;
+    if (c.entity == ShareEntity.policy) {
+      return HistoryLine('$by changed who can change what');
+    }
+    if (c.entity == ShareEntity.approval) {
+      final t = log.changes.where((x) => x.id == c.record).firstOrNull;
+      final label = t == null
+          ? 'a change'
+          : '${who(t.hlc.node) == 'You' ? 'your' : "${who(t.hlc.node)}'s"} '
+                'change to "${_label(t.entity, log.fields(t.entity, t.record) ?? (t.previous is Map ? t.previous as Map? : null) ?? (t.value is Map ? t.value as Map? : null))}"';
+      return HistoryLine(
+        '$by ${c.field == approveField ? 'approved' : 'declined'} $label',
+      );
+    }
     if (c.entity == ShareEntity.member) {
       final name = members[c.record]?.name ?? 'someone';
       if (c.isInsert) {
@@ -1284,6 +1600,13 @@ class ShareRepository {
         return HistoryLine('$by added $name as $role');
       }
       if (c.isRemove) return HistoryLine('$by removed $name');
+      if (c.field == 'approver') {
+        return HistoryLine(
+          c.value == true
+              ? '$by let $name approve changes'
+              : '$by stopped $name approving changes',
+        );
+      }
       if (c.field == 'role') {
         return HistoryLine(
           "$by made $name ${ShareRole.byName(c.value)?.label ?? ''}".trim(),
@@ -1415,6 +1738,27 @@ const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 String _weekday(int millis) =>
     _days[DateTime.fromMillisecondsSinceEpoch(millis).weekday - 1];
+
+const _months = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// Such as "Sat 21 Nov".
+String _dayLabel(int millis) {
+  final d = DateTime.fromMillisecondsSinceEpoch(millis);
+  return '${_days[d.weekday - 1]} ${d.day} ${_months[d.month - 1]}';
+}
 
 String _money(int minor) {
   final whole = (minor ~/ 100).abs().toString();

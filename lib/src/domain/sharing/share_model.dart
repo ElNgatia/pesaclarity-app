@@ -44,7 +44,17 @@ enum ShareEntity {
   category,
   transaction,
   budget,
-  member;
+  member,
+
+  /// Who can change what (one record, `rules`), kept in the log only.
+  policy,
+
+  /// An approver's signed yes or no to a change that waits; the record is
+  /// the waiting change's id.
+  approval;
+
+  /// Records that live in the log only, not in a table.
+  bool get logOnly => this == member || this == policy || this == approval;
 
   static ShareEntity? byName(Object? name) =>
       name is String ? values.asNameMap()[name] : null;
@@ -158,6 +168,8 @@ class ShareMember {
     this.publicKey,
     this.hasAccount = false,
     this.removed = false,
+    this.signKey,
+    this.approver = false,
   });
 
   final String id;
@@ -168,4 +180,11 @@ class ShareMember {
   final List<int>? publicKey;
   final bool hasAccount;
   final bool removed;
+
+  /// Their Ed25519 public key, which their answers to waiting changes are
+  /// signed with.
+  final List<int>? signKey;
+
+  /// Marked "Can approve" by the Owner.
+  final bool approver;
 }

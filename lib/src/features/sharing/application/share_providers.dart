@@ -1,9 +1,11 @@
+import 'package:drift/drift.dart' show Variable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/database/app_database.dart';
 import '../../../data/database/database_providers.dart';
 import '../../../data/repositories/share_repository.dart';
 import '../../../domain/sharing/share_model.dart';
+import '../../../domain/sharing/share_rules.dart';
 import '../../../domain/spaces/space.dart';
 import '../../spaces/application/spaces_providers.dart';
 
@@ -113,6 +115,59 @@ final addedByLinesProvider = StreamProvider<Map<int, String>>((ref) {
             buffer.write(' · category changed by ${overview.nameOf(recat)}');
           }
           out[r.read<int>('id')] = buffer.toString();
+        }
+        return out;
+      });
+});
+
+/// Who can change what in the open space.
+final sharePolicyProvider = FutureProvider<SharePolicy>((ref) async {
+  final space = ref.watch(activeSpaceProvider);
+  ref.watch(shareOverviewProvider);
+  final repo = ref.watch(shareRepositoryProvider);
+  if (repo == null || await repo.state() == null) {
+    return SharePolicy.defaults(space.kind);
+  }
+  return repo.policy();
+});
+
+/// The changes this phone's member can say yes or no to, oldest first.
+final toApproveProvider = FutureProvider<List<WaitingChange>>((ref) async {
+  ref.watch(shareOverviewProvider);
+  final repo = ref.watch(shareRepositoryProvider);
+  if (repo == null || await repo.state() == null) return const [];
+  return repo.toApprove();
+});
+
+/// On this member's own rows: "you asked to delete it · Waiting for
+/// approval", or "Declined by Jane", by transaction id. Reading it puts
+/// new edits in the log first, so a change that waits shows the old value
+/// here too.
+final myWaitingLinesProvider = StreamProvider<Map<int, String>>((ref) {
+  final repo = ref.watch(shareRepositoryProvider);
+  if (repo == null) return Stream.value(const {});
+  final db = ref.watch(appDatabaseProvider);
+  return db
+      .customSelect(
+        'SELECT COUNT(*) AS n FROM share_changes',
+        readsFrom: {db.shareChanges, db.transactions},
+      )
+      .watch()
+      .asyncMap((_) async {
+        if (await repo.state() == null) return const <int, String>{};
+        await repo.recordLocalChanges();
+        final out = <int, String>{};
+        for (final w in await repo.mine()) {
+          if (w.entity != ShareEntity.transaction || w.mineLine == null) {
+            continue;
+          }
+          final row = await db
+              .customSelect(
+                'SELECT id FROM transactions WHERE share_uid = ? LIMIT 1',
+                variables: [Variable.withString(w.record)],
+              )
+              .getSingleOrNull();
+          if (row != null) out[row.read<int>('id')] = w.mineLine!;
         }
         return out;
       });

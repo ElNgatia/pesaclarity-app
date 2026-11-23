@@ -71,6 +71,9 @@ abstract final class AppRoutes {
   static String shareSpace(String id) => '/home/profile/spaces/$id/share';
   static String spaceHistory(String id) =>
       '/home/profile/spaces/$id/share/history';
+  static String shareApprovals(String id) =>
+      '/home/profile/spaces/$id/share/approvals';
+  static String shareRules(String id) => '/home/profile/spaces/$id/share/rules';
   static const joinSpace = '/home/profile/spaces/join';
   static const joinRequest = '/home/profile/spaces/join-request';
   static const supportGifts = '/home/profile/support/gifts';
