@@ -38,7 +38,7 @@ String _kes(BuildContext context, int minor) =>
 /// Every other amount: a plain number in the base currency.
 String _plain(BuildContext context, int minor) => shownMoney(context, minor);
 
-/// Opened from Home's "More about this month": safe to spend with what
+/// Insights › Your month: safe to spend with what
 /// it is made of (until the next money, or the month's plan), On hand or
 /// what is left this month, the runway at this pace, the month-end
 /// forecast and financial health. These were Home's cards before Home
@@ -103,7 +103,7 @@ class MoreThisMonthScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('More about this month'),
+        title: const Text('Your month'),
         actions: const [AmountsEye(), SizedBox(width: 8)],
       ),
       body: AmountsHiddenScope(

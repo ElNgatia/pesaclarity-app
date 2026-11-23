@@ -64,26 +64,16 @@ void main() {
       await tapText(tester, 'Allow access to messages');
       await tapText(tester, 'Continue');
       await tapText(tester, 'Go to Home');
-      await scrollTo(tester, find.byKey(const Key('home-more-month')));
-      await tester.tap(find.byKey(const Key('home-more-month')));
-      await tester.pumpAndSettle();
+      await openYourMonth(tester);
 
-      // In More about this month: safe to spend and On hand, each with its
+      // In Insights › Your month: safe to spend and On hand, each with its
       // dollars under it.
       final dollars = find.textContaining(RegExp(r'^≈ USD \d+\.\d\d$'));
       expect(find.byKey(const Key('hero-second-figure')), findsOneWidget);
       expect(dollars, findsNWidgets(2));
       // KES 3,685 on hand is USD 28.52 at 129.2.
       expect(find.text('≈ USD 28.52'), findsOneWidget);
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      // Back to the top of Home, where Profile is.
-      await tester.fling(
-        find.byType(ListView).first,
-        const Offset(0, 3000),
-        3000,
-      );
-      await tester.pumpAndSettle();
+      await backToHome(tester);
 
       await tester.tap(find.byTooltip('Profile'));
       await tester.pumpAndSettle();

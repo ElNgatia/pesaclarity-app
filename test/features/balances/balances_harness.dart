@@ -225,10 +225,6 @@ Future<ProviderContainer> pumpBalances(
         builder: (_, _) => const HomeScreen(),
         routes: [
           GoRoute(
-            path: 'month',
-            builder: (_, _) => const MoreThisMonthScreen(),
-          ),
-          GoRoute(
             path: 'review',
             builder: (_, _) => const ReviewInboxScreen(),
             routes: [
@@ -257,6 +253,10 @@ Future<ProviderContainer> pumpBalances(
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: AppRoutes.moreThisMonth,
+        builder: (_, _) => const MoreThisMonthScreen(),
       ),
       GoRoute(
         path: AppRoutes.activity,

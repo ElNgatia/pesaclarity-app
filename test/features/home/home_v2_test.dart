@@ -96,40 +96,32 @@ Future<void> _pump(
 }
 
 void main() {
-  testAppWidgets('this week: money in, out, difference and the fees line', (
+  testAppWidgets('safe to spend first, then this month in and out with fees', (
     tester,
   ) async {
     await _pump(tester, entries: _history);
 
-    expect(find.text('This week'), findsWidgets);
+    // Safe to spend leads, above this month's figures.
+    expect(
+      tester.getTopLeft(find.byKey(const Key('home-safe'))).dy,
+      lessThan(tester.getTopLeft(find.byKey(const Key('home-in-out'))).dy),
+    );
     expect(find.text('Money in'), findsOneWidget);
     expect(find.text('6,500'), findsWidgets);
-    // 1,340 + 87 of fees + 620; the own transfer is in no total.
-    expect(find.text('2,047'), findsOneWidget);
-    expect(find.text('4,453'), findsOneWidget);
+    // This month: 1,340 + 87 of fees + 620 + 5,000 on the 3rd; the own
+    // transfer is in no total.
+    expect(find.text('7,047'), findsOneWidget);
+    expect(find.text('-547'), findsOneWidget);
     expect(find.text('of which fees KES 87'), findsOneWidget);
-    // Transactions day by day are Activity's, not Home's.
-    expect(find.text('Today · Sun 22 Nov'), findsNothing);
-    expect(find.text('See all in Activity'), findsNothing);
     expect(find.byKey(const Key('home-figure-moneyIn')), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('Charts'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
-    // Charts start closed.
-    expect(find.text('Charts'), findsOneWidget);
+    // Periods, days, charts and the month's forecast are elsewhere.
+    expect(find.text('This week'), findsNothing);
+    expect(find.text('See all in Activity'), findsNothing);
+    expect(find.text('More about this month'), findsNothing);
+    expect(find.text('Charts'), findsNothing);
     expect(find.byType(SpendingChartsSection), findsNothing);
     // Nothing to sort: no row.
     expect(find.byKey(const Key('home-things-to-sort')), findsNothing);
-  });
-
-  testAppWidgets('the tabs change the period', (tester) async {
-    await _pump(tester, entries: _history);
-    await tester.tap(find.byKey(const Key('home-period-thisMonth')));
-    await tester.pumpAndSettle();
-    // 2,047 this week and 5,000 on the 3rd.
-    expect(find.text('7,047'), findsOneWidget);
   });
 
   testAppWidgets('things to sort shows its count only when there is any', (
@@ -179,7 +171,7 @@ void main() {
             of: find.byKey(const Key('home-safe')),
             matching: find.textContaining('KES'),
           )
-          .last,
+          .first,
     );
     expect(amount.style?.color, isNot(AppTheme.light.colorScheme.error));
   });
@@ -189,7 +181,6 @@ void main() {
     expect(find.text('0'), findsNWidgets(3));
     expect(find.text('Read my messages'), findsOneWidget);
     expect(find.text('Add by hand'), findsOneWidget);
-    expect(find.text('More about this month'), findsNothing);
     expect(find.text('Charts'), findsNothing);
   });
 }

@@ -234,10 +234,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     path: 'sort',
                     builder: (context, state) => const ThingsToSortScreen(),
                   ),
-                  GoRoute(
-                    path: 'month',
-                    builder: (context, state) => const MoreThisMonthScreen(),
-                  ),
+
                   GoRoute(
                     path: 'spaces/add',
                     builder: (context, state) => const AddSpaceScreen(),
@@ -494,6 +491,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 path: AppRoutes.insights,
                 builder: (context, state) => const InsightsTab(),
                 routes: [
+                  GoRoute(
+                    path: 'month',
+                    builder: (context, state) => const MoreThisMonthScreen(),
+                  ),
                   GoRoute(
                     path: 'records',
                     builder: (context, state) => const FullRecordsScreen(),

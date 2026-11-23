@@ -25,6 +25,7 @@ import 'package:pesaclarity/src/features/sms/application/sms_capture_providers.d
 import 'package:pesaclarity/src/features/sms/application/sms_ingestor.dart';
 import 'package:pesaclarity/src/features/sms/data/sms_source.dart';
 import 'package:pesaclarity/src/features/statements/application/statement_importer.dart';
+import 'package:pesaclarity/src/routing/app_shell.dart';
 import 'package:pesaclarity/src/shared/widgets/form_fields.dart';
 import 'package:pesaclarity/src/shared/widgets/marks.dart';
 
@@ -216,5 +217,32 @@ Finder findDetailLine(String text) => find.byWidgetPredicate(
 Future<void> openThingsToSort(WidgetTester tester) async {
   await scrollTo(tester, find.byKey(const Key('home-things-to-sort')));
   await tester.tap(find.byKey(const Key('home-things-to-sort')));
+  await tester.pumpAndSettle();
+}
+
+/// From the tab bar, opens Insights › Your month: until next money,
+/// runway, the forecast and financial health.
+Future<void> openYourMonth(WidgetTester tester) async {
+  await tester.tap(
+    find.descendant(
+      of: find.byType(PillNavigationBar),
+      matching: find.text('Insights'),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('insights-this-month')));
+  await tester.pumpAndSettle();
+}
+
+/// Back from Your month to the top of Home.
+Future<void> backToHome(WidgetTester tester) async {
+  await tester.pageBack();
+  await tester.pumpAndSettle();
+  await tester.tap(
+    find.descendant(
+      of: find.byType(PillNavigationBar),
+      matching: find.text('Home'),
+    ),
+  );
   await tester.pumpAndSettle();
 }

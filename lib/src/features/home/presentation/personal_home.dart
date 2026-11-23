@@ -6,15 +6,16 @@ import '../../../domain/home/home_period.dart';
 import '../../../domain/ledger/activity_feed.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../routing/app_routes.dart';
+import '../../../shared/format/date_labels.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/figures.dart';
+import '../../../shared/widgets/sections.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
 import '../../activity/presentation/add_transaction_sheet.dart';
 import '../../balances/presentation/balance_text.dart';
 import '../../balances/presentation/balance_warning.dart';
-import '../../insights/presentation/spending_charts_card.dart';
 import '../../plan/presentation/budget_alert_cards.dart';
 import '../../settings/application/week_start_provider.dart';
 import '../../support/presentation/support_card.dart';
@@ -40,38 +41,17 @@ class PersonalHome extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Loads the week's first day for every week Home and the app count.
+    // Loads the week's first day, which Insights and the weekly habits use.
     ref.watch(weekStartControllerProvider);
-    final period = ref.watch(homePeriodProvider);
-    final view = ref.watch(homePeriodViewProvider(period)).value;
+    final view = ref.watch(homePeriodViewProvider(HomePeriod.thisMonth)).value;
     final things = ref.watch(thingsToSortProvider);
     final over = ref.watch(overBudgetAlertsProvider);
     final bills = ref.watch(upcomingBillsProvider).value ?? const [];
     final isNew = view != null && !view.hasRecords;
 
-    void swipe(DragEndDetails details) {
-      final v = details.primaryVelocity ?? 0;
-      if (v.abs() < 200) return;
-      final i = period.index + (v < 0 ? 1 : -1);
-      if (i < 0 || i >= HomePeriod.values.length) return;
-      ref.read(homePeriodProvider.notifier).select(HomePeriod.values[i]);
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _PeriodTabs(
-          selected: period,
-          onSelect: (p) => ref.read(homePeriodProvider.notifier).select(p),
-        ),
-        const SizedBox(height: 12),
-        GestureDetector(
-          key: const Key('home-period-swipe'),
-          behavior: HitTestBehavior.translucent,
-          onHorizontalDragEnd: swipe,
-          child: _InOutCard(view: view),
-        ),
-        const SizedBox(height: Layout.cardGap),
         // Thanks a gift as its message comes in; the card that asks is in
         // Things to sort.
         SupportHomeCard(
@@ -80,6 +60,17 @@ class PersonalHome extends ConsumerWidget {
         ),
         const _SafeToday(),
         const BalanceWarningLine(),
+        SectionLabel(
+          'This month',
+          trailing: view == null
+              ? null
+              : Text(
+                  '1 – ${shortDate(view.span.last)}',
+                  style: Theme.of(context).textTheme.bodySmall!
+                      .copyWith(color: PesaColors.of(context).textMuted),
+                ),
+        ),
+        _InOutCard(view: view),
         const SizedBox(height: Layout.cardGap),
         // Real problems, each on its own.
         const WhatWasThisCard(),
@@ -100,73 +91,15 @@ class PersonalHome extends ConsumerWidget {
           ),
           const SizedBox(height: Layout.cardGap),
         ],
-        if (isNew)
-          const _NewUserCard()
-        else
-          _RowCard(
-            key: const Key('home-more-month'),
-            title: 'More about this month',
-            subtitle: 'Until next money, runway, forecast, financial health',
-            onTap: () => context.push(AppRoutes.moreThisMonth),
-          ),
+        if (isNew) const _NewUserCard(),
         HomeComingUp(bills: bills, today: today),
-        if (!isNew) ...[const SizedBox(height: 20), const _ChartsCard()],
       ],
     );
   }
 }
 
-/// This week, Last week, This month, Last month: the chosen one in red
-/// text, with no fill or line under it. Scrolls sideways when they do not
-/// fit, as with large text.
-class _PeriodTabs extends StatelessWidget {
-  const _PeriodTabs({required this.selected, required this.onSelect});
-
-  final HomePeriod selected;
-  final ValueChanged<HomePeriod> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = PesaColors.of(context);
-    return SingleChildScrollView(
-      key: const Key('home-periods'),
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final p in HomePeriod.values)
-            Semantics(
-              selected: p == selected,
-              button: true,
-              child: InkWell(
-                key: Key('home-period-${p.name}'),
-                borderRadius: BorderRadius.circular(8),
-                onTap: () => onSelect(p),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 48),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Center(
-                      widthFactor: 1,
-                      child: Text(
-                        p.label,
-                        style: theme.textTheme.titleSmall!.copyWith(
-                          color: p == selected ? colors.link : colors.textMuted,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Money in, Money out and Difference for the period, then the fees in
-/// Money out. Opens the period in Activity.
+/// This month's Money in, Money out and Difference, then the fees in Money
+/// out. Each figure opens this month in Activity for its direction.
 class _InOutCard extends StatelessWidget {
   const _InOutCard({required this.view});
 
@@ -268,9 +201,9 @@ class _InOutCard extends StatelessWidget {
   }
 }
 
-/// Safe to spend today as a plain row: today's amount, and about how much
-/// a day for how many days under it. Red only below zero. Opens More
-/// about this month, where what it is made of is.
+/// Safe to spend today, Home's main card: today's amount, large, and about
+/// how much a day for how many days under it. A plain card; the figure is
+/// red only below zero.
 class _SafeToday extends ConsumerWidget {
   const _SafeToday();
 
@@ -332,16 +265,28 @@ class _SafeToday extends ConsumerWidget {
     }
     return Card(
       key: const Key('home-safe'),
-      child: ListTile(
-        title: const Text('Safe to spend today'),
-        subtitle: Text(line),
-        trailing: Text(
-          plain(amount),
-          style: AppTypography.rowAmount(
-            below ? theme.colorScheme.error : theme.colorScheme.onSurface,
-          ),
+      child: Padding(
+        padding: const EdgeInsets.all(Layout.cardPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Safe to spend today', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            FigureText(
+              plain(amount),
+              style: AppTypography.headlineFigure(
+                below ? theme.colorScheme.error : theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              line,
+              style: theme.textTheme.bodyMedium!.copyWith(
+                color: colors.textMuted,
+              ),
+            ),
+          ],
         ),
-        onTap: () => context.push(AppRoutes.moreThisMonth),
       ),
     );
   }
@@ -418,46 +363,6 @@ class _NewUserCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Charts: in and out by week and the top categories, as Insights draws
-/// them. Always starts closed.
-class _ChartsCard extends StatefulWidget {
-  const _ChartsCard();
-
-  @override
-  State<_ChartsCard> createState() => _ChartsCardState();
-}
-
-class _ChartsCardState extends State<_ChartsCard> {
-  var _open = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = PesaColors.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Card(
-          child: ListTile(
-            key: const Key('home-charts'),
-            leading: const Icon(Icons.bar_chart),
-            title: const Text('Charts'),
-            subtitle: const Text('In and out by week, top categories'),
-            trailing: Icon(
-              _open ? Icons.expand_less : Icons.expand_more,
-              color: colors.textMuted,
-            ),
-            onTap: () => setState(() => _open = !_open),
-          ),
-        ),
-        if (_open) ...[
-          const SizedBox(height: Layout.cardGap),
-          const SpendingChartsSection(),
-        ],
-      ],
     );
   }
 }

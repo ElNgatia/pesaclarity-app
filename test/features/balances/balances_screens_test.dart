@@ -24,7 +24,7 @@ void main() {
       (await tester.runAsync(() => db.select(db.transactions).get()))!;
 
   testAppWidgets(
-    'More about this month: below zero once Fuliza is counted, so 0 is safe',
+    'Your month: below zero once Fuliza is counted, so 0 is safe',
     (tester) async {
       await pumpBalances(tester, db, AppRoutes.moreThisMonth);
       expect(find.text('KES 0'), findsOneWidget);
@@ -95,42 +95,41 @@ void main() {
     expect(find.byKey(const Key('account-set-balance')), findsOneWidget);
   });
 
-  testAppWidgets(
-    'More about this month: On hand below zero takes the danger colour',
-    (tester) async {
-      for (final theme in [AppTheme.light, AppTheme.dark]) {
-        await pumpBalances(tester, db, AppRoutes.moreThisMonth, theme: theme);
-        final colors = theme.extension<PesaColors>()!;
-        final onHand = find.byKey(const Key('home-on-hand'));
-        final figure = tester.widget<Text>(
-          find.descendant(of: onHand, matching: find.text('-1,150')),
-        );
-        // Red text on the plain tile: brand red in light, brightened in dark
-        // to read on a card (where brand red is 2.9:1); the red lead card
-        // keeps its figure white.
-        expect(figure.style!.color, theme.colorScheme.error);
-        expect(
-          figure.style!.color,
-          theme.brightness == Brightness.dark
-              ? colors.link
-              : const Color(0xFFC8102E),
-        );
-        expect(
-          tester.widget<Text>(find.text('KES 0')).style!.color,
-          theme.colorScheme.onPrimary,
-        );
-        final card = tester.widget<Card>(
-          find.descendant(of: onHand, matching: find.byType(Card)),
-        );
-        expect(card.color, isNull, reason: 'the plain theme card');
-        // Runway is a length of time, not a figure below zero.
-        expect(
-          tester.widget<Text>(find.text('Today')).style!.color,
-          theme.colorScheme.onSurface,
-        );
-      }
-    },
-  );
+  testAppWidgets('Your month: On hand below zero takes the danger colour', (
+    tester,
+  ) async {
+    for (final theme in [AppTheme.light, AppTheme.dark]) {
+      await pumpBalances(tester, db, AppRoutes.moreThisMonth, theme: theme);
+      final colors = theme.extension<PesaColors>()!;
+      final onHand = find.byKey(const Key('home-on-hand'));
+      final figure = tester.widget<Text>(
+        find.descendant(of: onHand, matching: find.text('-1,150')),
+      );
+      // Red text on the plain tile: brand red in light, brightened in dark
+      // to read on a card (where brand red is 2.9:1); the red lead card
+      // keeps its figure white.
+      expect(figure.style!.color, theme.colorScheme.error);
+      expect(
+        figure.style!.color,
+        theme.brightness == Brightness.dark
+            ? colors.link
+            : const Color(0xFFC8102E),
+      );
+      expect(
+        tester.widget<Text>(find.text('KES 0')).style!.color,
+        theme.colorScheme.onPrimary,
+      );
+      final card = tester.widget<Card>(
+        find.descendant(of: onHand, matching: find.byType(Card)),
+      );
+      expect(card.color, isNull, reason: 'the plain theme card');
+      // Runway is a length of time, not a figure below zero.
+      expect(
+        tester.widget<Text>(find.text('Today')).style!.color,
+        theme.colorScheme.onSurface,
+      );
+    }
+  });
 
   testAppWidgets('Home: the last card scrolls fully above the Ask bar', (
     tester,

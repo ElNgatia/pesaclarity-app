@@ -239,16 +239,13 @@ void main() {
     _expectHome();
     expect(find.text('Safe to spend today'), findsOneWidget);
     // On hand adds up what the balances in the messages say; it is in
-    // More about this month.
-    await scrollTo(tester, find.byKey(const Key('home-more-month')));
-    await tester.tap(find.byKey(const Key('home-more-month')));
-    await tester.pumpAndSettle();
+    // Insights › Your month.
+    await openYourMonth(tester);
     await scrollTo(tester, find.byKey(const Key('home-on-hand')));
     expect(find.byKey(const Key('home-on-hand')), findsOneWidget);
     // No rates yet (nothing fetched, none set): no second figure.
     expect(find.textContaining('≈ USD'), findsNothing);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
+    await backToHome(tester);
 
     final saved = await tester.runAsync(() async {
       final settings = DriftAppSettingsRepository(db);

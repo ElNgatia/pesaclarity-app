@@ -60,11 +60,12 @@ void main() {
     await snap(tester);
   });
 
-  // Until next money, runway, forecast and health, off Home (fx-12).
-  screenshot('home-more-this-month', (tester) async {
+  // Insights › Your month: until next money, runway, forecast and health,
+  // off Home (fx-12).
+  screenshot('insights-your-month', (tester) async {
     await _pump(
       tester,
-      _shell(const MoreThisMonthScreen(), 0, root: const HomeScreen()),
+      _shell(const MoreThisMonthScreen(), 4, root: const InsightsScreen()),
     );
     await snap(tester);
   });

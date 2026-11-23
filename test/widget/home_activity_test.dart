@@ -354,10 +354,8 @@ void main() {
     );
     await finishOnboarding(tester);
 
-    // Runway and the forecast are in More about this month.
-    await scrollTo(tester, find.byKey(const Key('home-more-month')));
-    await tester.tap(find.byKey(const Key('home-more-month')));
-    await tester.pumpAndSettle();
+    // Runway and the forecast are in Insights › Your month.
+    await openYourMonth(tester);
     await scrollTo(tester, find.textContaining('At this pace'));
     expect(find.textContaining('At this pace'), findsOneWidget);
     await tapText(tester, 'Runway at this pace');

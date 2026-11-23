@@ -9,24 +9,11 @@ import '../../../domain/time/calendar.dart';
 import '../../activity/application/activity_providers.dart';
 import '../../settings/application/week_start_provider.dart';
 
-/// The tab Home shows: This week unless another was chosen while Home was
-/// open. Not kept: Home opens on This week.
-class HomePeriodController extends Notifier<HomePeriod> {
-  @override
-  HomePeriod build() => HomePeriod.thisWeek;
-
-  void select(HomePeriod period) => state = period;
-}
-
-final homePeriodProvider = NotifierProvider<HomePeriodController, HomePeriod>(
-  HomePeriodController.new,
-);
-
 /// Days before a period's first day that are read too, so Fuliza
 /// repayments in it find their draws.
 const _lookBackDays = 31;
 
-/// One Home tab's money in and out and its last days, from the shared money
+/// A period's money in and out and its last days, from the shared money
 /// rules and the space's journal, as Activity counts them.
 final homePeriodViewProvider =
     FutureProvider.family<HomePeriodView, HomePeriod>((ref, period) async {

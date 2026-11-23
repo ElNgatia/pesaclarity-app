@@ -46,9 +46,9 @@ abstract final class AppRoutes {
   /// Personal Home: everything that wants a moment, in one list.
   static const thingsToSort = '/home/sort';
 
-  /// Personal Home: until next money, runway, the forecast and financial
-  /// health.
-  static const moreThisMonth = '/home/month';
+  /// Insights › Your month: until next money, runway, the month-end
+  /// forecast and financial health.
+  static const moreThisMonth = '/insights/month';
   static String reviewMessage(int id) => '/home/review/$id';
   static const profile = '/home/profile';
   static const myAccounts = '/home/profile/accounts';
