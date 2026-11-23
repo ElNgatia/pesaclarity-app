@@ -188,7 +188,7 @@ void main() {
     // Home's lead card with its figure: work on the database between
     // frames until it shows.
     final figure = find.descendant(
-      of: find.byKey(const Key('until-next-money')),
+      of: find.byKey(const Key('home-safe')),
       matching: find.textContaining('KES '),
     );
     for (var i = 0; i < 60 && figure.evaluate().isEmpty; i++) {
