@@ -64,8 +64,8 @@ void main() {
 
     await tapText(tester, 'Email me a copy');
     final draft = mailer.drafts.single;
-    expect(draft.subject, 'Pesa Clarity privacy policy, version 2.5');
-    expect(draft.body, startsWith('Privacy policy\nVersion 2.5'));
+    expect(draft.subject, 'Pesa Clarity privacy policy, version 2.6');
+    expect(draft.body, startsWith('Privacy policy\nVersion 2.6'));
     expect(draft.body, contains('WHAT STAYS ON YOUR PHONE'));
   });
 
@@ -137,7 +137,7 @@ void main() {
     expect(licensed['policyVersion'], '2.6');
   });
 
-  testAppWidgets('asks someone who agreed to 2.4 to read 2.5', (tester) async {
+  testAppWidgets('asks someone who agreed to 2.4 to read 2.6', (tester) async {
     final db = openTestDatabase();
     await tester.runAsync(
       () => db
