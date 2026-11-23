@@ -204,3 +204,11 @@ Finder findDetailLine(String text) => find.byWidgetPredicate(
   (w) => w is DetailLine && '${w.lead} · ${w.tail}' == text,
   description: 'detail line "$text"',
 );
+
+/// From Home, opens Things to sort, where the cards that want a moment
+/// are listed.
+Future<void> openThingsToSort(WidgetTester tester) async {
+  await scrollTo(tester, find.byKey(const Key('home-things-to-sort')));
+  await tester.tap(find.byKey(const Key('home-things-to-sort')));
+  await tester.pumpAndSettle();
+}

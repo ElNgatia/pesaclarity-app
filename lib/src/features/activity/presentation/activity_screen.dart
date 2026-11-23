@@ -54,6 +54,7 @@ import '../../payees/presentation/transaction_sheet.dart';
 import '../../savings/application/savings_providers.dart';
 import '../../savings/presentation/savings_prompt_card.dart';
 import '../../security/application/balance_visibility.dart';
+import '../../settings/application/week_start_provider.dart';
 import '../../sharing/application/share_providers.dart';
 import '../../sms/application/message_recheck.dart';
 import '../application/activity_providers.dart';
@@ -207,6 +208,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
       ),
       today: today,
       journal: ref.watch(activityJournalProvider).value,
+      weekStartsOn: ref.watch(weekStartsOnProvider),
     );
 
     final askFilter = askAboutFilter(_filter, categories, today);

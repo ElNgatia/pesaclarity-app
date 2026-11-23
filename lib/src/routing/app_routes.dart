@@ -42,6 +42,13 @@ abstract final class AppRoutes {
 
   /// Business and gigs: this week against a usual one, and the fund.
   static const weekByWeek = '/home/week';
+
+  /// Personal Home: everything that wants a moment, in one list.
+  static const thingsToSort = '/home/sort';
+
+  /// Personal Home: until next money, runway, the forecast and financial
+  /// health.
+  static const moreThisMonth = '/home/month';
   static String reviewMessage(int id) => '/home/review/$id';
   static const profile = '/home/profile';
   static const myAccounts = '/home/profile/accounts';
