@@ -2,6 +2,20 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from commit titles (pull request titles until pull requests into `dev` were rebase-merged).
 
+## [0.5.8](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.7...v0.5.8) (2026-11-23)
+
+
+### Features
+
+* **accounts:** main line first, and a typed number for each line ([5e7de6f](https://github.com/pesaclarity/pesaclarity-app/commit/5e7de6f6fc8a4b7d9aa6abe86dfe07aaf95e63bc))
+* **accounts:** manage many M-Pesa lines ([eda2fbb](https://github.com/pesaclarity/pesaclarity-app/commit/eda2fbb7b10cc9b3f031f5435d57c8bd7d8ef88d))
+
+
+### Fixes
+
+* **release-notes:** stop a note at the footer rule and generated-by lines ([2f6b3bf](https://github.com/pesaclarity/pesaclarity-app/commit/2f6b3bf9edda1703e4c8cdf5114ef4459955d8e3))
+* SACCOs in What you own and owe; Plan leaves out family loan repayments ([bd1c50e](https://github.com/pesaclarity/pesaclarity-app/commit/bd1c50ef61efdf1279490ac8205f7634751a2c32))
+
 ## [0.5.7](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.6...v0.5.7) (2026-11-22)
 
 
