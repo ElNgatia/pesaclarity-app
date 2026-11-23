@@ -58,13 +58,14 @@ void main() {
 
   // By hand: the grocer 350, Mary 1,500, power 1,200, airtime 100 and 50
   // for another number, Peter 300 given back, and the KCB debit 2,000.
+  // Cash out goes into Cash in hand: never spending.
   final spending = _kes(350 + 1500 + 1200 + 100 + 50 + 2000);
   // Transaction costs 30 (to KCB), 15, 15, 29 (agent), 15 (to Airtel) and
   // Fuliza's access fee 1.50, once.
   final fees = _kes(30 + 15 + 15 + 29 + 15, 50) + _kes(1);
   // KCB to M-Pesa 10,000, M-Pesa to KCB 3,000, M-Shwari 500, cash out
-  // 1,000, Airtel 100.
-  final own = _kes(10000 + 3000 + 500 + 1000 + 100);
+  // 1,000 into Cash in hand, cash in 2,000 from it, Airtel 100.
+  final own = _kes(10000 + 3000 + 500 + 1000 + 2000 + 100);
 
   group('a month of messages', () {
     test('income, spending, fees and own transfers', () async {
@@ -84,18 +85,48 @@ void main() {
       expect(t.awaitingPayeeMinor, 0);
     });
 
-    test('cash out and in at an agent is the person\'s own money', () async {
+    test(
+      'with no cash account, the first cash out makes Cash in hand',
+      () async {
+        await ingestor.ingest([withdraw(), deposit()], institutions);
+        final cash = await (db.select(
+          db.accounts,
+        )..where((a) => a.type.equalsValue(AccountType.cash))).getSingle();
+        expect(cash.name, 'Cash in hand');
+        final list = await entries();
+        expect(list, hasLength(4), reason: 'each with its side on cash');
+        expect(list.map(roleOf).toSet(), {LedgerRole.ownTransfer});
+        expect(
+          list.where((e) => e.accountId == cash.id).map((e) => e.signedMinor),
+          [_kes(1000), -_kes(2000)],
+          reason: 'more put in than taken out: cash is short, to be set right',
+        );
+        final t = LedgerTotals.of(list, from: from, to: to);
+        expect(t.spendingMinor, 0);
+        expect(t.moneyInMinor, 0);
+        expect(t.incomeMinor, 0);
+        expect(t.feesMinor, _kes(29), reason: 'the cost still counts');
+      },
+    );
+
+    test('with a cash account, cash out and in move to and from it', () async {
+      final cash = await DriftAccountsRepository(db)
+          .cashAccount(name: 'Cash', openingDate: DateTime.utc(2026, 10));
       await ingestor.ingest([withdraw(), deposit()], institutions);
       final list = await entries();
-      expect(list.map((e) => e.kind), [
-        TransactionKind.withdrawal,
-        TransactionKind.deposit,
-      ]);
+      expect(list, hasLength(4), reason: 'each with its side on cash');
       expect(list.map(roleOf).toSet(), {LedgerRole.ownTransfer});
+      expect(list.where((e) => e.accountId == cash).map((e) => e.signedMinor), [
+        _kes(1000),
+        -_kes(2000),
+      ]);
       final t = LedgerTotals.of(list, from: from, to: to);
       expect(t.spendingMinor, 0);
       expect(t.moneyInMinor, 0);
-      expect(t.feesMinor, _kes(29), reason: 'the cost still counts');
+      expect(t.feesMinor, _kes(29));
+      // Read again: no second side on cash.
+      await ingestor.ingest([withdraw(), deposit()], institutions);
+      expect(await entries(), hasLength(4));
     });
 
     test('Fuliza: the access fee once, wherever fees are read', () async {
