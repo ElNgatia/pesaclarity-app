@@ -30,6 +30,8 @@ import '../features/documents/presentation/document_settings_screen.dart';
 import '../features/firefly/presentation/firefly_screen.dart';
 import '../features/goals/presentation/goals_screen.dart';
 import '../features/home/presentation/home_screen.dart';
+import '../features/home/presentation/more_this_month_screen.dart';
+import '../features/home/presentation/things_to_sort_screen.dart';
 import '../features/hours/presentation/hours_screen.dart';
 import '../features/income/presentation/income_sources_screen.dart';
 import '../features/income/presentation/week_by_week_screen.dart';
@@ -228,6 +230,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     path: 'week',
                     builder: (context, state) => const WeekByWeekScreen(),
                   ),
+                  GoRoute(
+                    path: 'sort',
+                    builder: (context, state) => const ThingsToSortScreen(),
+                  ),
+
                   GoRoute(
                     path: 'spaces/add',
                     builder: (context, state) => const AddSpaceScreen(),
@@ -484,6 +491,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 path: AppRoutes.insights,
                 builder: (context, state) => const InsightsTab(),
                 routes: [
+                  GoRoute(
+                    path: 'month',
+                    builder: (context, state) => const MoreThisMonthScreen(),
+                  ),
                   GoRoute(
                     path: 'records',
                     builder: (context, state) => const FullRecordsScreen(),

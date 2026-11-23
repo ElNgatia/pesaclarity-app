@@ -11,6 +11,7 @@ import '../../../domain/look/look_settings.dart';
 import '../../../domain/spaces/space.dart';
 import '../../../domain/time/business_day.dart';
 import '../../../domain/time/calendar.dart';
+import '../../../domain/time/week_start.dart';
 import '../../../routing/app_routes.dart';
 import '../../../shared/adaptive/adaptive.dart';
 import '../../../shared/semantic_ids.dart';
@@ -37,6 +38,7 @@ import '../../onboarding/application/about_you_providers.dart';
 import '../../reminders/presentation/reminders_settings_card.dart';
 import '../../security/presentation/device_warning_card.dart';
 import '../../security/presentation/security_settings_card.dart';
+import '../../settings/application/week_start_provider.dart';
 import '../../spaces/application/spaces_providers.dart';
 import '../../statements/data/pdf_text_extractor.dart';
 import '../../subscriptions/application/subscriptions_providers.dart';
@@ -143,6 +145,23 @@ class ProfileScreen extends ConsumerWidget {
       subtitle: Text(ref.watch(userTimeZoneProvider).displayName),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => _showTimeZoneSheet(context, ref),
+    );
+    final weekStarts = ChoiceTile<int>(
+      key: const Key('profile-week-starts'),
+      leading: const RowIcon(Icons.date_range_outlined),
+      title: const Text('Week starts on'),
+      subtitle: const Text('For Home, weekly totals and the weekly check-in'),
+      trailing: ChoiceMenu<int>(
+        name: 'Week starts on',
+        options: [
+          for (var day = DateTime.monday; day <= DateTime.sunday; day++)
+            (day, weekdayFullName(day)),
+        ],
+        value: ref.watch(weekStartsOnProvider),
+        itemKey: (day) => Key('week-starts-$day'),
+        onChanged: (day) =>
+            ref.read(weekStartControllerProvider.notifier).change(day),
+      ),
     );
     final lookNow = ref.watch(currentLookProvider);
     final look = ListTile(
@@ -302,6 +321,7 @@ class ProfileScreen extends ConsumerWidget {
       payees,
       currency,
       timezone,
+      weekStarts,
       look,
       subscriptionsRow,
       askRow,

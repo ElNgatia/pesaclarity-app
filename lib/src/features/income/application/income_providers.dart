@@ -17,6 +17,7 @@ import '../../../domain/ledger/ledger_role.dart';
 import '../../../domain/ledger/on_hand.dart';
 import '../../../domain/time/calendar.dart';
 import '../../goals/application/goals_aside_providers.dart';
+import '../../settings/application/week_start_provider.dart';
 
 /// How money usually comes to the person, as they answered at setup.
 class IncomeSourcesController extends AsyncNotifier<IncomeSources> {
@@ -104,7 +105,8 @@ Future<List<LedgerEntry>> _dayToDayEntries(
 final weekByWeekProvider = FutureProvider<WeekByWeek>((ref) async {
   ref.watch(ledgerChangesProvider);
   final today = CalendarDate.local(ref.watch(clockProvider)());
-  final from = weekStartOf(today).addDays(-7 * usualWeeksCount);
+  final weekStartsOn = ref.watch(weekStartsOnProvider);
+  final from = weekStartOf(today, weekStartsOn).addDays(-7 * usualWeeksCount);
   final entries = await _dayToDayEntries(
     ref,
     from: from.addDays(-incomePatternDays).startInstant,
@@ -115,6 +117,7 @@ final weekByWeekProvider = FutureProvider<WeekByWeek>((ref) async {
     today: today,
     fund: await ref.watch(rainyDayFundProvider.future),
     journal: await readJournal(ref),
+    weekStartsOn: weekStartsOn,
   );
 });
 

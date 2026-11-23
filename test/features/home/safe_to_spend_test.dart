@@ -19,7 +19,7 @@ import 'package:pesaclarity/src/features/home/application/cash_flow_forecast_pro
 import 'package:pesaclarity/src/features/home/application/health_index_provider.dart';
 import 'package:pesaclarity/src/features/home/application/safe_to_spend_provider.dart';
 import 'package:pesaclarity/src/features/home/application/upcoming_bills_provider.dart';
-import 'package:pesaclarity/src/features/home/presentation/home_screen.dart';
+import 'package:pesaclarity/src/features/home/presentation/more_this_month_screen.dart';
 import 'package:pesaclarity/src/features/income/application/income_providers.dart';
 import 'package:pesaclarity/src/features/review/application/review_providers.dart';
 import 'package:pesaclarity/src/features/spaces/application/money_between_spaces_providers.dart';
@@ -146,7 +146,10 @@ void main() {
           healthIndexProvider.overrideWith((ref) async => null),
           upcomingBillsProvider.overrideWith((ref) async => []),
         ],
-        child: MaterialApp(theme: AppTheme.light, home: const HomeScreen()),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const MoreThisMonthScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -172,7 +175,10 @@ void main() {
           healthIndexProvider.overrideWith((ref) async => null),
           upcomingBillsProvider.overrideWith((ref) async => []),
         ],
-        child: MaterialApp(theme: AppTheme.light, home: const HomeScreen()),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const MoreThisMonthScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -250,7 +256,10 @@ void main() {
           healthIndexProvider.overrideWith((ref) async => null),
           upcomingBillsProvider.overrideWith((ref) async => []),
         ],
-        child: MaterialApp(theme: AppTheme.light, home: const HomeScreen()),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const MoreThisMonthScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -277,17 +286,10 @@ void main() {
     // Not enough history for a pace yet.
     expect(find.text('Shows after two weeks of records'), findsOneWidget);
     expect(find.text('—'), findsNothing);
-    expect(find.byKey(const Key('home-what-was-this')), findsOneWidget);
-    expect(find.text('Make it last'), findsOneWidget);
-    expect(
-      find.text('5,000 came in from Test Mum · until Mon 23 Nov'),
-      findsOneWidget,
-    );
-    expect(find.text('3,000 from Test Wanjiku'), findsOneWidget);
     // Only the red card's figure carries the currency code.
     expect(find.textContaining('KES'), findsOneWidget);
 
-    // The eye on the card hides every amount on Home.
+    // The eye on the card hides every amount.
     await tester.tap(
       find.descendant(
         of: find.byKey(const Key('until-next-money')),
@@ -300,11 +302,6 @@ void main() {
       find.textContaining('••••• on hand · ••••• for bills'),
       findsOneWidget,
     );
-    expect(
-      find.text('••••• came in from Test Mum · until Mon 23 Nov'),
-      findsOneWidget,
-    );
-    expect(find.text('••••• from Test Wanjiku'), findsOneWidget);
   });
 }
 
