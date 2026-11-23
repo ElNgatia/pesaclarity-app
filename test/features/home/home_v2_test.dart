@@ -18,6 +18,7 @@ import 'package:pesaclarity/src/features/home/application/upcoming_bills_provide
 import 'package:pesaclarity/src/features/home/presentation/home_screen.dart';
 import 'package:pesaclarity/src/features/insights/presentation/spending_charts_card.dart';
 import 'package:pesaclarity/src/features/review/application/review_providers.dart';
+import 'package:pesaclarity/src/shared/widgets/hero_figure_card.dart';
 import 'package:pesaclarity/src/theme/app_theme.dart';
 
 import '../../domain/fixtures.dart';
@@ -144,9 +145,7 @@ void main() {
     );
   });
 
-  testAppWidgets('safe to spend is a plain row; red only below zero', (
-    tester,
-  ) async {
+  testAppWidgets('safe to spend is the red lead card', (tester) async {
     final until = UntilNextMoney.calculate(
       today: _today,
       basis: NextMoneyBasis.rhythm,
@@ -165,15 +164,14 @@ void main() {
     );
     expect(find.text('Safe to spend today'), findsOneWidget);
     expect(find.textContaining('a day for'), findsOneWidget);
-    final amount = tester.widget<Text>(
-      find
-          .descendant(
-            of: find.byKey(const Key('home-safe')),
-            matching: find.textContaining('KES'),
-          )
-          .first,
+    expect(
+      tester.widget(find.byKey(const Key('home-safe'))),
+      isA<HeroFigureCard>(),
     );
-    expect(amount.style?.color, isNot(AppTheme.light.colorScheme.error));
+    expect(
+      tester.widget<HeroFigureCard>(find.byType(HeroFigureCard)).belowZero,
+      isFalse,
+    );
   });
 
   testAppWidgets('a new person sees zeros and how to start', (tester) async {
@@ -182,5 +180,21 @@ void main() {
     expect(find.text('Read my messages'), findsOneWidget);
     expect(find.text('Add by hand'), findsOneWidget);
     expect(find.text('Charts'), findsNothing);
+  });
+
+  testAppWidgets('the eye on the lead card hides this month too', (
+    tester,
+  ) async {
+    await _pump(tester, entries: _history);
+    expect(find.text('7,047'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('home-safe')),
+        matching: find.byKey(const Key('amounts-eye')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('7,047'), findsNothing);
+    expect(find.textContaining('of which fees KES 87'), findsNothing);
   });
 }

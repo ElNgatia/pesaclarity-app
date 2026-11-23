@@ -9,6 +9,7 @@ import '../../../routing/app_routes.dart';
 import '../../../shared/format/date_labels.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/figures.dart';
+import '../../../shared/widgets/hero_figure_card.dart';
 import '../../../shared/widgets/sections.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
@@ -202,15 +203,13 @@ class _InOutCard extends StatelessWidget {
 }
 
 /// Safe to spend today, Home's main card: today's amount, large, and about
-/// how much a day for how many days under it. A plain card; the figure is
-/// red only below zero.
+/// how much a day for how many days under it, on the red lead card with
+/// the eye that hides amounts.
 class _SafeToday extends ConsumerWidget {
   const _SafeToday();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final colors = PesaColors.of(context);
     final safe = ref.watch(homeSafeProvider);
     final monthly = safe.monthly;
     final untilNext = safe.untilNext;
@@ -242,52 +241,22 @@ class _SafeToday extends ConsumerWidget {
           ? "This month's day-to-day budget is used up"
           : about(days <= 0 ? left : left ~/ days, days <= 0 ? 1 : days);
     } else {
-      return Card(
-        key: const Key('home-safe'),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Safe to spend today', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(
-                'Shows once your messages have been read and Plan has a '
-                'budget.',
-                style: theme.textTheme.bodyMedium!.copyWith(
-                  color: colors.textMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
+      return const HeroFigureCard(
+        key: Key('home-safe'),
+        label: 'Safe to spend today',
+        caption:
+            'Shows once your messages have been read and Plan has a budget.',
+        showEye: true,
       );
     }
-    return Card(
+    // Today's red lead card, with the eye that hides every amount.
+    return HeroFigureCard(
       key: const Key('home-safe'),
-      child: Padding(
-        padding: const EdgeInsets.all(Layout.cardPadding),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Safe to spend today', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            FigureText(
-              plain(amount),
-              style: AppTypography.headlineFigure(
-                below ? theme.colorScheme.error : theme.colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              line,
-              style: theme.textTheme.bodyMedium!.copyWith(
-                color: colors.textMuted,
-              ),
-            ),
-          ],
-        ),
-      ),
+      label: 'Safe to spend today',
+      figure: plain(amount),
+      caption: line,
+      showEye: true,
+      belowZero: below,
     );
   }
 }
