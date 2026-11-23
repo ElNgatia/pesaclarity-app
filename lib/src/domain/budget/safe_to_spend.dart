@@ -165,11 +165,7 @@ class SafeToSpend {
 /// day-to-day category, minus that for a refund in one, otherwise zero.
 int dayToDaySpendOf(LedgerEntry entry) {
   if (!entry.isDailySpending) return 0;
-  return switch (roleOf(entry)) {
-    LedgerRole.spending => entry.amountMinor,
-    LedgerRole.reversal when entry.isInflow => -entry.amountMinor,
-    _ => 0,
-  };
+  return spendingOf(entry);
 }
 
 /// Learns how much more the user spends on a weekend day than a weekday.
