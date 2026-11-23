@@ -108,14 +108,12 @@ void main() {
     expect(find.text('2,047'), findsOneWidget);
     expect(find.text('4,453'), findsOneWidget);
     expect(find.text('of which fees KES 87'), findsOneWidget);
-    // Days: today, Saturday with the own transfer, Friday.
-    expect(find.text('Today · Sun 22 Nov'), findsOneWidget);
-    expect(
-      find.textContaining('Own transfer · 08:00 · not counted'),
-      findsOneWidget,
-    );
+    // Transactions day by day are Activity's, not Home's.
+    expect(find.text('Today · Sun 22 Nov'), findsNothing);
+    expect(find.text('See all in Activity'), findsNothing);
+    expect(find.byKey(const Key('home-figure-moneyIn')), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('See all in Activity'),
+      find.text('Charts'),
       200,
       scrollable: find.byType(Scrollable).first,
     );
@@ -132,7 +130,6 @@ void main() {
     await tester.pumpAndSettle();
     // 2,047 this week and 5,000 on the 3rd.
     expect(find.text('7,047'), findsOneWidget);
-    expect(find.text('1 – 22 Nov'), findsOneWidget);
   });
 
   testAppWidgets('things to sort shows its count only when there is any', (

@@ -4,25 +4,17 @@ import 'package:go_router/go_router.dart';
 
 import '../../../domain/home/home_period.dart';
 import '../../../domain/ledger/activity_feed.dart';
-import '../../../domain/ledger/activity_lines.dart';
-import '../../../domain/ledger/ledger_entry.dart';
 import '../../../domain/time/calendar.dart';
 import '../../../routing/app_routes.dart';
-import '../../../shared/format/date_labels.dart';
-import '../../../shared/format/ledger_labels.dart';
 import '../../../shared/widgets/amounts_hidden.dart';
 import '../../../shared/widgets/figures.dart';
-import '../../../shared/widgets/marks.dart';
-import '../../../shared/widgets/sections.dart';
 import '../../../theme/app_typography.dart';
 import '../../../theme/layout.dart';
 import '../../../theme/pesa_colors.dart';
-import '../../activity/application/activity_providers.dart';
 import '../../activity/presentation/add_transaction_sheet.dart';
 import '../../balances/presentation/balance_text.dart';
 import '../../balances/presentation/balance_warning.dart';
 import '../../insights/presentation/spending_charts_card.dart';
-import '../../payees/presentation/transaction_sheet.dart';
 import '../../plan/presentation/budget_alert_cards.dart';
 import '../../settings/application/week_start_provider.dart';
 import '../../support/presentation/support_card.dart';
@@ -39,7 +31,8 @@ const _stackFromScale = 1.3;
 /// Home for a personal space, top to bottom: the period's tabs, money in
 /// and out with the fees in it, safe to spend today, the way to the rest
 /// of this month, real problems on their own, one row for things to sort,
-/// the period's last days, charts (closed) and what is coming up.
+/// what is coming up and charts (closed). Transactions day by day are
+/// Activity's, not Home's.
 class PersonalHome extends ConsumerWidget {
   const PersonalHome({required this.today, super.key});
 
@@ -88,15 +81,6 @@ class PersonalHome extends ConsumerWidget {
         const _SafeToday(),
         const BalanceWarningLine(),
         const SizedBox(height: Layout.cardGap),
-        if (!isNew) ...[
-          _RowCard(
-            key: const Key('home-more-month'),
-            title: 'More about this month',
-            subtitle: 'Until next money, runway, forecast, financial health',
-            onTap: () => context.push(AppRoutes.moreThisMonth),
-          ),
-          const SizedBox(height: Layout.cardGap),
-        ],
         // Real problems, each on its own.
         const WhatWasThisCard(),
         for (final alert in over)
@@ -106,7 +90,7 @@ class PersonalHome extends ConsumerWidget {
             inPlan: false,
             onTap: () => context.go(AppRoutes.plan),
           ),
-        if (things.isNotEmpty)
+        if (things.isNotEmpty) ...[
           _RowCard(
             key: const Key('home-things-to-sort'),
             title: 'Things to sort (${things.length})',
@@ -114,41 +98,22 @@ class PersonalHome extends ConsumerWidget {
             dot: things.any((t) => t.group == SortGroup.needsYou),
             onTap: () => context.push(AppRoutes.thingsToSort),
           ),
-        SectionLabel(
-          period.label,
-          trailing: view == null || isNew
-              ? null
-              : Text(
-                  _spanLabel(view.span),
-                  style: Theme.of(context).textTheme.bodySmall!
-                      .copyWith(color: PesaColors.of(context).textMuted),
-                ),
-        ),
-        if (view == null)
-          const SizedBox(height: 120)
-        else if (isNew)
+          const SizedBox(height: Layout.cardGap),
+        ],
+        if (isNew)
           const _NewUserCard()
         else
-          _Days(view: view, today: today),
-        const SizedBox(height: 20),
-        if (!isNew) ...[const _ChartsCard(), const SizedBox(height: 4)],
+          _RowCard(
+            key: const Key('home-more-month'),
+            title: 'More about this month',
+            subtitle: 'Until next money, runway, forecast, financial health',
+            onTap: () => context.push(AppRoutes.moreThisMonth),
+          ),
         HomeComingUp(bills: bills, today: today),
+        if (!isNew) ...[const SizedBox(height: 20), const _ChartsCard()],
       ],
     );
   }
-}
-
-/// `Mon 16 – Sun 22 Nov`, or `1 – 22 Nov` for a month.
-String _spanLabel(DateSpan span) {
-  String day(CalendarDate d) => weekdayName(d).substring(0, 3);
-  final last = '${day(span.last)} ${shortDate(span.last)}';
-  if (span.first.day == 1 && span.first.month == span.last.month) {
-    return '1 – ${shortDate(span.last)}';
-  }
-  final first = span.first.month == span.last.month
-      ? '${day(span.first)} ${span.first.day}'
-      : '${day(span.first)} ${shortDate(span.first)}';
-  return '$first – $last';
 }
 
 /// This week, Last week, This month, Last month: the chosen one in red
@@ -216,53 +181,65 @@ class _InOutCard extends StatelessWidget {
     final label = theme.textTheme.bodySmall!.copyWith(color: colors.textMuted);
     final stack = MediaQuery.textScalerOf(context).scale(1) >= _stackFromScale;
     final figures = [
-      ('Money in', sums.inMinor, colors.successText),
-      ('Money out', sums.outMinor, onSurface),
-      ('Difference', sums.differenceMinor, onSurface),
+      ('Money in', sums.inMinor, colors.successText, ActivityType.moneyIn),
+      ('Money out', sums.outMinor, onSurface, ActivityType.spending),
+      ('Difference', sums.differenceMinor, onSurface, ActivityType.all),
     ];
     Widget figure(int minor, Color color) => FigureText(
       shownMoney(context, minor),
       style: AppTypography.tileFigure(color),
     );
     final span = view?.span;
+    // Each figure opens Activity for the period, for its direction.
+    Widget open(String name, ActivityType type, Widget child) => InkWell(
+      key: Key('home-figure-${type.name}'),
+      borderRadius: BorderRadius.circular(8),
+      onTap: span == null
+          ? null
+          : () => context.go(
+              AppRoutes.activityWith(
+                ActivityFilter(type: type, from: span.first, to: span.last),
+              ),
+            ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
+        child: child,
+      ),
+    );
     return Card(
       key: const Key('home-in-out'),
-      child: InkWell(
-        onTap: span == null
-            ? null
-            : () => context.go(
-                AppRoutes.activityWith(
-                  ActivityFilter(from: span.first, to: span.last),
-                ),
-              ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (stack)
-                for (final (name, minor, color) in figures)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Expanded(child: Text(name, style: label)),
-                        const SizedBox(width: 12),
-                        Flexible(child: figure(minor, color)),
-                      ],
-                    ),
-                  )
-              else
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final (i, (name, minor, color))
-                        in figures.indexed) ...[
-                      if (i > 0) const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (stack)
+              for (final (name, minor, color, type) in figures)
+                open(
+                  name,
+                  type,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Expanded(child: Text(name, style: label)),
+                      const SizedBox(width: 12),
+                      Flexible(child: figure(minor, color)),
+                    ],
+                  ),
+                )
+            else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final (i, (name, minor, color, type))
+                      in figures.indexed) ...[
+                    if (i > 0) const SizedBox(width: 8),
+                    Expanded(
+                      child: open(
+                        name,
+                        type,
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(name, style: label),
@@ -270,21 +247,21 @@ class _InOutCard extends StatelessWidget {
                           ],
                         ),
                       ),
-                    ],
+                    ),
                   ],
+                ],
+              ),
+            if (sums.feesMinor != 0) ...[
+              const SizedBox(height: 10),
+              Text(
+                'of which fees ${shownMoney(context, sums.feesMinor, withCurrency: true)}',
+                key: const Key('home-fees'),
+                style: theme.textTheme.bodyMedium!.copyWith(
+                  color: colors.textMuted,
                 ),
-              if (sums.feesMinor != 0) ...[
-                const SizedBox(height: 10),
-                Text(
-                  'of which fees ${shownMoney(context, sums.feesMinor, withCurrency: true)}',
-                  key: const Key('home-fees'),
-                  style: theme.textTheme.bodyMedium!.copyWith(
-                    color: colors.textMuted,
-                  ),
-                ),
-              ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -404,236 +381,7 @@ class _RowCard extends StatelessWidget {
   }
 }
 
-/// The period's last days with records, newest first, each with its money
-/// in and out, then the way to the rest in Activity.
-class _Days extends ConsumerWidget {
-  const _Days({required this.view, required this.today});
-
-  final HomePeriodView view;
-  final CalendarDate today;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final colors = PesaColors.of(context);
-    final categories = ref.watch(activityCategoriesProvider).value ?? const {};
-    final span = view.span;
-    final seeAll = Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: OutlinedButton(
-        key: const Key('home-see-all'),
-        onPressed: () => context.go(
-          AppRoutes.activityWith(
-            ActivityFilter(from: span.first, to: span.last),
-          ),
-        ),
-        child: const Text('See all in Activity'),
-      ),
-    );
-    if (view.days.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(Layout.cardPadding),
-              child: Text(
-                'Nothing in this period yet.',
-                style: theme.textTheme.bodyMedium!.copyWith(
-                  color: colors.textMuted,
-                ),
-              ),
-            ),
-          ),
-          seeAll,
-        ],
-      );
-    }
-    String? category(LedgerEntry e) =>
-        e.categoryId == null ? null : categories[e.categoryId]?.name;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final (i, day) in view.days.indexed) ...[
-          _DayHead(day: day, today: today, first: i == 0),
-          Card(
-            child: Column(
-              children: [
-                for (final (j, line) in day.lines.indexed) ...[
-                  if (j > 0) const Divider(height: 1),
-                  _LineRow(line: line, category: category),
-                ],
-              ],
-            ),
-          ),
-        ],
-        seeAll,
-      ],
-    );
-  }
-}
-
-/// `Today · Sun 22 Nov`, and at the right `+6,500 · −2,450 · 3 items`.
-class _DayHead extends StatelessWidget {
-  const _DayHead({required this.day, required this.today, required this.first});
-
-  final HomeDay day;
-  final CalendarDate today;
-  final bool first;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = PesaColors.of(context);
-    final small = theme.textTheme.bodySmall!.copyWith(color: colors.textMuted);
-    final date = day.date;
-    final name = '${weekdayName(date).substring(0, 3)} ${shortDate(date)}';
-    final title = date == today
-        ? 'Today · $name'
-        : date == today.addDays(-1)
-        ? 'Yesterday · $name'
-        : name;
-    final count = day.lines.length;
-    final sums = day.sums;
-    return Padding(
-      padding: EdgeInsets.only(top: first ? 4 : 16, bottom: 8),
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 12,
-        runSpacing: 2,
-        children: [
-          Semantics(
-            header: true,
-            child: Text(title, style: theme.textTheme.titleSmall),
-          ),
-          Text.rich(
-            TextSpan(
-              style: small,
-              children: [
-                if (sums.inMinor != 0) ...[
-                  TextSpan(
-                    text: '+${shownMoney(context, sums.inMinor)}',
-                    style: small.copyWith(color: colors.successText),
-                  ),
-                  const TextSpan(text: ' · '),
-                ],
-                TextSpan(text: '−${shownMoney(context, sums.outMinor)}'),
-                TextSpan(text: ' · $count ${count == 1 ? 'item' : 'items'}'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// One line of a day: the name's letter, the name, its category and time,
-/// and the amount. An own transfer is muted, marked "Own transfer" and
-/// "not counted", with no sign: it is in no total.
-class _LineRow extends StatelessWidget {
-  const _LineRow({required this.line, required this.category});
-
-  final ActivityLine line;
-  final String? Function(LedgerEntry) category;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = PesaColors.of(context);
-    final muted = theme.textTheme.bodyMedium!.copyWith(color: colors.textMuted);
-    final onSurface = theme.colorScheme.onSurface;
-    final String title;
-    final String detail;
-    final String amount;
-    Color amountColor = onSurface;
-    var own = false;
-    int? id;
-    switch (line) {
-      case EntryLine(:final entry):
-        id = entry.id;
-        title = _name(entry);
-        detail = [
-          category(entry) ??
-              (entry.isInflow ? 'Money in' : kindLabel(entry.kind)),
-          formatTime(entry.occurredAt),
-        ].join(' · ');
-        final money = shownMoney(context, entry.amountMinor);
-        amount = entry.isInflow ? '+$money' : '−$money';
-        if (entry.isInflow) amountColor = colors.successText;
-      case OwnTransferLine(:final shown, :final inflow, :final outflow):
-        id = shown.id;
-        own = true;
-        title = outflow != null && inflow == null
-            ? 'To ${_name(outflow)}'
-            : _name(shown);
-        detail = 'Own transfer · ${formatTime(shown.occurredAt)} · not counted';
-        amount = shownMoney(context, shown.amountMinor);
-        amountColor = colors.textMuted;
-      case DailyNoiseLine():
-        final noise = line as DailyNoiseLine;
-        title = noiseTitle(noise.group);
-        detail = noise.count == 1 ? '1 item' : '${noise.count} items';
-        final money = shownMoney(context, noise.totalMinor);
-        final inflow = noise.entries.first.isInflow;
-        amount = inflow ? '+$money' : '−$money';
-        if (inflow) amountColor = colors.successText;
-    }
-    final letter = title.trim().isEmpty ? '#' : title.trim()[0].toUpperCase();
-    final large = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
-    final name = RowName(
-      title,
-      style: theme.textTheme.titleMedium!.copyWith(
-        color: own ? colors.textMuted : null,
-      ),
-    );
-    final money = Text(amount, style: AppTypography.rowAmount(amountColor));
-    return InkWell(
-      onTap: id == null ? null : () => showTransactionSheet(context, id!),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        // At large text the amount goes under the name and the letter
-        // leaves, so no word of a long name is broken.
-        child: large
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  name,
-                  Text(detail, style: muted),
-                  money,
-                ],
-              )
-            : Row(
-                children: [
-                  InitialsBadge(letter),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        name,
-                        Text(detail, style: muted),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  money,
-                ],
-              ),
-      ),
-    );
-  }
-}
-
-String _name(LedgerEntry entry) =>
-    entry.payeeName ??
-    entry.counterpartyName ??
-    entry.note ??
-    entry.counterpartyValue ??
-    kindLabel(entry.kind);
-
-/// Nothing read yet: how the days start to show, with reading messages as
+/// Nothing read yet: how to start, with reading messages as
 /// the main button and adding one by hand under it.
 class _NewUserCard extends StatelessWidget {
   const _NewUserCard();
