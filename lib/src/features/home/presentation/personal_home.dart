@@ -308,8 +308,10 @@ class _SafeToday extends ConsumerWidget {
     final String line;
     final bool below;
     String plain(int minor) => shownMoney(context, minor, withCurrency: true);
+    // About: whole shillings, never cents.
     String about(int daily, int days) =>
-        'About ${plain(daily)} a day for ${days == 1 ? '1 day' : '$days days'}';
+        'About ${plain(daily ~/ 100 * 100)} a day for '
+        '${days == 1 ? '1 day' : '$days days'}';
     if (untilNext != null) {
       below = untilNext.belowZero;
       amount = below ? untilNext.onHandMinor : untilNext.leftTodayMinor;
@@ -579,32 +581,46 @@ class _LineRow extends StatelessWidget {
         if (inflow) amountColor = colors.successText;
     }
     final letter = title.trim().isEmpty ? '#' : title.trim()[0].toUpperCase();
+    final large = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    final name = RowName(
+      title,
+      style: theme.textTheme.titleMedium!.copyWith(
+        color: own ? colors.textMuted : null,
+      ),
+    );
+    final money = Text(amount, style: AppTypography.rowAmount(amountColor));
     return InkWell(
       onTap: id == null ? null : () => showTransactionSheet(context, id!),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          children: [
-            InitialsBadge(letter),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
+        // At large text the amount goes under the name and the letter
+        // leaves, so no word of a long name is broken.
+        child: large
+            ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: theme.textTheme.titleMedium!.copyWith(
-                      color: own ? colors.textMuted : null,
+                  name,
+                  Text(detail, style: muted),
+                  money,
+                ],
+              )
+            : Row(
+                children: [
+                  InitialsBadge(letter),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        name,
+                        Text(detail, style: muted),
+                      ],
                     ),
                   ),
-                  Text(detail, style: muted),
+                  const SizedBox(width: 12),
+                  money,
                 ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Text(amount, style: AppTypography.rowAmount(amountColor)),
-          ],
-        ),
       ),
     );
   }
