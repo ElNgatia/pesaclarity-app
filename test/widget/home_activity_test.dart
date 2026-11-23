@@ -342,7 +342,9 @@ void main() {
     expect(fieldLabelled('Amount'), findsOneWidget);
   });
 
-  testAppWidgets('Home numbers open Activity filtered', (tester) async {
+  testAppWidgets('Home\'s month numbers open Activity filtered', (
+    tester,
+  ) async {
     final db = openTestDatabase();
     await tester.runAsync(() => _seed(db));
     await pumpApp(
@@ -352,6 +354,10 @@ void main() {
     );
     await finishOnboarding(tester);
 
+    // Runway and the forecast are in More about this month.
+    await scrollTo(tester, find.byKey(const Key('home-more-month')));
+    await tester.tap(find.byKey(const Key('home-more-month')));
+    await tester.pumpAndSettle();
     await scrollTo(tester, find.textContaining('At this pace'));
     expect(find.textContaining('At this pace'), findsOneWidget);
     await tapText(tester, 'Runway at this pace');

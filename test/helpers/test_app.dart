@@ -171,7 +171,13 @@ Future<void> scrollTo(WidgetTester tester, Finder finder) async {
     await tester.scrollUntilVisible(
       finder,
       200,
-      scrollable: find.byType(Scrollable).last,
+      // The last list that scrolls down: a row that scrolls sideways, such
+      // as Home's tabs, never brings the finder into view.
+      scrollable: find
+          .byWidgetPredicate(
+            (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+          )
+          .last,
     );
   }
   await tester.ensureVisible(finder);

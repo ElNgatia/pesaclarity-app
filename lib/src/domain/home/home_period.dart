@@ -116,7 +116,9 @@ class HomePeriodView {
   });
 
   /// Works out [period] on [today] from [history], which reaches back
-  /// before the period's first day.
+  /// before the period's first day. Only entries [listed] allows show in
+  /// the days (Fuliza's are left out while it is not tracked); every entry
+  /// counts in the totals.
   factory HomePeriodView.of(
     Iterable<LedgerEntry> history, {
     required HomePeriod period,
@@ -124,12 +126,14 @@ class HomePeriodView {
     int? weekStartsOn,
     JournalBalances? journal,
     String? currency,
+    bool Function(LedgerEntry)? listed,
+    bool? anyRecords,
   }) {
     final span = period.spanOn(today, weekStartsOn: weekStartsOn);
     final all = history.toList();
     final inSpan = [
       for (final e in all)
-        if (span.contains(e.date)) e,
+        if (span.contains(e.date) && (listed == null || listed(e))) e,
     ];
     final feed = buildActivityFeed(inSpan, all: all);
     return HomePeriodView(
@@ -149,7 +153,7 @@ class HomePeriodView {
             ),
           ),
       ],
-      hasRecords: all.isNotEmpty,
+      hasRecords: anyRecords ?? all.isNotEmpty,
     );
   }
 
@@ -160,6 +164,8 @@ class HomePeriodView {
   /// Newest first, at most [homeDaysShown].
   final List<HomeDay> days;
 
-  /// Whether the space has any records at all, in this period or before.
+  /// Whether the space has any records at all, in this period or before
+  /// ([anyRecords] when the caller knows; otherwise whether [history] has
+  /// any).
   final bool hasRecords;
 }
