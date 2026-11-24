@@ -47,7 +47,7 @@ dependencies:
   # Statement PDFs are read on the phone with PDFium. pdfium_flutter is not
   # imported; its build hooks bundle the PDFium library into the app.
   # tool/prepare_foss.sh deletes this comment and the next two lines for F-Droid.
-  pdfrx_engine: ^0.9.1
+  pdfrx_engine: ^0.9.6
   pdfium_flutter: ^0.4.1
   file_selector: ^1.1.0
   crypto: ^3.0.7
