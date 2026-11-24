@@ -54,6 +54,8 @@ import '../../payees/presentation/transaction_sheet.dart';
 import '../../savings/application/savings_providers.dart';
 import '../../savings/presentation/savings_prompt_card.dart';
 import '../../security/application/balance_visibility.dart';
+import '../../settings/application/week_start_provider.dart';
+import '../../sharing/application/share_providers.dart';
 import '../../sms/application/message_recheck.dart';
 import '../application/activity_providers.dart';
 import 'move_chosen.dart';
@@ -130,6 +132,19 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final loaded = ref.watch(activityEntriesProvider(from));
     final entries = loaded.value ?? const <LedgerEntry>[];
     final plain = ref.watch(activityAccountsProvider).value ?? const {};
+    final addedByOnly = ref.watch(addedByLinesProvider).value ?? const {};
+    final waiting = ref.watch(myWaitingLinesProvider).value ?? const {};
+    // "Added by Brian · you asked to change it to 540 · Waiting for
+    // approval": a change of this member's that needed approval.
+    final addedBy = waiting.isEmpty
+        ? addedByOnly
+        : {
+            ...addedByOnly,
+            for (final MapEntry(:key, :value) in waiting.entries)
+              key: addedByOnly[key] == null
+                  ? _cap(value)
+                  : '${addedByOnly[key]} · $value',
+          };
     final lineAccounts = ref.watch(readLineAccountsProvider);
     final hiddenLines = ref.watch(hiddenLineAccountsProvider);
     // The menu names each M-Pesa line; the rows do only where this space
@@ -193,6 +208,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
       ),
       today: today,
       journal: ref.watch(activityJournalProvider).value,
+      weekStartsOn: ref.watch(weekStartsOnProvider),
     );
 
     final askFilter = askAboutFilter(_filter, categories, today);
@@ -313,6 +329,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           code: code,
           fulizaAuto: fulizaAuto,
           asked: asked(line),
+          addedBy: addedBy,
         ),
       ),
       // Outside the rows, so a long press never chooses them.
@@ -557,9 +574,14 @@ class _ActivityRow extends StatelessWidget {
     this.code,
     this.fulizaAuto = const {},
     this.asked = false,
+    this.addedBy = const {},
   });
 
   final ActivityLine line;
+
+  /// In a shared space, "Added by Jane" under what someone else added, by
+  /// transaction id (decision 0031).
+  final Map<int, String> addedBy;
 
   /// Whether a savings app's question shows under this row: the row is
   /// then the top of the question's card.
@@ -797,6 +819,7 @@ class _ActivityRow extends StatelessWidget {
     VoidCallback? onTap,
   }) {
     final nameStyle = Theme.of(context).textTheme.titleMedium;
+    final by = line is EntryLine ? addedBy[(line as EntryLine).entry.id] : null;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -818,6 +841,18 @@ class _ActivityRow extends StatelessWidget {
                   children: [
                     RowName(title, style: nameStyle),
                     subtitle,
+                    if (by != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          by,
+                          key: const Key('activity-added-by'),
+                          style: Theme.of(context).textTheme.bodySmall!
+                              .copyWith(
+                                color: PesaColors.of(context).textMuted,
+                              ),
+                        ),
+                      ),
                   ],
                 ),
                 end: Row(
@@ -1146,3 +1181,5 @@ class _Choosable extends StatelessWidget {
     ),
   );
 }
+
+String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
