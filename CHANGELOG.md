@@ -2,6 +2,34 @@
 
 All notable changes to the app. Versions follow [semantic versioning](https://semver.org): until 1.0, a `feat` bumps the minor version and a `fix` the patch. Entries from 0.2.0 on are written by release-please from commit titles (pull request titles until pull requests into `dev` were rebase-merged).
 
+## [0.5.9](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.8...v0.5.9) (2026-11-24)
+
+
+### Features
+
+* **spaces:** group approvals for shared spaces ([90507d5](https://github.com/pesaclarity/pesaclarity-app/commit/90507d53bfb9c98eed809e99c217ad3df89e28bf))
+* **spaces:** group approvals for shared spaces ([c7d7c35](https://github.com/pesaclarity/pesaclarity-app/commit/c7d7c35fbdbec8d5437bb1b92b6968b9cfc8dcd7))
+* **spaces:** share a Household or chama space by encrypted file (0031 stage 1) ([58d60a8](https://github.com/pesaclarity/pesaclarity-app/commit/58d60a83813cc7831f3c8640c4fddd03e9052f6d))
+
+
+### Fixes
+
+* **balances:** give old agent cash its Cash side, warn when cash is below zero ([657cc09](https://github.com/pesaclarity/pesaclarity-app/commit/657cc099b48df6f18a5e7cc4805ffba063a9e667))
+* **balances:** give old agent cash its Cash side, warn when cash is below zero ([c2a1079](https://github.com/pesaclarity/pesaclarity-app/commit/c2a10793cb5dee704dfcf237c3674d6466dd2d69))
+* **balances:** totals follow a corrected balance and leave out untracked lines ([22900c2](https://github.com/pesaclarity/pesaclarity-app/commit/22900c20a5f997157976699259f707280bcf758a))
+* **balances:** totals follow a corrected balance and leave out untracked lines ([0a6b1c7](https://github.com/pesaclarity/pesaclarity-app/commit/0a6b1c70222dc04f02c92f16a66d21b680e5e677))
+* **ios:** list privacy permissions in the AltStore source ([4c35200](https://github.com/pesaclarity/pesaclarity-app/commit/4c352002da6edb905a873b9f4e4b56d52192e446))
+* **ios:** list privacy permissions in the AltStore source ([eb3f996](https://github.com/pesaclarity/pesaclarity-app/commit/eb3f9962ad2d1c46dbc752da357f3faa44d6099f))
+* **ledger:** agent cash goes into a Cash account ([5b031f0](https://github.com/pesaclarity/pesaclarity-app/commit/5b031f0c2a81d71548a45ed668b1fb2855d80ff4))
+* **ledger:** agent cash goes into a Cash account ([5d342db](https://github.com/pesaclarity/pesaclarity-app/commit/5d342dbfeb46f3af9b88de41079eb7e7e99de1d8))
+* **ledger:** cash at an agent is the person's own money ([f8b7d0e](https://github.com/pesaclarity/pesaclarity-app/commit/f8b7d0eb54da8b75217165012b064a1293883b39))
+* **ledger:** cash at an agent is the person's own money ([dae84c3](https://github.com/pesaclarity/pesaclarity-app/commit/dae84c3dd270f18c2f44227fa133c67cc22a5381))
+* **ledger:** count Fuliza's access fee once ([9ea1ba5](https://github.com/pesaclarity/pesaclarity-app/commit/9ea1ba51f095b4018c10c045e85c0cca4ba48f2a))
+* **ledger:** count Fuliza's access fee once ([a0d89a3](https://github.com/pesaclarity/pesaclarity-app/commit/a0d89a33f4c0b35b2821b4fc7e665a2024e64733))
+* **spaces:** join a shared space in two steps; scan codes with the camera ([4383640](https://github.com/pesaclarity/pesaclarity-app/commit/4383640c8de81b0b2690c917e93fdf0022193934))
+* **totals:** one spending rule, summary rows that add up, Plan refreshes ([6a0fc5f](https://github.com/pesaclarity/pesaclarity-app/commit/6a0fc5f32a34d98a67eee316f3e2ba49158a6bc8))
+* **totals:** one spending rule, summary rows that add up, Plan refreshes ([edf725e](https://github.com/pesaclarity/pesaclarity-app/commit/edf725ecb1a278e60152c249b1a7568f9c541661))
+
 ## [0.5.8](https://github.com/pesaclarity/pesaclarity-app/compare/v0.5.7...v0.5.8) (2026-11-23)
 
 
